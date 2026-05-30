@@ -1,0 +1,38 @@
+# ---------- Hardware (KiCad) ----------
+hardware/**/*-backups/
+hardware/**/*.bak
+hardware/**/*.kicad_prl
+hardware/**/_autosave-*
+hardware/**/*.000
+hardware/**/fp-info-cache
+hardware/**/sym-lib-table.bak
+hardware/**/*.lck
+# fab outputs — regenerated, often large
+hardware/**/gerbers/
+hardware/**/*.zip
+
+# ---------- 3D Models (ignore heavy mesh/CAD exports, keep sources) ----------
+models/**/*.stl
+models/**/*.STL
+models/**/*.3mf
+models/**/*.step
+models/**/*.stp
+models/**/*.obj
+models/**/*.gcode
+
+# ---------- Firmware ----------
+# ESP-IDF / build systems
+firmware/**/build/
+firmware/**/sdkconfig.old
+firmware/**/managed_components/
+firmware/**/dependencies.lock
+# Arduino / PlatformIO
+firmware/**/.pio/
+firmware/**/*.elf
+firmware/**/*.bin
+firmware/**/*.map
+
+# ---------- Editor / OS ----------
+.vscode/
+*.swp
+.DS_Store
