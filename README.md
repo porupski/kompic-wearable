@@ -8,6 +8,9 @@ A fully open-source, offline-first, ML-capable wrist-mounted sensor platform. Th
 
 > **Internal hardware version:** `iv7.0` — tracked in the docs to keep the two PCBs matched across revisions.
 
+Page:
+https://porupski.github.io/kompic-wearable/
+
 ---
 
 ## What it is
