@@ -1,0 +1,330 @@
+(footprint "USB-C-SMD_JS16T-TYPE-C479-DWH2-FSQ"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 -5.63 0)
+		(layer "F.SilkS")
+		(uuid "9c2574d6-af94-4179-93f1-32e309d3add0")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "USB-C-SMD_JS16T-TYPE-C479-DWH2-FSQ"
+		(at 0 7.5 0)
+		(layer "F.Fab")
+		(uuid "e728aa24-e8d8-4c34-b436-d9ed1e8afe86")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "9ab9020c-fcfc-4b78-8054-a1a806d38b9a")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "c41220db-bf56-4e07-b5b9-1589ac44794f")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(attr smd)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -5 -1.67)
+		(end -5 0.21)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "5ae9ccbc-2b34-47af-b739-549a8626a90a")
+	)
+	(fp_line
+		(start -5 3.05)
+		(end -5 6.5)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "ad1b953e-82a8-4883-9198-10089ac49c87")
+	)
+	(fp_line
+		(start -5 5.1)
+		(end 5 5.1)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "88655953-a899-4981-884d-ec542827545b")
+	)
+	(fp_line
+		(start -5 5.8)
+		(end 5 5.8)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "5ef40c9f-1e69-47c8-8fe3-30b14d983a1a")
+	)
+	(fp_line
+		(start -5 6.5)
+		(end 5 6.5)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "0cbff229-6b77-4a3a-8559-f8e6233ae51b")
+	)
+	(fp_line
+		(start -3.73 -1.67)
+		(end -5 -1.67)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "1a863d4d-dbd5-4d5a-b596-691dc2c82b13")
+	)
+	(fp_line
+		(start 5 -1.67)
+		(end 3.73 -1.67)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "2fc3029f-f869-4556-8a42-c8968ee96a99")
+	)
+	(fp_line
+		(start 5 -1.67)
+		(end 5 0.21)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "a9be256e-eae6-4ef7-b04d-ecd520275837")
+	)
+	(fp_line
+		(start 5 3.05)
+		(end 5 6.5)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "4e0d8550-4af5-42a8-8093-119f8710be71")
+	)
+	(fp_circle
+		(center -3.25 0.23)
+		(end -3.02 0.23)
+		(stroke
+			(width 0.45)
+			(type solid)
+		)
+		(fill no)
+		(layer "Cmts.User")
+		(uuid "41c37a02-afa7-4c93-a5fe-f7dbf69952c8")
+	)
+	(fp_circle
+		(center 3.25 0.23)
+		(end 3.48 0.23)
+		(stroke
+			(width 0.45)
+			(type solid)
+		)
+		(fill no)
+		(layer "Cmts.User")
+		(uuid "3a87d12c-68c6-4e0f-bdca-6ee557db3fe1")
+	)
+	(fp_circle
+		(center -5.02 6.23)
+		(end -4.99 6.23)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "67263b36-cef2-4d5e-8eae-8a44e0cef1ee")
+	)
+	(fp_text user "rubber O-ring 0.7mm"
+		(at -4.8 5.6 0)
+		(unlocked yes)
+		(layer "Cmts.User")
+		(uuid "3338a229-0b52-41e2-abd7-a7979f28ac04")
+		(effects
+			(font
+				(size 0.3 0.3)
+				(thickness 0.05)
+				(bold yes)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "metal that goes through the case 0.7mm"
+		(at -4.8 6.3 0)
+		(unlocked yes)
+		(layer "Cmts.User")
+		(uuid "0be820a5-25a6-4159-a7fa-4bf9eb07146e")
+		(effects
+			(font
+				(size 0.3 0.3)
+				(thickness 0.05)
+				(bold yes)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(uuid "1ad557ee-bff7-44e6-8776-d99ba3f0dd12")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "" thru_hole circle
+		(at -3.25 0.23)
+		(size 0.95 0.95)
+		(drill 0.95)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "9a0430d0-ed04-4fb9-bb7b-fda5a0b7d61f")
+	)
+	(pad "" thru_hole circle
+		(at 3.25 0.23)
+		(size 0.95 0.95)
+		(drill 0.95)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "ed3e9499-5fa2-411d-8bf1-41a21370efec")
+	)
+	(pad "1" thru_hole oval
+		(at -4.9 1.63)
+		(size 1 2.4)
+		(drill oval 0.500024 1.899996)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "f0f06190-a7a5-4ebc-bb2e-779d44357238")
+	)
+	(pad "2" thru_hole oval
+		(at 4.9 1.63)
+		(size 1 2.4)
+		(drill oval 0.500024 1.899996)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "fc88f8e0-77f2-4c62-885f-af2d75355089")
+	)
+	(pad "A1B12" smd rect
+		(at -3.2 -1.63)
+		(size 0.6 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "c4f8ca2e-a028-43cb-a4a1-62b2d29699e9")
+	)
+	(pad "A4B9" smd rect
+		(at -2.4 -1.63)
+		(size 0.6 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "23c4a80b-1765-4bf3-800d-f1e60ae33daf")
+	)
+	(pad "A5" smd rect
+		(at -1.25 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "1bab4a13-e65e-4d2d-b7d0-c7178d2d954e")
+	)
+	(pad "A6" smd rect
+		(at -0.25 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "14e9601a-82ea-4bd6-8173-0df955cd3eb6")
+	)
+	(pad "A7" smd rect
+		(at 0.25 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "acc08509-9fad-4856-ba2c-ccdddd69d359")
+	)
+	(pad "A8" smd rect
+		(at 1.25 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "a29bb102-3e5c-4c75-a04f-c9a812de4ece")
+	)
+	(pad "B1A12" smd rect
+		(at 3.2 -1.63)
+		(size 0.6 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "0ffe80c2-5425-4bee-962f-72a7605e4b3e")
+	)
+	(pad "B4A9" smd rect
+		(at 2.4 -1.63)
+		(size 0.6 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "f54ddbda-28af-4c05-ae5f-4c1a03b9bd8a")
+	)
+	(pad "B5" smd rect
+		(at 1.75 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "91ba661a-5918-493a-afb4-5f661c9aac90")
+	)
+	(pad "B6" smd rect
+		(at 0.75 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "59019820-7f38-4e9a-a084-1c27e0372c65")
+	)
+	(pad "B7" smd rect
+		(at -0.75 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "fe2f1a01-f16f-46f3-86cb-6807da5bc728")
+	)
+	(pad "B8" smd rect
+		(at -1.75 -1.63)
+		(size 0.3 1.65)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "58a197a5-01d3-41d5-8dcc-7de2944c7330")
+	)
+	(embedded_fonts no)
+	(model "${KIPRJMOD}/Kompic_Mk1_library/Kompic_Mk1.3dshapes/USB-C-SMD_JS16T-TYPE-C479-DWH2-FSQ.wrl"
+		(offset
+			(xyz -0 -2.07 1.05)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

@@ -1,0 +1,136 @@
+(footprint "Custom_8_pin_for_SmartWatch_v4-MB-straightline"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "surface-mounted straight pin header, 2x12, 1.00mm pitch, double rows")
+	(tags "Surface mounted pin header SMD 2x12 1.00mm double row")
+	(property "Reference" "J2"
+		(at 5.8 -1.4 0)
+		(layer "F.SilkS")
+		(hide yes)
+		(uuid "113ff475-2be8-428c-b9dd-8a94b06bf6c7")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "Conn_01x07"
+		(at 0 7.11 0)
+		(layer "F.Fab")
+		(uuid "6c1e494b-8fb7-4ba7-bee3-f63faab2e1dc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" "~"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "180cc933-466e-43ba-b58c-3c5237ef4a00")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "Generic connector, single row, 01x12, script generated"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "ad03805b-115a-4f55-848d-34f3ee05967c")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_text user "${REFERENCE}"
+		(at -0.1 2.6 180)
+		(layer "F.Fab")
+		(uuid "52ef7905-a6c8-4737-96d7-d37aac5508ea")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd roundrect
+		(at -4.2 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "8a5faaca-25a8-49ed-a4a1-ab0596f524a5")
+	)
+	(pad "2" smd roundrect
+		(at -2.999999 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "09b43fb4-4a7a-4b7b-8e48-43ced41f671e")
+	)
+	(pad "3" smd roundrect
+		(at -1.8 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "ac8e1404-7d22-43dc-9776-5cbffbf26e82")
+	)
+	(pad "4" smd roundrect
+		(at -0.6 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "1468be46-6f38-4d0d-b80e-ebf7b984cc85")
+	)
+	(pad "5" smd roundrect
+		(at 0.6 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "f22d0957-7610-4c61-9aee-d0f47097919a")
+	)
+	(pad "6" smd roundrect
+		(at 1.8 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "d7f64caf-820e-4de8-b45c-e6cff8924dde")
+	)
+	(pad "7" smd roundrect
+		(at 3 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "c314a02f-f21b-4d85-832d-c56767451423")
+	)
+	(pad "8" smd roundrect
+		(at 4.2 0 90)
+		(size 2 0.75)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(uuid "dcdc3bc2-4cd5-4b83-bd29-76c28c39f493")
+	)
+	(embedded_fonts no)
+	(model "${KICAD9_3DMODEL_DIR}/Connector_PinHeader_1.00mm.3dshapes/PinHeader_2x12_P1.00mm_Vertical_SMD.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

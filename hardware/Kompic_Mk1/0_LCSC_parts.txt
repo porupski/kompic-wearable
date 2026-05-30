@@ -1,0 +1,36 @@
+# Kompic Mk1 — LCSC Parts List
+# Format: LCSC_ID  # PART_NAME                PACKAGE
+# Lines starting with # are ignored by the import script.
+# To exclude a part, comment it out.
+
+C2859066   # MAX30101EFD+T              OLGA-14(3.3x5.6)
+C527464    # DRV2605LDGSR               VSSOP-10
+C478483    # LIS3MDLTR                  LGA-12(2x2)
+C393941    # TF-PUSH (SD card slot)     SMD
+C3664478   # BME688                     SMD-8P(3x3)
+C21659     # XC6206P182MR (1.8V LDO)   SOT-23-3
+C150526    # TPD2E001DRLR (ESD)         SOT-553-5
+C132182    # VEML6030                   SMD-6P(2x2)
+C4153167   # MAX-M10S-00B (GPS)         LCC-18(9.7x10.1)
+C965555    # WS2812B-2020               SMD(2x2)
+C5137195   # BWU.FL-IPEX1 (U.FL conn)  SMD
+# C784388  # BWGNSCNX8-8W2 (GPS ant)   THT 8x8  — FAILS easyeda2kicad, manual footprint needed
+C404360    # PCF85063ATL/1,118 (RTC)    DFN-10(2.6x2.6)
+C5446      # XC6206P332MR (3.3V LDO)   SOT-23-3
+C3013946   # ESP32-S3-WROOM-1U-N16R8   SMD(19.2x18)
+C699536    # TMP117AIDRVR               WSON-6(2x2)
+C2842180   # FC31M2-32.768 (crystal)   SMD3215-2P
+C88527     # VLS252010HBX-2R2M (ind)   1008
+C89334     # 2450AT18A100E (BLE ant)    1206
+C48227730  # MSM261DGT003 (PDM mic)    LGA-6(2x4)
+C115361    # SKSCLBE010 (button)        SMD(3.6x3.5)
+C5267406   # LSM6DSV16XTR (IMU)        LGA-14(2.5x3)
+C2864534   # BQ25619RTWR (charger)     WQFN-24(4x4)
+C601698    # TJ-S4008SW4TGLCCW-A5 (LED) SMD(4x1.4)
+C890266    # BSS138W (NMOS)             SOT-323
+C49118447  # JS16T USB-C connector      SMD 16P
+C113112    # LQW15AN27NJ00D (27nH ind) 0402
+C98058     # LQW15AN2N7C00D (2.7nH ind) 0402
+C5452416   # LQG15HS3N9B02D (3.9nH ind) 0402
+C432937    # CGA2B2C0G1H470JT (47pF)   0402
+C60133     # CC0402KRX7R9BB103 (10nF)  0402

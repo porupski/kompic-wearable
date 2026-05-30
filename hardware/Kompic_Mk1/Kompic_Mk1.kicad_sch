@@ -1,0 +1,296 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "505c82e1-7b56-4dfb-aa69-dd2db0aef1ff")
+	(paper "A4")
+	(title_block
+		(title "Kompić Mk1")
+		(date "2026-05-30")
+		(rev "iv7.0")
+		(company "Ivan Porupski May2026(c)")
+	)
+	(lib_symbols)
+	(sheet
+		(at 31.75 71.12)
+		(size 44.45 26.67)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "38ea7f3e-eddf-4abc-88c8-3bf1414930e6")
+		(property "Sheetname" "4_Air_Sensors"
+			(at 31.75 70.4084 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "4_Air_Sensors.kicad_sch"
+			(at 31.75 98.3746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 90.17 30.48)
+		(size 45.72 29.21)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "571aa159-0d21-4792-a617-20c3e9b0a43a")
+		(property "Sheetname" "2_Power_Managment"
+			(at 90.17 29.7684 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "2_Power_Managment.kicad_sch"
+			(at 90.17 60.2746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 151.13 72.39)
+		(size 43.18 27.94)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "96fed5a8-a479-431c-895f-bec08d07efff")
+		(property "Sheetname" "6_PCB2_Skin_Sensors_LRA"
+			(at 151.13 71.6784 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "6_PCB2_Skin_Sensors_LRA.kicad_sch"
+			(at 151.13 100.9146 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "7")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 31.75 30.48)
+		(size 41.91 29.21)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "c556d390-75e5-4549-83a3-0421c0a45f29")
+		(property "Sheetname" "1_ESP32-S3_Wroom"
+			(at 31.75 29.7684 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "1_ESP32-S3_Wroom.kicad_sch"
+			(at 31.75 60.2746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 90.17 71.12)
+		(size 46.99 27.94)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "e7571178-2484-4c8e-8f0f-80bea71c7fdc")
+		(property "Sheetname" "5_Lights"
+			(at 90.17 70.4084 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "5_Lights.kicad_sch"
+			(at 90.17 99.6446 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 151.13 31.75)
+		(size 43.18 27.94)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "e9f68b98-e6bd-4b6c-bd68-7336d52d5bb0")
+		(property "Sheetname" "3_Space_Time_Sensors"
+			(at 151.13 31.0384 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "3_Space_Time_Sensors.kicad_sch"
+			(at 151.13 60.2746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "Kompic_Mk1"
+				(path "/505c82e1-7b56-4dfb-aa69-dd2db0aef1ff"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)
