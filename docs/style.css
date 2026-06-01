@@ -458,3 +458,68 @@ h3[id] {
         position: static;
     }
 }
+
+
+/* ==================== FABRICATION PAGE ==================== */
+details.fab-spec {
+    background: #14110f;
+    border: 1px solid #3a332c;
+    border-radius: 8px;
+    margin: 1rem 0;
+    overflow: hidden;
+}
+
+details.fab-spec > summary {
+    cursor: pointer;
+    padding: 0.85rem 1rem;
+    color: #e0a458;
+    font-weight: 600;
+    background: #3a332c;
+    list-style: none;
+    user-select: none;
+}
+
+details.fab-spec > summary::-webkit-details-marker { display: none; }
+
+details.fab-spec > summary::after {
+    content: " — show full settings";
+    color: #9c8f7e;
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+
+details.fab-spec[open] > summary::after { content: " — hide full settings"; }
+
+details.fab-spec .spec-table { margin: 0; border-radius: 0; }
+
+.fab-callout {
+    background: #221d18;
+    border-left: 4px solid #e0a458;
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+}
+
+.fab-callout h4 { color: #e0a458; margin-bottom: 0.5rem; }
+.fab-callout p { margin-bottom: 0.5rem; }
+.fab-callout p:last-child { margin-bottom: 0; }
+
+.spec-table tr.cat-row td {
+    background: #2a221b;
+    color: #e0a458;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.provisional-tag {
+    display: inline-block;
+    background: rgba(224, 164, 88, 0.12);
+    color: #e0a458;
+    border: 1px solid rgba(224, 164, 88, 0.3);
+    padding: 0.1rem 0.55rem;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+}
