@@ -9,7 +9,7 @@ hardware/**/sym-lib-table.bak
 hardware/**/*.lck
 # fab outputs — regenerated, often large
 hardware/**/gerbers/
-hardware/**/*.zip
+hardware/Kompic_Mk1/ignore/
 
 # ---------- 3D Models (ignore heavy mesh/CAD exports, keep sources) ----------
 models/**/*.stl
