@@ -6,9 +6,9 @@
 	(paper "A4")
 	(title_block
 		(title "Kompić Mk1")
-		(date "2026-05-30")
-		(rev "iv7.0")
-		(company "Ivan Porupski May2026(c)")
+		(date "2026-06-02")
+		(rev "iv7.1")
+		(company "Ivan Porupski June2026(c)")
 	)
 	(lib_symbols)
 	(sheet

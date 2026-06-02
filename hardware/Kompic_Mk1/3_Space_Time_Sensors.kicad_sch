@@ -5,9 +5,9 @@
 	(uuid "cf8ee7b9-e47c-4494-9002-0dd50fa24d57")
 	(paper "A4")
 	(title_block
-		(date "2026-05-30")
-		(rev "iv7.0")
-		(company "Ivan Porupski May2026(c)")
+		(date "2026-06-02")
+		(rev "iv7.1")
+		(company "Ivan Porupski June2026(c)")
 	)
 	(lib_symbols
 		(symbol "Device:Antenna"
@@ -9545,7 +9545,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "ML651 3.0V"
+		(property "Value" "ML621 3.0V"
 			(at 261.874 120.65 0)
 			(show_name no)
 			(do_not_autoplace no)

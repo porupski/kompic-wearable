@@ -17,7 +17,7 @@
             <a href="index.html#hero" class="nav-brand-link">Kompic&#x304;</a>
             <ul class="nav-links">
                 <li><a href="index.html#overview">Overview</a></li>
-                <li><a href="index.html#circuit">Circuit + PCB</a></li>
+                <li><a href="circuit.html#hero">Circuit + PCB</a></li>
                 <li><a href="fabrication.html#hero">Fabrication</a></li>
                 <li><a href="index.html#manual-assembly">Manual Assembly</a></li>
                 <li><a href="index.html#models">3D Models</a></li>
@@ -41,8 +41,8 @@
         <div class="container">
             <h1><b>Fabrication &amp; Assembly</b></h1>
             <p class="version-mark">Kompic&#x304; Mk&nbsp;I &middot; <code>iv7.1</code></p>
-            <p>From bare PCB to a populated board: fabrication, machine assembly,
-               hand reflow, and the underside parts soldered last.</p>
+            <p>From bare PCB to a working board: fabrication, machine assembly,
+               a single hand-reflow pass, and the parts that finish by hand.</p>
         </div>
         <div class="container">
             <div style="display: flex; gap: 2rem; justify-content: center; align-items: flex-start; margin: 2rem 0; flex-wrap: wrap;">
@@ -75,8 +75,10 @@
                         <ul>
                             <li><b>Fabrication</b> &mdash; the bare 4-layer PCB is produced from the Gerbers.</li>
                             <li><b>Machine assembly</b> &mdash; the economy PCBA service places the small passives.</li>
-                            <li><b>Reflow</b> &mdash; the remaining top-side parts are hand-placed and hot-plate reflowed.</li>
-                            <li><b>Manual soldering</b> &mdash; the underside components are soldered by hand.</li>
+                            <li><b>Reflow</b> &mdash; the remaining top-side parts are hand-placed and hot-plate
+                                reflowed in a single pass.</li>
+                            <li><b>Manual soldering &amp; wiring</b> &mdash; the underside parts, the USB-C jack, and
+                                the wired sub-assemblies are finished by hand.</li>
                         </ul>
 
                         <p>The split is driven by cost and process limits:</p>
@@ -85,8 +87,9 @@
                                 outline; 1 mm to keep the case stack thin.</li>
                             <li><b>Machine assembly is top-side and passives-only.</b> One stencil, one pass,
                                 lowest cost.</li>
-                            <li><b>The costly and underside parts are placed by hand.</b> Partly to keep a small
-                                prototype run affordable, partly because the underside cannot ride the hot plate.</li>
+                            <li><b>The costly parts and the hand-finished parts stay off the machine.</b> Partly to
+                                keep a small prototype run affordable, partly because some parts (the underside
+                                components, the wired sub-assemblies) simply can't be machine-placed.</li>
                         </ul>
 
                         <div class="disclaimer">
@@ -154,48 +157,79 @@
                     <section id="assembly" class="content-section">
                         <h2>2 &middot; Machine Assembly (Economy PCBA)</h2>
 
-                        <p>With the bare boards ordered, the economy PCBA service machine-places the passives on the
-                        top side. The list below is taken from the project picking list and should be reconciled
-                        against the manufacturer's own PCBA export once that tool is available.</p>
+                        <p>The economy PCBA service machine-places the passives on the top side. The order ran on
+                        <b>stock defaults &mdash; nothing was changed</b> from what the economy tier ships with
+                        (top-side only, high-temp paste, nitrogen reflow, 5 boards).</p>
+
+                        <details class="fab-spec">
+                            <summary>Full economy PCBA settings used for this order</summary>
+                            <table class="spec-table">
+                                <tbody>
+                                    <tr><td>PCBA type</td><td>Economic</td></tr>
+                                    <tr><td>Assembly side</td><td>Top side</td></tr>
+                                    <tr><td>PCBA quantity</td><td>5</td></tr>
+                                    <tr><td>Tooling holes</td><td>Added by manufacturer</td></tr>
+                                    <tr><td>Confirm parts placement</td><td>No</td></tr>
+                                    <tr><td>Bake components</td><td>No</td></tr>
+                                    <tr><td>Photo confirmation</td><td>No</td></tr>
+                                    <tr><td>Board cleaning</td><td>No</td></tr>
+                                    <tr><td>Conformal coating</td><td>No</td></tr>
+                                    <tr><td>Special stencil</td><td>No</td></tr>
+                                    <tr><td>Solder paste</td><td>High temp.</td></tr>
+                                    <tr><td>Nitrogen reflow</td><td>Yes (economy default)</td></tr>
+                                    <tr><td>Flying-probe test</td><td>No</td></tr>
+                                    <tr><td>Function test</td><td>No</td></tr>
+                                    <tr><td>Depanel before delivery</td><td>No</td></tr>
+                                    <tr><td>Panel format</td><td>1 &times; 1</td></tr>
+                                    <tr><td>Packaging</td><td>Antistatic bubble film</td></tr>
+                                    <tr><td>File provided as</td><td>Complete file (own files)</td></tr>
+                                    <tr><td>Build time</td><td>3&ndash;4 days</td></tr>
+                                </tbody>
+                            </table>
+                        </details>
+
+                        <p>These are the 14 line items actually placed by the machine &mdash; straight from the
+                        assembler's selected-parts export, with LCSC part numbers and library tier:</p>
 
                         <table class="spec-table">
-                            <caption class="table-caption">Machine-placed parts <span class="provisional-tag">provisional &mdash; pending PCBA export</span></caption>
+                            <caption class="table-caption">Machine-placed parts (top side, 5 boards)</caption>
                             <thead>
-                                <tr><th>Value</th><th>Designators</th><th>Qty</th><th>Notes</th></tr>
+                                <tr><th>Value / Part</th><th>Designators</th><th>LCSC</th><th>Tier</th></tr>
                             </thead>
                             <tbody>
                                 <tr class="cat-row"><td colspan="4">Capacitors (0402)</td></tr>
-                                <tr><td>1.0 pF</td><td>C1</td><td>1</td><td>BLE antenna match</td></tr>
-                                <tr><td>47 pF C0G</td><td>C23</td><td>1</td><td></td></tr>
-                                <tr><td>100 pF</td><td>C18, C21</td><td>2</td><td></td></tr>
-                                <tr><td>10 nF X7R</td><td>C24</td><td>1</td><td></td></tr>
-                                <tr><td>100 nF</td><td>C8, C10, C16, C19, C20, C25, C26, C28&ndash;C33, C38&ndash;C45</td><td>21</td><td>decoupling</td></tr>
-                                <tr><td>1 &micro;F</td><td>C7, C15, C34, C36, C37</td><td>5</td><td></td></tr>
-                                <tr><td>4.7 &micro;F</td><td>C4, C22, C27, C35</td><td>4</td><td></td></tr>
-                                <tr><td>10 &micro;F</td><td>C2, C3, C5, C6, C9, C11, C13, C14</td><td>8</td><td></td></tr>
+                                <tr><td>10 &micro;F</td><td>C2, C3, C5, C6, C9, C11, C13, C14</td><td>C15525</td><td>Basic</td></tr>
+                                <tr><td>4.7 &micro;F</td><td>C4, C22, C27, C35</td><td>C23733</td><td>Basic</td></tr>
+                                <tr><td>1 &micro;F</td><td>C7, C15, C34, C36, C37</td><td>C52923</td><td>Basic</td></tr>
+                                <tr><td>100 nF (decoupling)</td><td>C8, C10, C16, C19, C20, C25, C26, C28&ndash;C33, C38&ndash;C45</td><td>C1525</td><td>Basic</td></tr>
+                                <tr><td>100 pF</td><td>C18, C21</td><td>C1546</td><td>Basic</td></tr>
+                                <tr><td>1.0 pF (BLE match)</td><td>C1</td><td>C1550</td><td><b>Extended</b></td></tr>
 
                                 <tr class="cat-row"><td colspan="4">Resistors (0402)</td></tr>
-                                <tr><td>47 &Omega;</td><td>R23, R25, R26, R32</td><td>4</td><td></td></tr>
-                                <tr><td>470 &Omega;</td><td>R16, R18</td><td>2</td><td>Qvar RC filters</td></tr>
-                                <tr><td>5.1 k&Omega;</td><td>R3, R5&ndash;R9, R12, R19, R21, R22, R29</td><td>11</td><td>I&sup2;C / pull-ups</td></tr>
-                                <tr><td>10 k&Omega;</td><td>R1, R2, R4, R10, R11, R13, R14, R17, R20, R24, R27, R28, R30, R31, R33, R35, R36</td><td>17</td><td></td></tr>
-                                <tr><td>100 k&Omega;</td><td>R15</td><td>1</td><td>TPS62840 V<sub>SET</sub> &rarr; 3.2 V</td></tr>
+                                <tr><td>10 k&Omega;</td><td>R1, R2, R4, R10, R13, R14, R17, R20, R24, R27, R28, R30, R31, R33, R35, R36</td><td>C25744</td><td>Basic</td></tr>
+                                <tr><td>5.1 k&Omega; (I&sup2;C / pull-ups)</td><td>R3, R5&ndash;R9, R12, R19, R21, R22, R29</td><td>C25905</td><td>Basic</td></tr>
+                                <tr><td>470 &Omega; (Qvar RC)</td><td>R16, R18</td><td>C25117</td><td>Basic</td></tr>
+                                <tr><td>100 k&Omega; (TPS62840 V<sub>SET</sub> &rarr; 3.2 V)</td><td>R15</td><td>C25741</td><td>Basic</td></tr>
+                                <tr><td>47 &Omega;</td><td>R23, R25, R26, R32</td><td>C25118</td><td><b>Extended</b></td></tr>
 
-                                <tr class="cat-row"><td colspan="4">Inductors (0402 / 1008)</td></tr>
-                                <tr><td>2.7 nH</td><td>L1</td><td>1</td><td>BLE match</td></tr>
-                                <tr><td>3.9 nH</td><td>L2</td><td>1</td><td>BLE match</td></tr>
-                                <tr><td>27 nH</td><td>L4</td><td>1</td><td>GPS bias-T</td></tr>
-                                <tr><td>2.2 &micro;H (1008)</td><td>L3, L5</td><td>2</td><td>BQ25619 &amp; TPS62840 switchers</td></tr>
+                                <tr class="cat-row"><td colspan="4">Diode</td></tr>
+                                <tr><td>1N4148WS (SOD-323)</td><td>D2, D3, D4</td><td>C2128</td><td>Basic</td></tr>
 
-                                <tr class="cat-row"><td colspan="4">Diodes</td></tr>
-                                <tr><td>1N4148WS (SOD-323)</td><td>D2, D3, D4</td><td>3</td><td></td></tr>
-                                <tr><td>ESDALCL5-1BM2 (SOD-882)</td><td>D5, D6</td><td>2</td><td>5 V TVS</td></tr>
-
-                                <tr class="cat-row"><td colspan="4">Active / other</td></tr>
-                                <tr><td>10 k&Omega; NTC (0402)</td><td>TH1</td><td>1</td><td>charger temp sense</td></tr>
-                                <tr><td>TPS62840DLCR (VSON-8)</td><td>U16</td><td>1</td><td>3.3 V buck &mdash; see note</td></tr>
+                                <tr class="cat-row"><td colspan="4">Active / sensing</td></tr>
+                                <tr><td>10 k&Omega; NTC (charger temp sense)</td><td>TH1</td><td>C77131</td><td><b>Extended</b></td></tr>
+                                <tr><td>TPS62840DLCR buck (&rarr; 3.2 V rail)</td><td>U16</td><td>C2071859</td><td><b>Extended</b></td></tr>
                             </tbody>
                         </table>
+
+                        <div class="fab-callout">
+                            <h4>Basic vs Extended &mdash; why most rows say "Basic"</h4>
+                            <p><b>Basic</b> parts live in the assembler's standing feeders and carry no setup fee.
+                            <b>Extended</b> parts are loaded from the wider catalogue and each one adds a per-part
+                            setup fee (roughly $3), which piles up fast across a BOM.</p>
+                            <p>So the design was steered onto Basic parts wherever one would do. Only four Extended
+                            parts survive, because nothing Basic fit them: the 1.0 pF RF match cap, the 47 &Omega;
+                            resistor, the NTC thermistor, and the TPS62840 buck.</p>
+                        </div>
 
                         <p>Verify orientation and polarity of every part in the assembler's viewer before approving
                         the order. The design-for-manufacturability pass catches a lot, but treat it as a safety net,
@@ -209,21 +243,29 @@
                         </figure>
 
                         <div class="disclaimer">
-                            <h4>A part on the wrong list</h4>
-                            <p>The TPS62840 buck (U16) was meant for the reflow tray but slipped into the
-                            machine-assembly BOM. Rather than re-spin the order, it was left in PCBA &mdash; the only
-                            correction needed was its placement <b>orientation</b> in the assembler's viewer before
-                            approval. Expect calls like this: a part goes out of stock, lands on the wrong list, or
-                            turns out cheaper to assemble than to hand-place, and you adjust the split accordingly.</p>
+                            <h4>Why an IC (the buck) is in the machine set</h4>
+                            <p>The TPS62840 buck (U16) is the one IC here rather than on the reflow tray &mdash; it was
+                            meant to be hand-placed but slipped into the machine BOM. Rather than re-spin the order it
+                            was left in PCBA; the only correction needed was its placement <b>orientation</b> in the
+                            viewer before approval. Expect calls like this: a part goes out of stock, lands on the
+                            wrong list, or turns out cheaper to assemble than to hand-place, and you adjust the split
+                            accordingly.</p>
                         </div>
                     </section>
 
                     <!-- ==================== STAGE 3 ==================== -->
                     <section id="reflow" class="content-section">
-                        <h2>3 &middot; Reflow (Hand-Placed)</h2>
+                        <h2>3 &middot; Reflow (Hand-Placed, Single Pass)</h2>
 
-                        <p>The remaining top-side parts &mdash; the module, sensors, connectors, and discretes &mdash; are
-                        placed by hand and hot-plate reflowed.</p>
+                        <p>The remaining top-side parts &mdash; the module, sensors, the inductors and TVS kept off the
+                        machine set, connectors, and discretes &mdash; are placed by hand and hot-plate reflowed.</p>
+
+                        <div class="fab-callout">
+                            <h4>One pass, no second go</h4>
+                            <p>Everything reflowable goes down in a <b>single pass</b>. There's no second reflow for
+                            any part, the GPS module included &mdash; once the board is hand-finished (the USB-C jack
+                            especially) it can't safely go back on the hot plate, so all reflow happens here, first.</p>
+                        </div>
 
                         <div class="fab-callout">
                             <h4>Why hand-place these</h4>
@@ -244,7 +286,7 @@
                                 <tr><td>U2</td><td>XC6206P182MR</td><td>1.8 V LDO</td></tr>
                                 <tr><td>U4</td><td>BQ25619RTWR</td><td>charger + boost</td></tr>
                                 <tr><td>U5</td><td>LSM6DSV16XTR</td><td>IMU + Qvar ECG</td></tr>
-                                <tr><td>U6</td><td>MAX-M10S</td><td>GPS &mdash; <b>second reflow pass</b>, MSL3</td></tr>
+                                <tr><td>U6</td><td>MAX-M10S</td><td>GPS &mdash; MSL3</td></tr>
                                 <tr><td>U7</td><td>LIS3MDLTR</td><td>magnetometer</td></tr>
                                 <tr><td>U8</td><td>PCF85063ATL</td><td>RTC</td></tr>
                                 <tr><td>U9</td><td>BME688</td><td>environmental</td></tr>
@@ -255,19 +297,17 @@
                                 <tr class="cat-row"><td colspan="3">Daughter board</td></tr>
                                 <tr><td>U13</td><td>MAX30101EFD+T</td><td>optical HR / SpO&sub2;</td></tr>
                                 <tr><td>U15</td><td>TMP117AIDRVR</td><td>skin temperature</td></tr>
-                                <tr><td>M1</td><td>ELV1411A LRA</td><td>haptic motor, in pocket</td></tr>
 
-                                <tr class="cat-row"><td colspan="3">Connectors &amp; mechanical</td></tr>
-                                <tr><td>USB1</td><td>JS16T Type-C</td><td></td></tr>
-                                <tr><td>D1</td><td>TPD2E001DRLR</td><td>USB data TVS</td></tr>
-                                <tr><td>J1</td><td>OK-F024-04</td><td>24-pin display BTB connector</td></tr>
-                                <tr><td>J2, J3</td><td>Inter-board connectors</td><td>main &harr; daughter</td></tr>
-                                <tr><td>SW1</td><td>SKSCLBE010</td><td>tactile button</td></tr>
-                                <tr><td>SW2</td><td>EC05E1220401</td><td>rotary encoder</td></tr>
-                                <tr><td>CN1</td><td>YZR0028</td><td>Qvar pogo pin</td></tr>
-                                <tr><td>CN2</td><td>Qvar electrode</td><td>test point</td></tr>
+                                <tr class="cat-row"><td colspan="3">Inductors (kept off the machine set)</td></tr>
+                                <tr><td>L1</td><td>2.7 nH</td><td>BLE match</td></tr>
+                                <tr><td>L2</td><td>3.9 nH</td><td>BLE match</td></tr>
+                                <tr><td>L4</td><td>27 nH</td><td>GPS bias-T</td></tr>
+                                <tr><td>L3, L5</td><td>2.2 &micro;H (1008)</td><td>BQ25619 &amp; TPS62840 switchers</td></tr>
 
-                                <tr class="cat-row"><td colspan="3">RF &amp; discrete</td></tr>
+                                <tr class="cat-row"><td colspan="3">Connectors, RF &amp; discrete</td></tr>
+                                <tr><td>J1</td><td>OK-F024-04</td><td>24-pin display connector</td></tr>
+                                <tr><td>D1</td><td>TPD2E001DRLR</td><td>USB data-line TVS</td></tr>
+                                <tr><td>D5, D6</td><td>ESDALCL5-1BM2</td><td>5 V rail TVS</td></tr>
                                 <tr><td>AE3</td><td>2450AT18A100E</td><td>BLE chip antenna</td></tr>
                                 <tr><td>LED1</td><td>WS2812B-2020</td><td>addressable RGB</td></tr>
                                 <tr><td>LED2</td><td>TJ-S4008SW4</td><td>flashlight LED</td></tr>
@@ -276,19 +316,20 @@
                             </tbody>
                         </table>
 
-                        <p>The hot-plate profile, the GPS module's second pass, and the MSL3 bake notes are in the
+                        <p>The hot-plate profile and the MSL3 bake notes for the module and GPS are in the
                         <a href="manual-assembly.html#hero">Manual Assembly guide &rarr;</a></p>
                     </section>
 
                     <!-- ==================== STAGE 4 ==================== -->
                     <section id="manual" class="content-section">
-                        <h2>4 &middot; Manual Soldering (Underside)</h2>
+                        <h2>4 &middot; Manual Soldering &amp; Wiring</h2>
 
-                        <p>After reflow, the underside components go on by hand with an iron &mdash; they sit on the
-                        bottom of the boards and cannot face the hot plate.</p>
+                        <p>What's left is finished by hand, with a soldering iron or a hot-air station &mdash; the
+                        underside parts (which never face the hot plate), the USB-C jack, and the wired
+                        sub-assemblies.</p>
 
                         <table class="spec-table">
-                            <caption class="table-caption">Hand-soldered &mdash; underside</caption>
+                            <caption class="table-caption">Hand-soldered parts</caption>
                             <thead>
                                 <tr><th>Designator</th><th>Part</th><th>Notes</th></tr>
                             </thead>
@@ -297,13 +338,27 @@
                                 <tr><td>U14</td><td>DRV2605LDGSR</td><td>haptic driver; underside, main board</td></tr>
                                 <tr><td>AE1</td><td>BWGNSCNX8-8W2</td><td>GPS ceramic antenna</td></tr>
                                 <tr><td>BT2</td><td>ML651</td><td>RTC backup cell</td></tr>
+                                <tr><td>USB1</td><td>JS16T Type-C</td><td>Power, flashing, storage; once on, no more reflow</td></tr>
                             </tbody>
                         </table>
 
-                        <p>Between the machine-placed passives, the reflow tray, and these underside parts, every
-                        component soldered to the boards is accounted for. The LiPo and case hardware are fitted
-                        during final assembly &mdash; covered, along with board stacking and the 12-conductor
-                        interconnect, in the <a href="manual-assembly.html#hero">Manual Assembly guide &rarr;</a></p>
+                        <table class="spec-table">
+                            <caption class="table-caption">Wired connections (flying leads)</caption>
+                            <thead>
+                                <tr><th>Link</th><th>Wiring</th><th>Notes</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>Main &harr; daughter board</td><td>8 &times; silicone wire, 0.8 mm</td><td>both I&sup2;C buses, MAX_INT, Qvar1, rails + GND</td></tr>
+                                <tr><td>Crown encoder (SW2)</td><td>2 wires</td><td>EC05E1220401</td></tr>
+                                <tr><td>Battery (BT1)</td><td>2 wires</td><td>LiPo ~380 mAh leads</td></tr>
+                                <tr><td>LRA motor (M1)</td><td>2 wires</td><td>ELV1411A, in its case pocket</td></tr>
+                            </tbody>
+                        </table>
+
+                        <p>Between the machine-placed passives, the reflow tray, and these hand-finished parts and
+                        wired links, every component on both boards is accounted for. Board stacking, the crown
+                        assembly, and closing the case are covered in the
+                        <a href="manual-assembly.html#hero">Manual Assembly guide &rarr;</a></p>
                     </section>
 
                 </div>
@@ -317,7 +372,7 @@
                             <li><a href="#pcb">1 &middot; Bare Board</a></li>
                             <li><a href="#assembly">2 &middot; Machine Assembly</a></li>
                             <li><a href="#reflow">3 &middot; Reflow</a></li>
-                            <li><a href="#manual">4 &middot; Manual Soldering</a></li>
+                            <li><a href="#manual">4 &middot; Manual Soldering &amp; Wiring</a></li>
                             <li><a href="manual-assembly.html#hero">Manual Assembly &rarr;</a></li>
                         </ul>
                     </div>
@@ -325,7 +380,8 @@
                         <h3>At a Glance</h3>
                         <p>4-layer, 1 mm, lead-free HASL.<br>
                         44.5 &times; 50.62 mm, panelized as one design, 5 boards.<br>
-                        Passives machine-placed; ICs and connectors reflowed; underside parts hand-soldered.</p>
+                        Passives machine-placed on stock economy defaults; everything else hand-reflowed in one pass,
+                        then underside parts, USB-C and wired links by hand.</p>
                     </div>
                     <div class="sidebar-section">
                         <h3>Repository</h3>

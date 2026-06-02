@@ -5,9 +5,9 @@
 	(uuid "bae7752f-5901-4355-923d-4b925af33d1d")
 	(paper "A4")
 	(title_block
-		(date "2026-05-30")
+		(date "2026-06-02")
 		(rev "iv7.1")
-		(company "Ivan Porupski May2026(c)")
+		(company "Ivan Porupski June2026(c)")
 	)
 	(lib_symbols
 		(symbol "Connector:TestPoint"

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circuit + PCB &middot; Kompic&#x304; Mk I</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ==================== NAVBAR ==================== -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html#hero" class="nav-brand-link">Kompic&#x304;</a>
+            <ul class="nav-links">
+                <li><a href="index.html#overview">Overview</a></li>
+                <li><a href="circuit.html#hero">Circuit + PCB</a></li>
+                <li><a href="fabrication.html#hero">Fabrication</a></li>
+                <li><a href="index.html#manual-assembly">Manual Assembly</a></li>
+                <li><a href="index.html#models">3D Models</a></li>
+                <li><a href="index.html#firmware">Firmware</a></li>
+                <li><a href="index.html#application">Application &amp; Data</a></li>
+                <li><a href="index.html#references">References</a></li>
+                <li>
+                    <a href="https://github.com/porupski/kompic-wearable" target="_blank" rel="noopener">
+                        <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        </svg>
+                        GitHub
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- ==================== HERO ==================== -->
+    <section id="hero" class="hero">
+        <div class="container">
+            <h1><b>Circuit + PCB</b></h1>
+            <p class="version-mark">Kompic&#x304; Mk&nbsp;I &middot; <code>iv7.1</code></p>
+            <p>Every design decision behind the schematic and the two boards &mdash;
+               what got crammed in, why each part sits where it does, and the
+               constraints waiting on Mk&nbsp;II.</p>
+        </div>
+        <div class="container">
+            <!-- ===== DROP-IN: four KiCad layer plots (L1-L4). Place files in docs/img/ ===== -->
+            <div style="display: flex; gap: 1.5rem; justify-content: center; align-items: flex-start; margin: 2rem 0; flex-wrap: wrap;">
+                <figure style="flex: 1; min-width: 220px; max-width: 45%; margin: 0;">
+                    <img src="img/pcb_Kompic_Mk1_iv7.1_L1_top.png" alt="Main PCB copper layer 1 (top)"
+                         style="width: 100%; height: auto; border-radius: 8px;">
+                    <figcaption>L1 &mdash; Top (components + signals)</figcaption>
+                </figure>
+                <figure style="flex: 1; min-width: 220px; max-width: 45%; margin: 0;">
+                    <img src="img/pcb_Kompic_Mk1_iv7.1_L2_gnd.png" alt="Inner layer 2, ground plane"
+                         style="width: 100%; height: auto; border-radius: 8px;">
+                    <figcaption>L2 &mdash; Solid ground plane</figcaption>
+                </figure>
+                <figure style="flex: 1; min-width: 220px; max-width: 45%; margin: 0;">
+                    <img src="img/pcb_Kompic_Mk1_iv7.1_L3_power.png" alt="Inner layer 3, power"
+                         style="width: 100%; height: auto; border-radius: 8px;">
+                    <figcaption>L3 &mdash; Power (3.3&nbsp;V plane + SYS/1.8&nbsp;V/5&nbsp;V)</figcaption>
+                </figure>
+                <figure style="flex: 1; min-width: 220px; max-width: 45%; margin: 0;">
+                    <img src="img/pcb_Kompic_Mk1_iv7.1_L4_bottom.png" alt="Copper layer 4 (bottom)"
+                         style="width: 100%; height: auto; border-radius: 8px;">
+                    <figcaption>L4 &mdash; Bottom (signals + underside parts)</figcaption>
+                </figure>
+            </div>
+        </div>
+    </section>
+
+    <main class="main-content">
+        <div class="container">
+            <div class="content-grid">
+                <div class="main-column">
+
+                    <!-- ==================== OVERVIEW ==================== -->
+                    <section id="overview" class="content-section">
+                        <h2>Two Boards, One Schematic</h2>
+                        <p><span class="status-badge in-progress">Layout in Progress</span></p>
+
+                        <p>The design is <b>two 1&nbsp;mm 4-layer PCBs</b> &mdash; a main top board carrying
+                        nearly everything, and a small skin-facing daughter board for the optical and
+                        temperature sensors. They are drawn and fabricated as a single panel and cut apart
+                        before reflow (see <a href="#pcb">PCB</a> below).</p>
+
+                        <p>Schematic capture is complete. Because the part count is high, the schematic is
+                        split into <b>one root sheet plus six subsheets</b>, each a functional block:</p>
+                        <ul>
+                            <li><b>1 &middot; ESP32-S3 WROOM</b> &mdash; MCU, crown encoder, SD, display connector, BLE antenna, TVS</li>
+                            <li><b>2 &middot; Power Management</b> &mdash; BQ25619 charger, TPS62840 buck, 1.8&nbsp;V LDO, USB-C</li>
+                            <li><b>3 &middot; Space &amp; Time Sensors</b> &mdash; GPS, IMU/ECG, magnetometer, RTC</li>
+                            <li><b>4 &middot; Air Sensors</b> &mdash; BME688, PDM microphone</li>
+                            <li><b>5 &middot; Lights</b> &mdash; status RGB, flashlight, ambient-light sensor</li>
+                            <li><b>6 &middot; Skin Sensors &amp; LRA</b> &mdash; daughter board (MAX30101, TMP117) + haptic driver</li>
+                        </ul>
+
+                        <p>The driving idea was to <b>fit every sensor that physically would fit</b>, then leave a
+                        few spare test pads for anyone (the author included) who wants to tinker with alternatives.
+                        It isn't a lavish amount of slack &mdash; the board is dense &mdash; but the breakouts are there.</p>
+
+                        <div class="fab-callout">
+                            <h4>Schematic &amp; source</h4>
+                            <p><b>Printed schematic (PDF):</b>
+                            <a href="https://github.com/porupski/kompic-wearable/blob/main/hardware/Kompic_Mk1/Kompic_Mk1-Schematic_iv7.1.pdf" target="_blank" rel="noopener"><code>Kompic_Mk1-Schematic_iv7.1.pdf</code></a></p>
+                            <p><b>KiCad project (editable source):</b>
+                            <a href="https://github.com/porupski/kompic-wearable/tree/main/hardware/Kompic_Mk1" target="_blank" rel="noopener"><code>hardware/Kompic_Mk1</code></a></p>
+                        </div>
+                    </section>
+
+                    <!-- ==================== CIRCUIT ==================== -->
+                    <section id="circuit" class="content-section">
+                        <h2>Circuit &mdash; Design Decisions</h2>
+
+                        <h3>The brain &mdash; ESP32-S3-WROOM-1U</h3>
+                        <p>The MCU is the <b>strongest part that fit the form factor</b>: a dual-core Xtensa LX7
+                        at 240&nbsp;MHz with <b>8&nbsp;MB PSRAM and 16&nbsp;MB flash</b>. That compute surplus is
+                        the whole point &mdash; it exists to run on-device ML (sleep staging, sound classification,
+                        sensor fusion), not just to display numbers. Two of the sensors lean the same way: the
+                        <b>LSM6DSV16X IMU has an on-chip ML core</b> (decision trees), and the <b>BME688</b> ships
+                        with a gas-classification feature of its own.</p>
+
+                        <div class="fab-callout">
+                            <h4>The strapping-pin saga &mdash; zero slack on 32 GPIOs</h4>
+                            <p>Every usable GPIO is assigned; there is no spare pin. Three of the module's pins
+                            (GPIO35&ndash;37) are eaten by the octal PSRAM and never come out. What's left had to be
+                            allocated around the ESP32's boot-time <b>strapping pins</b> and its limited set of
+                            <b>RTC-capable</b> pins, which forced a chain of deliberate choices:</p>
+                            <p><b>Wake sources must land on RTC GPIOs (&le;21).</b> Anything that has to wake the watch
+                            from deep sleep &mdash; tap-to-wake (touch INT), PPG FIFO (MAX30101 INT), raise-to-wake (IMU INT),
+                            the RTC alarm, the button, and the crown turn &mdash; is pinned to an RTC-capable line and kept there.</p>
+                            <p><b>I&sup2;C stays off the boot-log pins.</b> GPIO43/44 emit ~3&nbsp;ms of UART boot chatter at
+                            reset; a live I&sup2;C bus there would be corrupted. So only boot-tolerant signals live on them
+                            (an encoder line and a driven touch-reset), never a bus.</p>
+                            <p><b>The strap pins keep their default levels.</b> The QSPI display lines that double as
+                            VDD_SPI / boot-message straps (TE, the 1PPS pin, the display reset) get <b>no external
+                            pull-ups</b> &mdash; adding one would corrupt flash-voltage selection or the boot mode. They are
+                            driven by firmware and the panel after boot instead.</p>
+                        </div>
+
+                        <details class="fab-spec">
+                            <summary>Full GPIO assignment (iv7.1)</summary>
+                            <table class="spec-table">
+                                <thead>
+                                    <tr><th>GPIO</th><th>Signal</th><th>Notes</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>0</td><td>DRV_EN</td><td>strap (boot-mode); driven as FW output</td></tr>
+                                    <tr><td>1 / 2</td><td>SDA / SCL (bus 1)</td><td>5.1k&nbsp;&rarr;&nbsp;3V3</td></tr>
+                                    <tr><td>3</td><td>QSPI&nbsp;RESET (display)</td><td>strap; no pull, panel + FW driven</td></tr>
+                                    <tr><td>4 / 5</td><td>SDA / SCL (bus 2)</td><td>5.1k&nbsp;&rarr;&nbsp;3V3</td></tr>
+                                    <tr><td>6</td><td>TP-INT</td><td><b>wake:</b> tap</td></tr>
+                                    <tr><td>7</td><td>MAX_INT</td><td><b>wake:</b> PPG FIFO</td></tr>
+                                    <tr><td>8</td><td>LSM_INT1</td><td><b>wake:</b> raise-to-wake</td></tr>
+                                    <tr><td>9&ndash;14</td><td>QSPI D2/CS/D0/CLK/D1/D3</td><td>display, SPI2/FSPI IOMUX (CS&nbsp;=&nbsp;10)</td></tr>
+                                    <tr><td>15</td><td>RTC_INT</td><td><b>wake:</b> alarm</td></tr>
+                                    <tr><td>16</td><td>BQ_BUTTON</td><td><b>wake:</b> button + ship-mode exit; dual-wired to BQ QON</td></tr>
+                                    <tr><td>17 / 18</td><td>GPS TX / RX</td><td>UART1 IOMUX</td></tr>
+                                    <tr><td>19 / 20</td><td>USB D- / D+</td><td>fixed (native USB)</td></tr>
+                                    <tr><td>21</td><td>EC_SigA (crown)</td><td><b>wake:</b> crown turn (bonus)</td></tr>
+                                    <tr><td>35&ndash;37</td><td>PSRAM</td><td>unavailable</td></tr>
+                                    <tr><td>38&ndash;40</td><td>SD CLK / CMD / DAT0</td><td>1-bit SD</td></tr>
+                                    <tr><td>41</td><td>Flashlight gate</td><td>ext pull-down</td></tr>
+                                    <tr><td>42</td><td>WS2812 data</td><td>signal RGB LED</td></tr>
+                                    <tr><td>43</td><td>EC_SigB (crown)</td><td>boot-log TX &mdash; FW ignores pre-init edge</td></tr>
+                                    <tr><td>44</td><td>TP-RST</td><td>boot-log RX &mdash; driven reset, blip harmless</td></tr>
+                                    <tr><td>45</td><td>QSPI_TE</td><td>strap (VDD_SPI); <b>NO external pull-up</b></td></tr>
+                                    <tr><td>46</td><td>TimePulse (1PPS)</td><td>strap (boot-msg); <b>no pull</b></td></tr>
+                                    <tr><td>47 / 48</td><td>Mic CLK / Dout</td><td>PDM</td></tr>
+                                </tbody>
+                            </table>
+                        </details>
+
+                        <h3>BLE radio</h3>
+                        <p>The WROOM-1U routes RF out to a <b>Johanson 2450AT18A100E chip antenna</b> in the
+                        top-left corner, through a small matching network (1&nbsp;pF series, 2.7&nbsp;nH shunt,
+                        3.9&nbsp;nH series). That network is an <b>(un)educated guess</b>: a proper LC match needs
+                        the physical board sent off for measurement, which realistically won't happen, so the
+                        values are a best-effort shot in the dark &mdash; it may end up needing a different network,
+                        or none. See <a href="#limitations">Known limitations</a> for the antenna-area and U.FL
+                        pigtail caveats that go with this.</p>
+
+                        <h3>Power architecture</h3>
+                        <p>USB-C&nbsp;5&nbsp;V feeds the <b>BQ25619</b> switching charger, which produces the SYS rail
+                        from the LiPo. SYS feeds a <b>TPS62840 buck</b> for the main logic rail, which in turn feeds
+                        an <b>XC6206 LDO</b> for 1.8&nbsp;V. A firmware-gated <b>5&nbsp;V boost</b> off the BQ PMID powers
+                        the LED loads and the MAX30101's LED driver.</p>
+                        <ul>
+                            <li><b>The logic rail is 3.2&nbsp;V, not 3.3&nbsp;V.</b> Two reasons: a small safety margin
+                            for every part on it, and the V<sub>SET</sub> resistor for 3.2&nbsp;V (100&nbsp;k) is a
+                            stocked <b>Basic</b> part, where 3.3&nbsp;V would need a 267&nbsp;k that isn't. Every 3.3&nbsp;V
+                            part runs happily at 3.2&nbsp;V.</li>
+                            <li><b>Two backup power sources, both diode-isolated</b> so they can't discharge back into
+                            the rail. A <b>0.22&nbsp;F supercap</b> holds the GPS for a ~2&nbsp;hr hot-start window (a real
+                            power saving on re-acquire), and an <b>ML621</b> rechargeable cell keeps the RTC running.
+                            Both are ~3.0&nbsp;V rated and fine on the 3.2&nbsp;V charge.</li>
+                            <li><b>The crown's tactile button does double duty.</b> Pin budget was tight, so the button
+                            is both a general-purpose input <b>and</b> the wake line that pulls the BQ25619 out of
+                            shipping mode (dual-wired to the charger's QON).</li>
+                            <li><b>An NTC thermistor watches the battery.</b> A 10&nbsp;k NTC in the BQ's TS divider gates
+                            charging by temperature &mdash; basic diligence for a LiPo in a sealed case.</li>
+                        </ul>
+
+                        <div class="fab-callout">
+                            <h4>How long does the RTC backup actually last?</h4>
+                            <p>The PCF85063A's timekeeping draw &mdash; CLKOUT disabled (JP5&nbsp;=&nbsp;GND), I&sup2;C idle &mdash;
+                            is about <b>220&nbsp;nA typical at 25&nbsp;&deg;C</b> (datasheet Rev.&nbsp;7.2). On the ML621's
+                            ~5.5&nbsp;mAh:</p>
+                            <p style="font-family:'JetBrains Mono',monospace; font-size:0.9rem;">
+                            5.5&nbsp;mAh &divide; 0.22&nbsp;&micro;A &asymp; 25,000&nbsp;h &asymp; <b>~2.9&nbsp;years</b> (ideal, typ)</p>
+                            <p>Worst case (datasheet max 450&nbsp;nA at 25&nbsp;&deg;C) is ~1.4&nbsp;years; a warmer wrist-side
+                            ~30&ndash;40&nbsp;&deg;C pushes the typical toward 250&nbsp;nA (~2.5&nbsp;years). Self-discharge and the
+                            charge-limit diode's leakage take more off the top, so realistically call it
+                            <b>a couple of years on a full charge</b> &mdash; not the "~4 years" quoted in older notes.
+                            And in normal use the cell is being topped up from the rail the whole time the watch is
+                            powered; this figure is the no-main-power hold time.</p>
+                        </div>
+
+                        <h3>Space &amp; time sensors</h3>
+                        <ul>
+                            <li><b>GPS (u-blox M10S)</b> sits on I&sup2;C bus&nbsp;1, with solder jumpers to switch it to
+                            UART (UART is the default) and to enable SAFEBOOT. <b>V<sub>CC_RF</sub> is supported but off
+                            by default</b>, since the current ceramic antenna is passive.</li>
+                            <li><b>Precise time is a headline feature, so the GPS 1PPS gets its own pin.</b> The M10S
+                            emits a <b>TimePulse (1PPS)</b> signal into a dedicated ESP32 GPIO; firmware uses that edge
+                            to discipline and sync the <b>PCF85063 RTC</b>. The RTC then holds accurate time between
+                            fixes. (TimePulse is the GPS's output &mdash; the RTC is what it corrects, not its source.)</li>
+                            <li><b>Magnetometer (LIS3MDL)</b> has a solder jumper to switch between I&sup2;C and SPI.
+                            This one is <span class="provisional-tag">possibly vestigial</span> &mdash; everything is
+                            already wired for I&sup2;C and it's unclear which pins SPI would even use, so it may be
+                            removed in a later rev.</li>
+                            <li><b>The IMU carries the ECG.</b> The LSM6DSV16X's Qvar inputs form a single-lead ECG;
+                            the <b>Qvar2 electrode</b> lives here and connects up to the crown through a pogo pin.</li>
+                        </ul>
+
+                        <h3>Air sensors</h3>
+                        <ul>
+                            <li><b>BME688</b> &mdash; classic I&sup2;C connection; the "AI-powered" gas/air-quality sensor.</li>
+                            <li><b>MEMS microphone (MSM261DGT003)</b> &mdash; a <b>digital PDM</b> part, so there's no analog
+                            front-end or ADC step to design around. CLK out, data in.</li>
+                        </ul>
+
+                        <h3>Lights</h3>
+                        <ul>
+                            <li><b>WS2812B</b> status RGB &mdash; addressable, so it needs a single dedicated data pin
+                            (no I&sup2;C), which is fine.</li>
+                            <li><b>Flashlight LED</b> &mdash; its gate is voltage-driven rather than just switched, giving
+                            variable brightness.</li>
+                        </ul>
+
+                        <h3>Skin sensors &amp; haptics</h3>
+                        <ul>
+                            <li><b>MAX30101 + TMP117</b> on the daughter board &mdash; classic I&sup2;C. The daughter also
+                            carries the <b>Qvar1 electrode</b>, the one that contacts the wrist.</li>
+                            <li><b>The DRV2605 haptic driver is on the MAIN board underside</b>, not the daughter &mdash;
+                            worth stating plainly because the schematic groups it with the skin-sensor sheet. It sits
+                            close to the LRA motor's wire pads.</li>
+                            <li><b>DRV enable solder jumper (JP12).</b> Default routes EN to a GPIO so firmware can cut
+                            the driver overnight for power; tie it high instead and you free that GPIO back up.</li>
+                        </ul>
+
+                        <h3>Two I&sup2;C buses</h3>
+                        <p>Two buses, split to dodge an address collision (the DRV2605 and CST9217 touch both want
+                        0x5A). The <b>slow, inert devices &mdash; DRV2605 and the BQ25619 &mdash; sit on bus&nbsp;2</b>; everything
+                        else lives on bus&nbsp;1.</p>
+                        <table class="spec-table">
+                            <thead>
+                                <tr><th>Bus 1 (GPIO1/2)</th><th>Bus 2 (GPIO4/5)</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>VEML6030 (0x10), LIS3MDL (0x1C), MAX-M10S (0x42), TMP117 (0x48), PCF85063 (0x51), MAX30101 (0x57), CST9217 (0x5A), LSM6DSV16X (0x6B), BME688 (0x76)</td>
+                                    <td>DRV2605 (0x5A), BQ25619 (0x6A)</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- ==================== PCB ==================== -->
+                    <section id="pcb" class="content-section">
+                        <h2>PCB &mdash; Design Decisions</h2>
+
+                        <h3>Panelization &amp; stackup</h3>
+                        <p>The main and daughter boards are drawn and <b>fabricated together as one panel</b>, then
+                        sawed and filed apart before reflow. It's purely a cost call &mdash; this build is involved
+                        enough already, and ten minutes with a saw saves real money on a small run.</p>
+                        <p>The stackup is <b>1&nbsp;mm, 4-layer</b>: the thinnest 4-layer the fabricator offers cheaply
+                        (0.8&nbsp;mm costs more), and four layers are what the density needs.</p>
+                        <table class="spec-table">
+                            <thead>
+                                <tr><th>Layer</th><th>Role</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>L1 &mdash; Top</td><td>Components + signals + GND fill; QSPI and the BQ25619 switching loop</td></tr>
+                                <tr><td>L2 &mdash; Inner 1</td><td>Solid ground plane, unbroken under the high-speed traces</td></tr>
+                                <tr><td>L3 &mdash; Inner 2</td><td>3.3&nbsp;V plane + SYS / 1.8&nbsp;V / 5&nbsp;V power</td></tr>
+                                <tr><td>L4 &mdash; Bottom</td><td>Signals + GND fill; I&sup2;C, UART, interrupts, underside parts</td></tr>
+                            </tbody>
+                        </table>
+
+                        <h3>Trace widths</h3>
+                        <table class="spec-table">
+                            <thead>
+                                <tr><th>Width</th><th>Use</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>0.17&nbsp;mm</td><td>RF / 50&nbsp;&Omega; controlled (BLE, GPS) &mdash; <b>not yet recalculated for the 1&nbsp;mm stackup</b></td></tr>
+                                <tr><td>0.2&nbsp;mm</td><td>General signals &mdash; QSPI, USB, I&sup2;C, UART, PDM, interrupts</td></tr>
+                                <tr><td>0.4&nbsp;mm</td><td>Power rails</td></tr>
+                                <tr><td>up to 0.6&nbsp;mm</td><td>High current &mdash; charger switch node, battery, VBUS</td></tr>
+                            </tbody>
+                        </table>
+
+                        <h3>Placement philosophy</h3>
+                        <p>Placement was driven by two things: the <b>physical constraints of the parts</b> (which
+                        face which way, what stacks under what) and their <b>usefulness in the worn position</b>.
+                        It took a lot of reshuffling and it's good now &mdash; not perfect, but Mk&nbsp;II can improve it,
+                        especially once the WROOM module is broken into discrete parts and the height it claims is
+                        recovered.</p>
+                        <p><i>Orientation note: positions below are described as if you're reading the watch on your
+                        wrist &mdash; the crown is on the right edge.</i></p>
+
+                        <h4>Main board &mdash; top side</h4>
+                        <ul>
+                            <li><b>Crown side (right edge):</b> the tactile button, the Qvar2 pogo pin, the encoder, and the crown interface.</li>
+                            <li><b>Top edge (facing away from you):</b> the VEML6030 ambient-light sensor (aimed outward) and the eight solder pads for the daughter-board wires.</li>
+                            <li><b>Top-right corner:</b> the GPS module and its ceramic antenna, aimed outward; the GPS supercap tucked just inboard of it, beneath the VEML.</li>
+                            <li><b>Lower-right:</b> the 1.8&nbsp;V LDO, the BME688, and the MEMS mic.</li>
+                            <li><b>Bottom-right:</b> the magnetometer and the flashlight LED.</li>
+                            <li><b>Bottom (toward you):</b> the IMU and the signal RGB LED, the LED facing the user.</li>
+                            <li><b>Bottom-center:</b> the WROOM module, which claims a big chunk of the board.</li>
+                            <li><b>Lower-left:</b> the 3.2&nbsp;V buck.</li>
+                            <li><b>Left edge:</b> the BQ25619 charger.</li>
+                            <li><b>Left-center:</b> the RTC and the display connector.</li>
+                            <li><b>Upper-left corner:</b> the BLE antenna keep-out zone.</li>
+                        </ul>
+                        <p>The <b>NTC sits on the top side</b>, positioned over where the battery's center lands;
+                        the battery itself is mounted on the underside, so the thermistor reads it through the
+                        board with thermal vias between them.</p>
+
+                        <h4>Main board &mdash; underside</h4>
+                        <ul>
+                            <li><b>DRV2605</b> under the BME/mic region.</li>
+                            <li><b>USB-C jack</b> under the RTC and display connector.</li>
+                            <li><b>SD card socket</b> toward the bottom-left, with the <b>LRA motor sitting ~0.5&nbsp;mm beneath it</b> (the motor lives in its own case pocket, two wires to nearby pads).</li>
+                            <li><b>Battery pads</b> under the ESP, as close to it as they'd go.</li>
+                            <li>The <b>380&nbsp;mAh LiPo</b> occupies most of one side, sitting under the GPS, 1.8&nbsp;V reg, magnetometer, IMU, and most of the ESP.</li>
+                            <li><b>Three test pads beside the BQ:</b> PMID_GOOD, BQ_STAT, BQ_INT.</li>
+                        </ul>
+
+                        <h4>Daughter board</h4>
+                        <ul>
+                            <li><b>Top:</b> the caps and resistors, the Qvar1 electrode, the eight solder pads, and SDA/SCL tap pads if you want to probe the bus.</li>
+                            <li><b>Underside:</b> the MAX30101, the TMP117, and the Qvar1 pogo contact pad.</li>
+                        </ul>
+                        <p>The two boards join with an <b>eight-conductor link</b> (J2&nbsp;&harr;&nbsp;J3): I&sup2;C bus&nbsp;1,
+                        MAX_INT, the Qvar1 electrode line, the +5&nbsp;V / +3.3&nbsp;V / +1.8&nbsp;V rails, and ground.</p>
+
+                        <h3>Layout care</h3>
+                        <ul>
+                            <li><b>Heavy via stitching</b> around the BLE and GPS antenna lines.</li>
+                            <li>The ESP32's <b>3.3&nbsp;V and ground each get four vias</b> down to their planes.</li>
+                            <li>The <b>BQ switching node is parked in the bottom-left corner</b>, as far as possible
+                            from the delicate sensors &mdash; to be verified on the prototype.</li>
+                        </ul>
+                    </section>
+
+                    <!-- ==================== LIMITATIONS ==================== -->
+                    <section id="limitations" class="content-section">
+                        <h2>Known Limitations &amp; Mk II</h2>
+                        <p>Honest list of what's shaky on these boards and what the next revision should fix.</p>
+
+                        <div class="disclaimer">
+                            <h4>RF is the weak spot</h4>
+                            <p><b>The 50&nbsp;&Omega; RF traces (BLE, GPS) are 0.17&nbsp;mm and were not recalculated for the
+                            1&nbsp;mm stackup.</b> That width carried over from the earlier 0.8&nbsp;mm design; the correct
+                            50&nbsp;&Omega; width for the actual 1&nbsp;mm 4-layer build is almost certainly different, so antenna
+                            performance on these boards is suspect until it's re-derived.</p>
+                            <p><b>The BLE match network is a guess</b> &mdash; a proper LC match needs the physical board
+                            measured, which realistically won't happen, so the network may need different values or
+                            none at all. At a minimum the antenna wants <b>more board area</b> than it got.</p>
+                            <p><b>The U.FL pigtail is a hand-soldered kludge.</b> The WROOM-1U brings RF out on a U.FL
+                            connector; the antenna's matching pigtail plugs into it, then gets cut to length and its
+                            signal and ground soldered back to PCB pads next to the antenna area. It works, but it's
+                            fiddly and not how this should be done.</p>
+                        </div>
+
+                        <ul>
+                            <li><b>GPS antenna routing drops through a via</b> before reaching the antenna &mdash; not
+                            ideal for RF. Mk&nbsp;II fix.</li>
+                            <li><b>Compass SPI/I&sup2;C jumper</b> is likely vestigial and a candidate for removal.</li>
+                            <li><b>Daughter-board wires &rarr; flex.</b> The eight-wire bundle and its solder pads should
+                            become a flex daughter board that plugs into a standard FPC connector on the main board.</li>
+                            <li><b>Proper connectors for the battery, crown, and LRA</b> instead of flying leads to pads.</li>
+                            <li><b>Decompose the WROOM module</b> into discrete ESP32-S3 + flash/PSRAM + RF front-end.
+                            That reclaims significant board area <b>and</b> lets the RF section move somewhere
+                            antenna-friendly &mdash; the highest-leverage change for Mk&nbsp;II, and the one that would clear
+                            up most of the RF problems above.</li>
+                        </ul>
+                    </section>
+
+                </div>
+
+                <!-- ==================== SIDEBAR ==================== -->
+                <aside class="sidebar">
+                    <div class="sidebar-section">
+                        <h3>On This Page</h3>
+                        <ul class="sidebar-list">
+                            <li><a href="#overview">Two Boards, One Schematic</a></li>
+                            <li><a href="#circuit">Circuit Decisions</a></li>
+                            <li><a href="#pcb">PCB Decisions</a></li>
+                            <li><a href="#limitations">Limitations &amp; Mk II</a></li>
+                        </ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>At a Glance</h3>
+                        <p>Two 1&nbsp;mm 4-layer boards, main + skin-facing daughter, panelized as one design.<br>
+                        ESP32-S3, 32 GPIOs fully assigned. Two I&sup2;C buses. 3.2&nbsp;V logic rail.<br>
+                        Schematic: 1 root + 6 subsheets.</p>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>Repository</h3>
+                        <ul class="sidebar-list">
+                            <li><a href="https://github.com/porupski/kompic-wearable" target="_blank" rel="noopener">kompic-wearable</a></li>
+                            <li><a href="https://github.com/porupski/kompic-wearable/tree/main/hardware/Kompic_Mk1" target="_blank" rel="noopener">/hardware/Kompic_Mk1 (KiCad)</a></li>
+                            <li><a href="https://github.com/porupski/kompic-wearable/blob/main/hardware/Kompic_Mk1/Kompic_Mk1-Schematic_iv7.1.pdf" target="_blank" rel="noopener">Schematic PDF (iv7.1)</a></li>
+                        </ul>
+                    </div>
+                </aside>
+
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>
