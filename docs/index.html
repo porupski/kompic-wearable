@@ -41,7 +41,7 @@
         <div class="container">
             <h1><b>Kompic&#x304;</b></h1>
             <p class="ipa-subtitle"><i>/&#712;kompit&#597;/</i></p>
-            <p class="version-mark">Mk&nbsp;I &middot; <code>iv7.0</code></p>
+            <p class="version-mark">Mk&nbsp;I &middot; <code>iv7.1</code></p>
             <p class="expansion">Compact Open Multisensor Platform &amp; Apparatus</p>
             <p><b>A Fully Open-Source ML Wearable Sensor Platform</b></p>
             <p>An offline-first, ML-capable wrist-mounted instrument.
@@ -205,13 +205,18 @@
                         <h2>3D Models &amp; Printing</h2>
                         <h3 class="guide-link"><a href="3dprinting.html#hero">[3D Printing Guide &rarr;]</a></h3>
                         <p><span class="status-badge planned">Planned</span></p>
-                        <p>Two-piece case: a front plate holding the display and a back body holding the PCBs and
-                        battery, fastened with M2 screws into epoxied brass inserts. Prototypes print in PLA/PETG
-                        on a desktop FDM/SLA machine; the production case is SLM titanium (Ti-6Al-4V) ordered from
-                        JLCPCB. Onshape source files and print settings <i>(coming soon)</i>.</p>
+                        <p><b>Single-piece case plus a separate crown.</b> The body is one 3D-printed
+                        titanium shell &mdash; no front-plate/back-body split and no assembly screws. Everything
+                        loads in from the open display side and is captured by the body's internal features;
+                        the display, attached on last with a 1&nbsp;mm double-sided tape, closes the case. The
+                        crown is the only separate machined part &mdash; ordered oversized and finished by hand.</p>
+                        <p>Prototypes are modeled in <b>Onshape</b> and printed in plastic on a <b>Bambu Lab A1
+                        mini</b> for fit testing; the production case is <b>SLM titanium (Ti-6Al-4V)</b>. Onshape
+                        source files and print settings <i>(coming soon)</i>.</p>
                         <ul>
-                            <li>PETG recommended for prototype durability</li>
-                            <li>Antenna/sensor window: clear SLA resin insert for BLE, GPS, and ambient light</li>
+                            <li>Fastener-free internal retention: side prongs hold the main PCB at height, a recess seats the USB-C jack, and a dedicated pocket holds the LRA</li>
+                            <li>Optical/RF windows (BLE, GPS, status LED, flashlight, ambient light): epoxy-filled through-holes &mdash; clear where light passes, opaque where it's only structural</li>
+                            <li>Mic + BME688 air port: a PTFE sticker inside, acoustic/gas permeable and water resistant</li>
                             <li>Open-source case files <i>(coming soon)</i></li>
                         </ul>
                     </section>
