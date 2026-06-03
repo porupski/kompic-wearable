@@ -2,7 +2,7 @@
 AE1,GPS_Ceramic_Antenna_8x8mm_v1.0,1,Ceramic GPS Antenna,
 AE3,ANT-SMD_L3.2-W1.6,1,2450AT18A100E,C89334
 BT1,Battery_solder_terminals_v1,1,"LiPo 3,7V 380mAh",
-BT2,DMS_3R3_224_supercap_feets_v1,1,ML651 3.0V,
+BT2,DMS_3R3_224_supercap_feets_v1,1,ML621 3.0V,
 C1,0402,1,1.0pF,
 "C10, C16, C19, C20, C25, C26, C28, C29, C30, C31, C32, C33, C38, C39, C40, C41, C42, C43, C44, C45, C8",0402,21,100nF,
 "C11, C13, C14, C2, C3, C5, C6, C9",0402,8,10uF,

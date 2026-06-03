@@ -120,7 +120,7 @@ These ICs/connectors/mechanicals are placed by hand on the hot plate per the
 - **J1** OK-F024-04 24-pin BTB display connector
 - **J2, J3** Custom inter-board connectors
 - **BT1** LiPo 3.7V 380mAh
-- **BT2** ML651 RTC backup cell
+- **BT2** ML621 RTC backup cell
 - **C17** 0.22F supercap (GPS backup)
 - **M1** ELV1411A LRA (daughter PCB pocket)
 - **CN2** Qvar electrode test point
