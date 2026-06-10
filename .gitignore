@@ -32,6 +32,10 @@ firmware/**/*.elf
 firmware/**/*.bin
 firmware/**/*.map
 
+# Datasheets
+docs/datasheets/
+docs/fetch_datasheets.py # utils script for downloading datasheets from datasheet_manifest.md
+
 # ---------- Editor / OS ----------
 .vscode/
 *.swp
