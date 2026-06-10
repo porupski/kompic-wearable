@@ -1,0 +1,29 @@
+idf_component_register(
+    SRCS
+        "boot_power.c"
+        "boot_hw_init.c"
+        "boot_display.c"
+        "boot_tasks.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        driver
+        freertos
+        esp_timer
+        esp_lvgl_port
+        data_broker
+        app_logic
+        lvgl_ui
+        pcf85063
+        qmc5883p
+        tu10f
+        bh1750
+        nvs_flash
+        espressif__esp_lcd_touch_cst816s
+        drv2605
+        qmi8658
+        cross_driver
+        fusion
+        bme280
+        max30102
+        bq25619
+)
