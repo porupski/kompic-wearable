@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "max_m10s.c"
+        "gps_tile.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        freertos
+        esp_timer
+        data_broker
+        lvgl
+        esp_lvgl_port
+        pcf85063
+        cross_driver
+    PRIV_REQUIRES
+        boot_logic
+)
