@@ -1,0 +1,5 @@
+## Bosch BME68x Sensor API -- managed component for the BME688 driver.
+## Pulled at build time by IDF's component manager.
+dependencies:
+  boschsensortec/bme68x_sensor_api: "^4.4.8"
+  idf: ">=5.0"
