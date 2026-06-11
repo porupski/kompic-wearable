@@ -1,0 +1,17 @@
+idf_component_register(
+    SRCS
+        "lsm6dsv16x.c"
+        "imu_tile.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        freertos
+        nvs_flash
+        data_broker
+        boot_logic
+        lvgl_ui
+        cross_driver
+    PRIV_REQUIRES
+        boot_logic
+)
