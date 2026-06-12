@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "drv2605.c"
+        "haptic.c"
+        "haptic_tile.c"
+    INCLUDE_DIRS 
+    "."
+    REQUIRES
+        data_broker 
+        lvgl
+        lvgl_ui
+        esp_lvgl_port 
+        driver 
+        freertos 
+        esp_timer 
+    PRIV_REQUIRES 
+        boot_logic
+)
