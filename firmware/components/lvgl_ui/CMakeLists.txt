@@ -1,0 +1,40 @@
+idf_component_register(
+    SRCS
+        "lvgl_ui.c"
+        "ui_broker.c"
+        "ui_status_bar.c"
+        "ui_lock_screen.c"
+        "ui_shutdown_overlay.c"
+        "ui_main_screen.c"
+        "ui_settings_screen.c"
+        "ui_navigation.c"
+        "ui_notif_overlay.c"
+        "tile_registry.c"
+        "system_tile.c"
+        "fa5_select_14.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        lvgl
+        esp_lvgl_port
+        data_broker
+        app_logic
+        veml6030
+        pcf85063
+        max_m10s
+        lis3mdl
+        drv2605
+        lsm6dsv16x
+        bme688
+        max30101
+        qvar_ecg
+        alarm
+
+        esp_timer
+        driver
+        esp_adc
+        nvs_flash
+    PRIV_REQUIRES
+        spi_flash
+        boot_logic
+)
