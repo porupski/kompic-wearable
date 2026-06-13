@@ -32,8 +32,8 @@
 4. Opus commits at EOD
 
 **Output:** 
-- `/docs/porting/CST9217_2026-06-10_iv7.2.f0.0.md`
-- `/docs/porting/PCF85063_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/CST9217_2026-06-10_iv7.1.f0.0.md`
+- `/docs/porting/PCF85063_2026-06-10_iv7.1.f0.0.md`
 - `/components/cst9217/`, `/components/pcf85063/` (drivers + tiles)
 - `/test/test_cst9217.c`, `/test/test_pcf85063.c` (test harnesses)
 - One commit per module (or one commit at the end)
@@ -63,7 +63,7 @@
 ## WHAT EACH BATCH OUTPUTS
 
 Each batch produces:
-- **1 dated .md per module** (e.g., `CST9217_2026-06-10_iv7.2.f0.0.md`) with:
+- **1 dated .md per module** (e.g., `CST9217_2026-06-10_iv7.1.f0.0.md`) with:
   - Summary + hardware spec
   - Code audit (what's reusable)
   - Implementation skeleton

@@ -1,4 +1,4 @@
-# DataBroker Porting — iv7.2.f0.0
+# DataBroker Porting — iv7.1.f0.0
 **Date:** 2026-06-13
 **Module:** `firmware/components/data_broker/`
 **Phase:** 6.1 (Infrastructure)

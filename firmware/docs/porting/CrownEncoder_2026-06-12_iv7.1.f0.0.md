@@ -1,7 +1,7 @@
 # Crown Encoder -- Porting Log
 **Module:** Rotary mechanical encoder (quadrature, with detents), decoded by ESP32-S3 PCNT
 **Date:** 2026-06-12
-**Firmware:** `iv7.2.f0.0`
+**Firmware:** `iv7.1.f0.0`
 **Hardware authority:** `docs/02_Kompic_Mk1_System_Instructions_v7.2.md`, §GPIO ASSIGNMENT (GPIO21 EC_SigA, GPIO43 EC_SigB).
 **Brief:** `docs/17_PHASE_4_BATCH_ACTUATORS.md`, Module 2.
 **Author:** Claude (Opus 4.7), under master prompt `docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md`.
@@ -174,14 +174,14 @@ This is the bench bring-up tool for the crown.
 
 ## Deliverable checklist
 
-- [x] `docs/porting/CrownEncoder_2026-06-12_iv7.2.f0.0.md` -- this file.
+- [x] `docs/porting/CrownEncoder_2026-06-12_iv7.1.f0.0.md` -- this file.
 - [x] `components/encoder/encoder.{c,h}` -- new driver (PCNT + 5 ms drain + glitch / debounce / boot guard).
 - [x] `components/encoder/CMakeLists.txt` -- new component registration.
 - [x] `test/test_encoder.c` -- standalone harness, stubs g_ui_event_q + ui_event_t.
 - [ ] Commit -- prepared message:
 
 ```
-[CrownEncoder] Porting: PCNT quadrature input, iv7.2.f0.0, 6 issues noted
+[CrownEncoder] Porting: PCNT quadrature input, iv7.1.f0.0, 6 issues noted
 
 - New components/encoder/ component (new input device, no carryforward).
   PCNT-based quadrature decode on GPIO21 (A) / GPIO43 (B).
@@ -205,5 +205,5 @@ This is the bench bring-up tool for the crown.
 - [DEFECT-005] No direction-reversal flag.
 - [DEFECT-006] xQueueSend non-blocking (intentional).
 
-See: firmware/docs/porting/CrownEncoder_2026-06-12_iv7.2.f0.0.md
+See: firmware/docs/porting/CrownEncoder_2026-06-12_iv7.1.f0.0.md
 ```

@@ -144,7 +144,7 @@ static void test_e_nvs_roundtrip(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_alarm starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_alarm starting (iv7.1.f0.0)");
 
     broker_init();
     broker_alarm_set_hw_status(true);

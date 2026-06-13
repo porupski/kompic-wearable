@@ -1,6 +1,6 @@
 # PHASE 5 BATCH — STORAGE + VOICE + ECG (ADVANCED, v2-LEANING)
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -32,7 +32,7 @@ New module, no old code.
 - Measure: mount time, write speed, unmount time
 
 **Deliverables:**
-- `/docs/porting/SDCard_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/SDCard_2026-06-10_iv7.1.f0.0.md`
 - `/components/sdcard/sdcard.{c,h}` (SDMMC host, FatFS wrapper, file ops)
 - `/components/sdcard/CMakeLists.txt`
 - `/test/test_sdcard.c` (standalone, SDMMC init + mount + file write/read)
@@ -65,7 +65,7 @@ New module, no old code.
 - Measure: DMA latency, sample rate accuracy
 
 **Deliverables:**
-- `/docs/porting/PDM_Mic_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/PDM_Mic_2026-06-10_iv7.1.f0.0.md`
 - `/components/mic_pdm/mic_pdm.{c,h}` (I2S PDM driver, ring buffer, capture API)
 - `/components/mic_pdm/CMakeLists.txt`
 - `/test/test_mic_pdm.c` (standalone, I2S init + capture + optional SD save)
@@ -97,7 +97,7 @@ New module, no old code. Depends on LSM6DSV16X (Phase 2).
 - Measure: register read latency
 
 **Deliverables:**
-- `/docs/porting/QvarECG_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/QvarECG_2026-06-10_iv7.1.f0.0.md`
 - `/components/qvar_ecg/qvar_ecg.{c,h}` (Qvar read, impedance check, ECG capture)
 - `/components/qvar_ecg/ecg_tile.{c,h}` (optional UI, waveform display stub)
 - `/components/qvar_ecg/CMakeLists.txt`
@@ -108,9 +108,9 @@ New module, no old code. Depends on LSM6DSV16X (Phase 2).
 ## OUTPUT
 
 You will produce **3 dated .md files** in `/docs/porting/`:
-- SDCard_2026-06-10_iv7.2.f0.0.md
-- PDM_Mic_2026-06-10_iv7.2.f0.0.md
-- QvarECG_2026-06-10_iv7.2.f0.0.md
+- SDCard_2026-06-10_iv7.1.f0.0.md
+- PDM_Mic_2026-06-10_iv7.1.f0.0.md
+- QvarECG_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

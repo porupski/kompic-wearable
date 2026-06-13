@@ -100,7 +100,7 @@ static void subtest_event_name_table(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_cross_driver starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_cross_driver starting (iv7.1.f0.0)");
 
     int64_t t0 = esp_timer_get_time();
     cross_driver_init();

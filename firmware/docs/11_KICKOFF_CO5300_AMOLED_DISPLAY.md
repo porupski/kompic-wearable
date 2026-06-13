@@ -2,7 +2,7 @@
 **Assigned:** 10 June 2026
 **Module:** CO5300 (QSPI AMOLED, 410×502, RGB888)
 **Hardware authority:** `Kompic_Mk1_System_Instructions_v7.2.md` §DISPLAY
-**Firmware version:** `iv7.2.f0.0`
+**Firmware version:** `iv7.1.f0.0`
 **Master instructions:** `KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md` (required reading)
 
 ---
@@ -42,7 +42,7 @@ Cite the exact section numbers from v7.2 in your .md.
 
 ### 2. Create the .md document
 
-Create: `/docs/porting/CO5300_2026-06-10_iv7.2.f0.0.md`
+Create: `/docs/porting/CO5300_2026-06-10_iv7.1.f0.0.md`
 
 Fill in these sections:
 
@@ -140,7 +140,7 @@ Create the test harness in `/test/test_co5300.c`.
 
 Commit:
 ```
-[CO5300] Porting: AMOLED display driver, iv7.2.f0.0
+[CO5300] Porting: AMOLED display driver, iv7.1.f0.0
 
 - Hardware spec extracted from v7.2 §DISPLAY
 - Driver skeleton: register map, SPI wrapper, init sequence
@@ -149,14 +149,14 @@ Commit:
 - [DEFECT-002] TE pin placeholder; no real tearing sync in v1
 - [DEFECT-001] WHO_AM_I verification TBD (datasheet silent)
 
-See: docs/porting/CO5300_2026-06-10_iv7.2.f0.0.md
+See: docs/porting/CO5300_2026-06-10_iv7.1.f0.0.md
 ```
 
 ---
 
 ## DELIVERABLES AT EOD
 
-- [ ] `/docs/porting/CO5300_2026-06-10_iv7.2.f0.0.md` (complete, all sections filled, open questions posted if any)
+- [ ] `/docs/porting/CO5300_2026-06-10_iv7.1.f0.0.md` (complete, all sections filled, open questions posted if any)
 - [ ] `/components/co5300/co5300.h` (register map + function stubs)
 - [ ] `/components/co5300/co5300.c` (SPI wrapper, skeleton implementations, profiling hooks)
 - [ ] `/components/co5300/CMakeLists.txt` (minimal, just the .c/.h)

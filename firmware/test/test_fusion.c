@@ -125,7 +125,7 @@ static void scenario_d_none(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_fusion starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_fusion starting (iv7.1.f0.0)");
 
     broker_init();
     cross_driver_init();

@@ -1,6 +1,6 @@
 # PHASE 2 BATCH — SENSORS 1 (IMU + COMPASS + LIGHT)
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -35,7 +35,7 @@ Old code: QMI8658 (6-axis IMU, read-before-write pattern, complementary filter i
 - Measure: I2C transaction times, ISR latency, boot-to-ready
 
 **Deliverables:**
-- `/docs/porting/LSM6DSV16X_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/LSM6DSV16X_2026-06-10_iv7.1.f0.0.md`
 - `/components/lsm6dsv16x/lsm6dsv16x.{c,h}` (register map, WHO_AM_I, INT1 config, data read)
 - `/components/lsm6dsv16x/imu_tile.{c,h}` (complementary filter from old code, reused; tile resized for 410×502)
 - `/components/lsm6dsv16x/CMakeLists.txt`
@@ -71,7 +71,7 @@ Old code: QMC5883P (dead; different address 0x2C, different register map). LIS3M
 - Measure: I2C transaction times, boot-to-ready
 
 **Deliverables:**
-- `/docs/porting/LIS3MDLTR_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/LIS3MDLTR_2026-06-10_iv7.1.f0.0.md`
 - `/components/lis3mdl/lis3mdl.{c,h}` (register map, WHO_AM_I, data read, LRA offset measurement)
 - `/components/lis3mdl/compass_tile.{c,h}` (hard-iron calibration UI from old code; add LRA offset step)
 - `/components/lis3mdl/CMakeLists.txt`
@@ -107,7 +107,7 @@ Old code: BH1750 (simpler sensor, different command set, different lux range). V
 - Measure: I2C transaction times, auto-brightness update latency
 
 **Deliverables:**
-- `/docs/porting/VEML6030_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/VEML6030_2026-06-10_iv7.1.f0.0.md`
 - `/components/veml6030/veml6030.{c,h}` (register map, auto-ranging, lux read)
 - `/components/veml6030/light_tile.{c,h}` (EMA filter, lux-to-percentage, auto-brightness update, panel brightness write)
 - `/components/veml6030/CMakeLists.txt`
@@ -118,9 +118,9 @@ Old code: BH1750 (simpler sensor, different command set, different lux range). V
 ## OUTPUT
 
 You will produce **3 dated .md files** in `/docs/porting/`:
-- LSM6DSV16X_2026-06-10_iv7.2.f0.0.md
-- LIS3MDLTR_2026-06-10_iv7.2.f0.0.md
-- VEML6030_2026-06-10_iv7.2.f0.0.md
+- LSM6DSV16X_2026-06-10_iv7.1.f0.0.md
+- LIS3MDLTR_2026-06-10_iv7.1.f0.0.md
+- VEML6030_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

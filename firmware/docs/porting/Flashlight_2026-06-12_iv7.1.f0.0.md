@@ -1,7 +1,7 @@
 # Flashlight LED -- Porting Log
 **Module:** High-power LED driven by LEDC PWM, GPIO41
 **Date:** 2026-06-12
-**Firmware:** `iv7.2.f0.0`
+**Firmware:** `iv7.1.f0.0`
 **Hardware authority:** `docs/02_Kompic_Mk1_System_Instructions_v7.2.md`, §GPIO ASSIGNMENT (GPIO41 GPIO_FLASHLIGHT).
 **Brief:** `docs/17_PHASE_4_BATCH_ACTUATORS.md`, Module 4.
 **Author:** Claude (Opus 4.7), under master prompt `docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md`.
@@ -167,14 +167,14 @@ The bench operator pairs this with a current meter on the LED rail to characteri
 
 ## Deliverable checklist
 
-- [x] `docs/porting/Flashlight_2026-06-12_iv7.2.f0.0.md` -- this file.
+- [x] `docs/porting/Flashlight_2026-06-12_iv7.1.f0.0.md` -- this file.
 - [x] `components/flashlight/flashlight.{c,h}` -- new driver (LEDC + thin brightness API).
 - [x] `components/flashlight/CMakeLists.txt` -- new component registration.
 - [x] `test/test_flashlight.c` -- standalone harness with brightness sweep + pulse pattern.
 - [ ] Commit -- prepared message:
 
 ```
-[Flashlight] Porting: LEDC PWM flashlight driver, iv7.2.f0.0, 6 issues noted
+[Flashlight] Porting: LEDC PWM flashlight driver, iv7.1.f0.0, 6 issues noted
 
 - New components/flashlight/ component. LEDC timer 0 channel 0 on
   GPIO41, 1 kHz / 8-bit. 1 kHz is above flicker fusion and below
@@ -197,5 +197,5 @@ The bench operator pairs this with a current meter on the LED rail to characteri
 - [DEFECT-005] LEDC channel 0 may collide with display backlight.
 - [DEFECT-006] No PSU rail dependency declared.
 
-See: firmware/docs/porting/Flashlight_2026-06-12_iv7.2.f0.0.md
+See: firmware/docs/porting/Flashlight_2026-06-12_iv7.1.f0.0.md
 ```

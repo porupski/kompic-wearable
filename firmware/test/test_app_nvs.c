@@ -122,7 +122,7 @@ static void subtest_async_queue_overwrite(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_app_nvs starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_app_nvs starting (iv7.1.f0.0)");
     subtest_first_boot_defaults();
     subtest_mag_cal_roundtrip();
     subtest_gps_date_guard();

@@ -180,7 +180,7 @@ static void subtest_ui_event_queue(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_data_broker starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_data_broker starting (iv7.1.f0.0)");
     int64_t t0 = esp_timer_get_time();
     broker_init();
     int64_t t1 = esp_timer_get_time();

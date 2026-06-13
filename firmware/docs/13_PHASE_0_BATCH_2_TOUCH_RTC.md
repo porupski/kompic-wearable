@@ -1,6 +1,6 @@
 # PHASE 0 BATCH 2 — TOUCH + RTC
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -34,7 +34,7 @@ Old code: CST816S (similar protocol, ISR pattern reusable). New chip is CST9217 
 - Measure: I2C transaction time @ 400 kHz, ISR latency
 
 **Deliverables:**
-- `/docs/porting/CST9217_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/CST9217_2026-06-10_iv7.1.f0.0.md`
 - `/components/cst9217/cst9217.{c,h}` (register map, ISR handler, queue output)
 - `/components/cst9217/CMakeLists.txt`
 - `/test/test_cst9217.c` (standalone, probes I2C + INT)
@@ -66,7 +66,7 @@ Old code: PCF85063 copied verbatim, same chip. v5 code has Phase-15 UTC fix (tim
 - Measure: I2C transaction time, boot-to-ready time
 
 **Deliverables:**
-- `/docs/porting/PCF85063_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/PCF85063_2026-06-10_iv7.1.f0.0.md`
 - `/components/pcf85063/pcf85063.{c,h}` (copied from v5, no changes except confirm timegm path)
 - `/components/pcf85063/rtc_tile.{c,h}` (resize for 410×502, display local time)
 - `/components/pcf85063/CMakeLists.txt`
@@ -77,8 +77,8 @@ Old code: PCF85063 copied verbatim, same chip. v5 code has Phase-15 UTC fix (tim
 ## OUTPUT
 
 You will produce **2 dated .md files** in `/docs/porting/`:
-- CST9217_2026-06-10_iv7.2.f0.0.md
-- PCF85063_2026-06-10_iv7.2.f0.0.md
+- CST9217_2026-06-10_iv7.1.f0.0.md
+- PCF85063_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

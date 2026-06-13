@@ -1,7 +1,7 @@
 # KOMPIC̄ Mk I FIRMWARE PORTING — MASTER PROMPT FOR CLAUDE CODE
 **Context date:** 10 June 2026
 **Hardware authority:** `Kompic_Mk1_System_Instructions_v7.2.md`
-**Firmware version baseline:** `iv7.2.f0.0` (hardware 7.2, firmware 0.0)
+**Firmware version baseline:** `iv7.1.f0.0` (hardware 7.2, firmware 0.0)
 **Last updated:** 2026-06-10
 
 ---
@@ -16,7 +16,7 @@ You are not architecting. You are not inventing. You are methodically porting, t
 
 ## ABSOLUTE RULES
 
-1. **One module per day, one .md document per module.** Each document is time-date-stamped and versioned as `[Module]_YYYY-MM-DD_iv7.2.f0.0.md`.
+1. **One module per day, one .md document per module.** Each document is time-date-stamped and versioned as `[Module]_YYYY-MM-DD_iv7.1.f0.0.md`.
 
 2. **Live in the document.** All decisions, code diffs, test notes, and profiling data go into the .md file. No hidden work. At day's end, the .md is the record of what happened.
 
@@ -34,7 +34,7 @@ You are not architecting. You are not inventing. You are methodically porting, t
 
 7. **Hardware pins come from v7.2.** Before writing a line, grep `Kompic_Mk1_System_Instructions_v7.2.md` for the module's GPIO/address/bus. If v7.2 is silent, ask first. Don't guess.
 
-8. **Versioning:** every .md is `[Module]_YYYY-MM-DD_iv7.2.f0.0.md`. When the firmware version bumps (e.g., after first hardware test), it becomes `iv7.2.f0.1`. Hardware version (7.2) never changes until PCB rev.
+8. **Versioning:** every .md is `[Module]_YYYY-MM-DD_iv7.1.f0.0.md`. When the firmware version bumps (e.g., after first hardware test), it becomes `iv7.1.f0.1`. Hardware version (7.2) never changes until PCB rev.
 
 ---
 
@@ -46,7 +46,7 @@ You are not architecting. You are not inventing. You are methodically porting, t
 - Skim the old code (if porting) — note what's reusable, what's dead weight.
 
 **Work:**
-- Create `.md` file: `[Module]_YYYY-MM-DD_iv7.2.f0.0.md`
+- Create `.md` file: `[Module]_YYYY-MM-DD_iv7.1.f0.0.md`
 - Start with a **Summary** section: what is this module, what does it do, what hardware dependency.
 - **Pinout/bus from v7.2** section: exact pins, addresses, interrupts, wake capability.
 - **Code audit** section (if porting): what was in the old code, what stays, what dies, why.
@@ -59,7 +59,7 @@ You are not architecting. You are not inventing. You are methodically porting, t
 **Before EOD:**
 - Add the .md to `/docs/porting/` in the project.
 - Add the test harness to `/test/`.
-- Commit with message: `[MODULE] Porting: [module name], iv7.2.f0.0, [DEFECT count] issues noted`
+- Commit with message: `[MODULE] Porting: [module name], iv7.1.f0.0, [DEFECT count] issues noted`
 - If blocking, post the "Open questions" section to your human (Ivan).
 
 ---
@@ -260,7 +260,7 @@ Found a bug or a smell? Log it as:
 ## DAILY COMMIT FORMAT
 
 ```
-[CO5300] Porting: AMOLED display driver, iv7.2.f0.0, 2 CRITICAL issues noted
+[CO5300] Porting: AMOLED display driver, iv7.1.f0.0, 2 CRITICAL issues noted
 
 - Initialized QSPI panel, RGB888 buffer, DMA callback
 - Test harness: pixel write, brightness control, sleep/wake
@@ -268,7 +268,7 @@ Found a bug or a smell? Log it as:
 - [DEFECT-001] TE pin (GPIO45) is unimplemented; firmware flag placeholder only
 - [DEFECT-002] SLPIN/SLPOUT sequence not verified on real hardware
 
-See: docs/porting/CO5300_YYYY-MM-DD_iv7.2.f0.0.md
+See: docs/porting/CO5300_YYYY-MM-DD_iv7.1.f0.0.md
 ```
 
 ---
@@ -287,7 +287,7 @@ If you hit:
 
 ## RECAP
 
-- **One module per day.** One .md per module, time-date-stamped, versioned `iv7.2.f0.0`.
+- **One module per day.** One .md per module, time-date-stamped, versioned `iv7.1.f0.0`.
 - **Live in the .md.** All work is visible, all decisions are documented, all defects are logged.
 - **Profiling is not a luxury.** Boot time, per-op, memory, current — every driver.
 - **Test harnesses in `/test/`.** Standalone, repeatable, proof that the module works.

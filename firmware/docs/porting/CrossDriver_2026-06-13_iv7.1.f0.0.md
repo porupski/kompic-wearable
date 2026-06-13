@@ -1,4 +1,4 @@
-# CrossDriver Porting — iv7.2.f0.0
+# CrossDriver Porting — iv7.1.f0.0
 **Date:** 2026-06-13
 **Module:** `firmware/components/cross_driver/`
 **Phase:** 6.2 (Infrastructure)

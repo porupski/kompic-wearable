@@ -3,7 +3,7 @@
  * @brief CO5300AF-51 AMOLED display driver (QSPI, 410x502, RGB888).
  *
  * Hardware authority: Kompic_Mk1_System_Instructions_v7.2.md  -- DISPLAY section.
- * Firmware version  : iv7.2.f0.0
+ * Firmware version  : iv7.1.f0.0
  * Status            : SKELETON. Functions are stubbed; real impl lands when
  *                     hardware arrives. Register map and SPI plumbing are
  *                     complete enough to flash and observe bus activity.

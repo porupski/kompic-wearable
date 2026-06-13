@@ -1,6 +1,6 @@
 # PHASE 3 BATCH — SENSORS 2 (GPS + ENV + HR + SKIN TEMP)
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -35,7 +35,7 @@ Old code: TU10F (reuse NMEA parsing, timegm() UTC seed, RTC sync pattern). New c
 - Measure: UART drain time, parse latency, ISR overhead
 
 **Deliverables:**
-- `/docs/porting/MAX_M10S_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/MAX_M10S_2026-06-10_iv7.1.f0.0.md`
 - `/components/max_m10s/max_m10s.{c,h}` (UART driver, NMEA parser, UBX parser, 1PPS ISR)
 - `/components/max_m10s/gps_tile.{c,h}` (position, altitude, speed, time display; UBX-TIMEUTC updates RTC atomically)
 - `/components/max_m10s/CMakeLists.txt`
@@ -71,7 +71,7 @@ Old code: BME280 (Bosch sensor family, same address 0x76). BME688 is the next ge
 - Measure: boot init, per-measurement cost, heater blocking time
 
 **Deliverables:**
-- `/docs/porting/BME688_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/BME688_2026-06-10_iv7.1.f0.0.md`
 - `/components/bme688/bme688_drv.{c,h}` (Bosch BME68x lib wrapper, heater state machine)
 - `/components/bme688/env_tile.{c,h}` (T/P/H/gas display, altitude via fusion)
 - `/components/bme688/CMakeLists.txt` (add Bosch BME68x managed component)
@@ -107,7 +107,7 @@ Old code: MAX30102 (register-compatible family, same I2C handshake, FIFO read pa
 - Measure: boot init, ISR latency, FIFO read time
 
 **Deliverables:**
-- `/docs/porting/MAX30101_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/MAX30101_2026-06-10_iv7.1.f0.0.md`
 - `/components/max30101/max30101.{c,h}` (register map, LED config, FIFO read, INT7 ISR)
 - `/components/max30101/health_tile.{c,h}` (HR stub, SpO2 stub, integrates TMP117 skin temp display)
 - `/components/max30101/CMakeLists.txt`
@@ -139,7 +139,7 @@ New chip, no old code. Simple I2C temperature sensor.
 - Measure: boot init, per-read cost
 
 **Deliverables:**
-- `/docs/porting/TMP117_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/TMP117_2026-06-10_iv7.1.f0.0.md`
 - `/components/tmp117/tmp117.{c,h}` (register map, temperature read)
 - `/components/tmp117/CMakeLists.txt`
 - `/test/test_tmp117.c` (standalone, I2C init + temperature read)
@@ -149,10 +149,10 @@ New chip, no old code. Simple I2C temperature sensor.
 ## OUTPUT
 
 You will produce **4 dated .md files** in `/docs/porting/`:
-- MAX_M10S_2026-06-10_iv7.2.f0.0.md
-- BME688_2026-06-10_iv7.2.f0.0.md
-- MAX30101_2026-06-10_iv7.2.f0.0.md
-- TMP117_2026-06-10_iv7.2.f0.0.md
+- MAX_M10S_2026-06-10_iv7.1.f0.0.md
+- BME688_2026-06-10_iv7.1.f0.0.md
+- MAX30101_2026-06-10_iv7.1.f0.0.md
+- TMP117_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

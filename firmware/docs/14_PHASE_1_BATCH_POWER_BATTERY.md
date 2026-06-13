@@ -1,6 +1,6 @@
 # PHASE 1 BATCH — POWER + BATTERY
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -37,7 +37,7 @@ Old code: ETA6098 + ADC battery (dead). BQ25619 is completely new — I2C charge
 - Measure: I2C transaction times, boot-to-ready
 
 **Deliverables:**
-- `/docs/porting/BQ25619_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/BQ25619_2026-06-10_iv7.1.f0.0.md`
 - `/components/bq25619/bq25619.{c,h}` (register map, I2C wrappers, boost control, ship-mode)
 - `/components/bq25619/battery_tile.{c,h}` (display voltage/SoC/charging state)
 - `/components/bq25619/CMakeLists.txt`
@@ -74,7 +74,7 @@ Old code: power latch on GPIO41, button polling on GPIO40. Dead. New design: GPI
 - Measure: ISR latency, timer precision, broker write cost
 
 **Deliverables:**
-- `/docs/porting/BootPower_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/BootPower_2026-06-10_iv7.1.f0.0.md`
 - `/components/boot_logic/boot_power.{c,h}` (rewritten: GPIO16 ISR, hold-duration task, ship-mode call)
 - `/components/boot_logic/boot_tasks.c` (add `task_power_btn` to task table, prio 5)
 - Modify `/main/main.c` to call GPIO0 setup at boot (DRV_EN low)
@@ -85,8 +85,8 @@ Old code: power latch on GPIO41, button polling on GPIO40. Dead. New design: GPI
 ## OUTPUT
 
 You will produce **2 dated .md files** in `/docs/porting/`:
-- BQ25619_2026-06-10_iv7.2.f0.0.md
-- BootPower_2026-06-10_iv7.2.f0.0.md
+- BQ25619_2026-06-10_iv7.1.f0.0.md
+- BootPower_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

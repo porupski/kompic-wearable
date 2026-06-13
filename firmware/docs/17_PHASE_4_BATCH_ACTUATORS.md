@@ -1,6 +1,6 @@
 # PHASE 4 BATCH — ACTUATORS + INPUT (HAPTIC + LED + FLASHLIGHT + CROWN)
 **Assigned:** 10 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -33,7 +33,7 @@ Old code: DRV2605 copied verbatim, same chip. Only change: move from bus 1 to bu
 - Measure: boot init, per-waveform I2C cost, play duration
 
 **Deliverables:**
-- `/docs/porting/DRV2605_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/DRV2605_2026-06-10_iv7.1.f0.0.md`
 - `/components/drv2605/drv2605.{c,h}` (copied, bus 2 mutex, GPIO0 verify)
 - `/components/drv2605/haptic.{c,h}` (waveform library, on-demand play)
 - `/components/drv2605/haptic_tile.{c,h}` (test waveforms, manual trigger UI)
@@ -68,7 +68,7 @@ New module, no old code.
 - Measure: ISR latency, debounce accuracy
 
 **Deliverables:**
-- `/docs/porting/CrownEncoder_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/CrownEncoder_2026-06-10_iv7.1.f0.0.md`
 - `/components/encoder/encoder.{c,h}` (PCNT init, quadrature decode, debounce, nav event fire)
 - `/components/encoder/CMakeLists.txt`
 - `/test/test_encoder.c` (standalone, PCNT init + quadrature counting + debounce test)
@@ -99,7 +99,7 @@ New module, no old code.
 - Measure: RMT timing precision
 
 **Deliverables:**
-- `/docs/porting/WS2812_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/WS2812_2026-06-10_iv7.1.f0.0.md`
 - `/components/ws2812/ws2812.{c,h}` (RMT driver, color set, state machine)
 - `/components/ws2812/CMakeLists.txt`
 - `/test/test_ws2812.c` (standalone, RMT init + color set)
@@ -129,7 +129,7 @@ New module, no old code. (Old design used GPIO41 as power latch; now it's the fl
 - Measure: LEDC frequency/resolution accuracy, current draw
 
 **Deliverables:**
-- `/docs/porting/Flashlight_2026-06-10_iv7.2.f0.0.md`
+- `/docs/porting/Flashlight_2026-06-10_iv7.1.f0.0.md`
 - `/components/flashlight/flashlight.{c,h}` (LEDC driver, brightness set)
 - `/components/flashlight/CMakeLists.txt`
 - `/test/test_flashlight.c` (standalone, LEDC init + brightness sweep)
@@ -139,10 +139,10 @@ New module, no old code. (Old design used GPIO41 as power latch; now it's the fl
 ## OUTPUT
 
 You will produce **4 dated .md files** in `/docs/porting/`:
-- DRV2605_2026-06-10_iv7.2.f0.0.md
-- CrownEncoder_2026-06-10_iv7.2.f0.0.md
-- WS2812_2026-06-10_iv7.2.f0.0.md
-- Flashlight_2026-06-10_iv7.2.f0.0.md
+- DRV2605_2026-06-10_iv7.1.f0.0.md
+- CrownEncoder_2026-06-10_iv7.1.f0.0.md
+- WS2812_2026-06-10_iv7.1.f0.0.md
+- Flashlight_2026-06-10_iv7.1.f0.0.md
 
 Plus driver skeletons in `/components/` and test harnesses in `/test/` for each.
 

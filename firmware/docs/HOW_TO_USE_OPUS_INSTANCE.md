@@ -31,7 +31,7 @@
 ## What Opus outputs
 
 At EOD, Opus will:
-1. Create a dated .md file: `/docs/porting/[MODULE]_YYYY-MM-DD_iv7.2.f0.0.md`
+1. Create a dated .md file: `/docs/porting/[MODULE]_YYYY-MM-DD_iv7.1.f0.0.md`
 2. Create driver skeleton files in `/components/[module]/`
 3. Create test harness in `/test/test_[module].c`
 4. Commit with a summary message
@@ -47,7 +47,7 @@ cp -r components/* /path/to/repo/components/
 cp test/test_*.c /path/to/repo/test/
 cp docs/porting/*.md /path/to/repo/docs/porting/
 git add -A
-git commit -m "Merge Opus porting work: [MODULE], iv7.2.f0.0"
+git commit -m "Merge Opus porting work: [MODULE], iv7.1.f0.0"
 ```
 
 **Option B: Review first, then merge**

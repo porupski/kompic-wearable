@@ -1,7 +1,7 @@
 # BootPower (GPIO16 button + GPIO0 DRV_EN + ship-mode) -- Porting Log
 **Module:** boot_power -- power-button input, haptic enable strap, ship-mode trigger
 **Date:** 2026-06-11
-**Firmware:** `iv7.2.f0.0`
+**Firmware:** `iv7.1.f0.0`
 **Hardware authority:** `docs/02_Kompic_Mk1_System_Instructions_v7.2.md`, §GPIO Quick Pinout (line 99 / line 129), §POWER ARCHITECTURE (line 237).
 **Brief:** `docs/14_PHASE_1_BATCH_POWER_BATTERY.md`, Module 2.
 **Author:** Claude (Opus 4.7), under master prompt `docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md`.
@@ -187,7 +187,7 @@ Test harness is a standalone file dropped into a test app's `main/`; no in-tree 
 
 ## Deliverable checklist
 
-- [x] `docs/porting/BootPower_2026-06-11_iv7.2.f0.0.md` -- this file.
+- [x] `docs/porting/BootPower_2026-06-11_iv7.1.f0.0.md` -- this file.
 - [x] `components/boot_logic/boot_power.c` -- rewritten for GPIO16 ISR + GPIO0 DRV_EN + ship-mode.
 - [x] `components/boot_logic/boot_power.h` -- rewritten header, updated pin map + thresholds + task fn.
 - [x] `components/boot_logic/boot_tasks.c` -- task table updated (drop `task_pwrmon` + `task_bootbtn`; add `task_power_btn`).
@@ -197,7 +197,7 @@ Test harness is a standalone file dropped into a test app's `main/`; no in-tree 
 - [ ] Commit -- prepared message:
 
 ```
-[BootPower] Porting: GPIO16 button + DRV_EN + ship-mode, iv7.2.f0.0, 5 issues noted
+[BootPower] Porting: GPIO16 button + DRV_EN + ship-mode, iv7.1.f0.0, 5 issues noted
 
 - Rewrite of boot_power.{c,h} for v7.2 design. Old GPIO40 button + GPIO41
   latch are dead (those pins are flashlight + SD now). New design: GPIO16
@@ -224,5 +224,5 @@ Test harness is a standalone file dropped into a test app's `main/`; no in-tree 
 - [DEFECT-004] No 3-5 s "cancel ship-mode" abort window (intentional).
 - [DEFECT-005] Flag-style globals retained (pre-existing convention).
 
-See: firmware/docs/porting/BootPower_2026-06-11_iv7.2.f0.0.md
+See: firmware/docs/porting/BootPower_2026-06-11_iv7.1.f0.0.md
 ```

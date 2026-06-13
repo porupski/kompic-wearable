@@ -1,6 +1,6 @@
 # PHASE 6 BATCH — INFRASTRUCTURE (BROKER + XD + NVS + FUSION + ALARM + UI)
 **Assigned:** 13 June 2026
-**Firmware version:** iv7.2.f0.0
+**Firmware version:** iv7.1.f0.0
 **Master instructions:** docs/10_KOMPIC_MK1_FIRMWARE_PORTING_MASTER_PROMPT.md (required reading)
 
 ---
@@ -79,7 +79,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
   send/receive latency for `g_ui_event_q`.
 
 **Deliverables:**
-- `firmware/docs/porting/DataBroker_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/DataBroker_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/data_broker/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_data_broker.c`
 
@@ -121,7 +121,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
   `configASSERT` triggers when over-registering (negative test, can be commented out).
 
 **Deliverables:**
-- `firmware/docs/porting/CrossDriver_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/CrossDriver_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/cross_driver/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_cross_driver.c`
 
@@ -164,7 +164,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
   fill rate.
 
 **Deliverables:**
-- `firmware/docs/porting/AppNVS_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/AppNVS_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/app_logic/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_app_nvs.c`
 
@@ -210,7 +210,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
 - Measure: fusion task stack high-water, per-tick CPU cost.
 
 **Deliverables:**
-- `firmware/docs/porting/Fusion_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/Fusion_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/fusion/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_fusion.c`
 
@@ -262,7 +262,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
 - Measure: task_alarm_fn loop time, NVS save latency per edit, queue send latency.
 
 **Deliverables:**
-- `firmware/docs/porting/Alarm_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/Alarm_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/alarm/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_alarm.c`
 
@@ -336,7 +336,7 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
   LVGL heap usage with the full tile set, draw FPS while idle.
 
 **Deliverables:**
-- `firmware/docs/porting/LvglUI_2026-06-13_iv7.2.f0.0.md`
+- `firmware/docs/porting/LvglUI_2026-06-13_iv7.1.f0.0.md`
 - Updated `firmware/components/lvgl_ui/*.{c,h}` + CMakeLists.txt
 - `firmware/test/test_lvgl_ui.c`
 
@@ -345,12 +345,12 @@ with every v7.2 part wired through the broker → cross_driver → fusion → UI
 ## OUTPUT
 
 You will produce **6 dated .md files** in `firmware/docs/porting/`:
-- DataBroker_2026-06-13_iv7.2.f0.0.md
-- CrossDriver_2026-06-13_iv7.2.f0.0.md
-- AppNVS_2026-06-13_iv7.2.f0.0.md
-- Fusion_2026-06-13_iv7.2.f0.0.md
-- Alarm_2026-06-13_iv7.2.f0.0.md
-- LvglUI_2026-06-13_iv7.2.f0.0.md
+- DataBroker_2026-06-13_iv7.1.f0.0.md
+- CrossDriver_2026-06-13_iv7.1.f0.0.md
+- AppNVS_2026-06-13_iv7.1.f0.0.md
+- Fusion_2026-06-13_iv7.1.f0.0.md
+- Alarm_2026-06-13_iv7.1.f0.0.md
+- LvglUI_2026-06-13_iv7.1.f0.0.md
 
 Plus updated component sources + 6 test harnesses in `firmware/test/`.
 
@@ -368,7 +368,7 @@ Plus updated component sources + 6 test harnesses in `firmware/test/`.
 
 **Commit strategy:** one commit per module (6 total) in dependency order.
 Do not combine. Each commit follows the master format:
-`[Module] Porting: <short>, iv7.2.f0.0, N issues noted`.
+`[Module] Porting: <short>, iv7.1.f0.0, N issues noted`.
 
 ---
 

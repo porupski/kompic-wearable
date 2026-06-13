@@ -77,7 +77,7 @@ static void subtest_main_refresh_tick(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "test_lvgl_ui starting (iv7.2.f0.0)");
+    ESP_LOGI(TAG, "test_lvgl_ui starting (iv7.1.f0.0)");
 
     broker_init();
 
