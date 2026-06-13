@@ -64,7 +64,7 @@ static void subtest_main_refresh_tick(void)
     broker_battery_set_hw_status(true);
     broker_battery_data_t bat = {0};
     bat.percentage = 72;
-    bat.voltage_mv = 3870;
+    bat.voltage    = 3.87f;
     broker_battery_write(&bat);
 
     // Spawn the refresh task and let it run a few ticks.

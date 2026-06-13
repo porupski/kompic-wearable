@@ -17,7 +17,8 @@
 | 2 | `PHASE_2_BATCH_SENSORS_1.md` | LSM6DSV16X (IMU), LIS3MDLTR (compass), VEML6030 (light) | 2–3 days | Ready |
 | 3 | `PHASE_3_BATCH_SENSORS_2.md` | MAX-M10S (GPS), BME688 (env), MAX30101 (HR), TMP117 (temp) | 2–3 days | Ready |
 | 4 | `PHASE_4_BATCH_ACTUATORS.md` | DRV2605 (haptic), CrownEncoder, WS2812 (LED), Flashlight | 2–3 days | Ready |
-| 5 | `PHASE_5_BATCH_ADVANCED.md` | SDCard, PDM Mic, Qvar ECG | 1–2 days | Ready (optional) |
+| 5 | `PHASE_5_BATCH_ADVANCED.md` | SDCard, PDM Mic, Qvar ECG | 1–2 days | Complete |
+| 6 | `19_PHASE_6_BATCH_INFRASTRUCTURE.md` | data_broker, cross_driver, app_logic, fusion, alarm, lvgl_ui | 3–5 days | Ready |
 
 ---
 
