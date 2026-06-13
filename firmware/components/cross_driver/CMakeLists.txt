@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "cross_driver.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        data_broker
+        freertos
+        esp_common
+        log
+)
