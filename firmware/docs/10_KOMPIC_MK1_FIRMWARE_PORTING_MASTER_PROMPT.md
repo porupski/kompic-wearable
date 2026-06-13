@@ -292,7 +292,7 @@ If you hit:
 - **Profiling is not a luxury.** Boot time, per-op, memory, current — every driver.
 - **Test harnesses in `/test/`.** Standalone, repeatable, proof that the module works.
 - **Hardware pins from v7.2.** No guessing.
-- **Commit daily.** One module done = one commit = one .md in the repo.
+- **Commit flow.** One module done = one commit which the USER does = one .md in the repo. Prepare the commits for the USER at the end. Do not commit yourself, but do include yourself in the commit (ie. Ported by Opus - you are not a coauthor)
 
 You're not building the firmware. You're building the foundation that the firmware will rest on. Make it solid.
 
