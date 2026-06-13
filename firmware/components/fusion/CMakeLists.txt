@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "fusion.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        data_broker
+        cross_driver
+        freertos
+        esp_common
+        log
+)
