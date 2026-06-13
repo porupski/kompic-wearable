@@ -4,7 +4,7 @@
 
 *Single source of truth for Kompic̄ Mk I firmware. Supersedes all "SmartWatch
 firmware" instructions (v2 and earlier). Hardware facts defer to
-`Kompic_Mk1_System_Instructions_v7.2.md` (PCB doc) — if this document and the
+`Kompic_Mk1_System_Instructions_v7.1.md` (PCB doc) — if this document and the
 PCB doc disagree on a pin, address, or rail, the PCB doc wins and this one gets
 fixed.*
 
@@ -40,7 +40,7 @@ No "sessions." All project docs are **date-stamped and number-prefixed**:
 
 ## SOURCE OF TRUTH HIERARCHY
 
-1. **PCB doc** (`Kompic_Mk1_System_Instructions_v7.2.md`) — hardware law
+1. **PCB doc** (`Kompic_Mk1_System_Instructions_v7.1.md`) — hardware law
 2. **Blueprint files** (numbered .md) — architectural law
 3. **Dated changelogs** — record of what was actually built; flag deviations
 4. **Your suggestions** — valid only after consulting 1–3
