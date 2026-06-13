@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "data_broker.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        freertos
+        esp_timer
+        pcf85063
+        drv2605
+        max_m10s
+        lis3mdl
+        veml6030
+        lsm6dsv16x
+        bq25619
+        bme688
+        max30101
+        tmp117
+        alarm
+        fusion
+)
