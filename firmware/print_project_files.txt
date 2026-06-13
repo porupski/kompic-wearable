@@ -1,0 +1,21 @@
+# Show project structure
+echo "=== PROJECT STRUCTURE ===" && \
+tree -L 3 -I 'build|managed_components|.git' 2>/dev/null || find . -maxdepth 3 -type d -not -path '*/build/*' -not -path '*/.git/*' -not -path '*/managed_components/*' | sort
+
+echo -e "\n=== CMakeLists.txt (root) ===" && \
+cat CMakeLists.txt 2>/dev/null || echo "Not found"
+
+echo -e "\n=== main/CMakeLists.txt ===" && \
+cat main/CMakeLists.txt 2>/dev/null || echo "Not found"
+
+echo -e "\n=== main/idf_component.yml ===" && \
+cat main/idf_component.yml 2>/dev/null || echo "Not found"
+
+echo -e "\n=== lv_conf.h location ===" && \
+find . -name "lv_conf.h" -not -path '*/build/*' -not -path '*/managed_components/*'
+
+echo -e "\n=== lv_conf.h (first 30 lines) ===" && \
+head -30 main/lv_conf.h 2>/dev/null || echo "Not found in main/"
+
+echo -e "\n=== ERROR LOG ===" && \
+tail -50 build/log/idf_py_stderr_output_* 2>/dev/null | tail -50 || echo "No error log found"

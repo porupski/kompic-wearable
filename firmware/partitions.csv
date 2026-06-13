@@ -1,0 +1,40 @@
+# Smartwatch Firmware — Partition Table
+# Target: ESP32-S3, 16 MB NOR Flash (w25q128)
+#
+# OTA STRATEGY: Full-image swap only (factory → ota_0 → ota_1 → ota_0 …)
+#   - factory: shipped firmware / factory reset target
+#   - ota_0 / ota_1: A/B swap slots for OTA updates
+#   - otadata: tracks which slot to boot from (managed by ESP-IDF OTA library)
+#
+# FLASH USAGE SUMMARY (16 MB total):
+#   Bootloader (default):   ~32 KB  (0x0000 – 0x7FFF, managed by ESP-IDF)
+#   Partition table:         4 KB   (0x8000 – 0x8FFF, fixed by ESP-IDF)
+#   nvs:                    16 KB   ← sensor cal, UI settings, GPS date, battery health
+#   otadata:                 8 KB   ← OTA boot slot tracking
+#   phy_init:                4 KB   ← RF calibration (required even if WiFi unused now)
+#   factory:                 2 MB   ← baseline firmware, always present
+#   ota_0:                   2 MB   ← first OTA target slot
+#   ota_1:                   2 MB   ← second OTA target slot (swap back capability)
+#   spiffs / remaining:    ~9.9 MB  ← available for future assets, fonts, maps, etc.
+#
+# SIZING NOTES:
+#   2 MB app partitions are generous for this firmware. The current build
+#   is well under 1 MB. Headroom exists for BSEC, LVGL asset bundles, and OTA code.
+#   If the build grows beyond 2 MB, increase all three app partitions equally
+#   and adjust offsets — the 16 MB flash has ample room.
+#
+# WIFI / OTA READINESS:
+#   This table is OTA-ready from day one. When the WiFi+OTA module is added:
+#     1. Enable esp_https_ota component in CMakeLists.txt
+#     2. Call esp_ota_begin() / esp_ota_write() / esp_ota_end() from the OTA task
+#     3. No partition table changes required
+#     4. For factory reset: call nvs_flash_erase() then esp_ota_set_boot_partition(factory)
+#
+# FORMAT: Name, Type, SubType, Offset, Size, Flags
+# Offsets left blank = auto-assigned sequentially by esptool (recommended)
+
+# Name,   Type, SubType, Offset,   Size,    Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x300000,
+storage,  data, spiffs,  0x310000, 0xCF0000,
