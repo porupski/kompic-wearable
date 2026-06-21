@@ -155,6 +155,7 @@ ESP32-S3-WROOM-1U & 3 & $\sim$1 week at $<$30°C, $<$60\% RH & 125°C / 24hr \\
 \item Watch current draw in real time
 \item BQ25619 boots first, brings up SYS rail, TPS62840 produces 3.2V
 \item Normal idle current (no firmware): expect tens of mA
+\item Stage-2 board (charger + RTC + bus 1 sensors + mic + WS2812 + USB-C, no display / GPS / daughter): \textbf{$\sim$100--120 mA} observed on USB-C with the stage-2 smoke sketch running (ESP32 active, sensors initialised, flashlight breathe loop). Use as ballpark, not a hard pass/fail.
 \item If current spikes to 1A+ immediately: unplug, find the short
 \end{itemize}
 
@@ -245,6 +246,8 @@ Sn62.8/Pb36.8/Ag0.4 paste & \textcolor{danger}{\textbf{LEADED}} & 181°C & \text
 \dangerbox{The board arrives with SAC305 (lead-free) paste from JLCPCB. Mixing leaded paste with lead-free creates a mixed alloy with unpredictable melting point (181--217°C range). Joints form weak grain boundaries and fail as intermittent connections. \textbf{Keep all solder on this board lead-free.}}
 
 \notebox{Sn99.3/Cu0.7 wire and SAC305 paste are not identical alloys (wire has no silver, paste has 3\% silver). This is fine — the small composition difference is negligible during rework. Both are lead-free, both melt in the 217--227°C range.}
+
+\notebox{\textbf{Dire-straits fallback (prototype only, observed on Mk I iv7.1):} when lead-free SAC305 syringe paste cannot be obtained in time (this build waited 50+ days for delivery), a 50:50 mix of KEK flux + leaded paste (Sn62.8/Pb36.8/Ag0.4) applied \emph{only} to hidden center pads (QFN/LGA/DFN EP) reflows acceptably under the standard 245°C profile. Mixed-alloy boundaries form at those joints, against the absolute warning above --- on this first board every joint held through up to $\sim$6 rework cycles. This is a \textbf{prototype-only} workaround; long-term thermal-fatigue characteristics are unknown. The dangerbox stands as the production rule. Treat this note as the "if you must" caveat, not as permission.}
 
 % ============================================================
 % PAGE 5 — PRACTICE RUN
@@ -434,5 +437,144 @@ Kompic Mk1 — Reflow \& Assembly Reference \\
 Revision iv7.0 \\
 Ivan Porupski, 2026
 \end{center}
+
+% ============================================================
+% PAGE 9 — STAGED (PROTOTYPE) BUILD
+% ============================================================
+\newpage
+\section*{PAGE 9 — STAGED BUILD (prototype workflow, alternative to single-pass)}
+
+\notebox{The prescribed flow is still \textbf{single reflow pass} (Pages 1--8). This page documents the \emph{prototype} flow used on the very first board, where confidence in each subsystem was built incrementally. If you are reproducing this build from scratch and want to de-risk one ring at a time, follow these stages. Each stage has a matching smoke-test sketch under \texttt{firmware/test/}.}
+
+\subsection*{Stage 1 — Core (hot plate reflow)}
+
+Minimal population required to boot the ESP32 and confirm both I2C buses are healthy.
+
+\textbf{On board this stage:}
+\begin{itemize}[nosep]
+\item ESP32-S3-WROOM-1U-N16R8
+\item BQ25619RTWR charger (bus 2 @ 0x6A)
+\item TPS62840 3.2 V buck (100k VSET)
+\item XC6206 1.8 V LDO
+\item Flashlight LED + FET driver (GPIO41) with external pull-down
+\item User button (BQ\_QON $\leftrightarrow$ GPIO16)
+\item PCF85063ATL RTC (bus 1 @ 0x51) + FC31M2-32.768 kHz crystal + load caps
+\item All JLCPCB-assembled 0402 passives (top and bottom)
+\end{itemize}
+
+\textbf{Excluded for this stage:} USB-C connector (bottom side — keep clear so the board can still hot-plate cleanly), all bus-1 sensors, mic, WS2812, daughter PCB, display connector, GPS.
+
+\textbf{Reflow:} Full hot-plate profile per Page 1 (245°C peak, 45--60 s above 217°C). Single pass on the hot plate is uncomplicated here because the bottom side is empty.
+
+\textbf{Power:} No USB-C yet — apply external 5 V to VBUS pad through a current-limited bench supply, or directly to SYS for a bypass test. \dangerbox{Never inject 5 V on a powered USB-C pad after stage 2 — the absent ESD diode on a missing USB-C JS16T is fine here because the connector itself isn't yet present.}
+
+\textbf{Verification sketch:} \texttt{firmware/test/1\_smoke\_test\_mk1\_reflow1/1\_smoke\_test\_mk1\_reflow1.ino}
+
+\textbf{Pass criteria:} ESP32 enumerates as USB CDC over the programming header (or external USB-UART, since USB-C is not yet on the board); BQ25619 ACKs at 0x6A with sane STATUS/PART/FAULT; PCF85063A ACKs at 0x51 with OS bit clear (oscillator running); button toggles the flashlight; flashlight LEDC breathe visible.
+
+\subsection*{Stage 2 — Sensing + USB-C (hot air, no more hot-plate cycles)}
+
+\textbf{Added this stage:}
+\begin{itemize}[nosep]
+\item USB-C JS16T receptacle (bottom side) + TPD2E001 ESD
+\item VEML6030 ambient light sensor (bus 1 @ 0x10)
+\item LIS3MDLTR magnetometer (bus 1 @ 0x1C)
+\item LSM6DSV16X IMU (bus 1 @ 0x6B)
+\item BME688 environmental sensor (bus 1 @ 0x76)
+\item MSM261DGT003 PDM microphone (I2S: CLK GPIO47, DATA GPIO48)
+\item WS2812B-2020 signal LED (one-wire DIN @ GPIO42)
+\end{itemize}
+
+\textbf{Why hot air from here on:} the USB-C JS16T is bottom-side. Once it is placed, the board can no longer be put face-down on the hot plate without melting it; equally, face-up reflow risks reflowing the USB-C joints uncontrolled. \textbf{Stage 2 closes the hot-plate window for this board.} All further additions are localised hot-air or iron rework.
+
+\textbf{Procedure:}
+\begin{enumerate}[nosep]
+\item Flux all stage-2 pads. For the MEMS mic, flux pads \emph{before} placing and keep flux out of the top port.
+\item Place all stage-2 ICs and the USB-C connector. Bottom-side USB-C should be done last with the board flipped on a holder, hot air at 300--350°C, focused nozzle, generous flux. Watch the mic and the QFN/LGA islands on the top side for any heat that telegraphs through.
+\item Reflow each top-side IC locally with focused hot air. Don't park hot air on the WS2812 — its 245°C ceiling is a tight box even at the IC scale.
+\end{enumerate}
+
+\textbf{Electrical pre-checks (before powering):}
+\begin{itemize}[nosep]
+\item Multimeter continuity / resistance: VBUS-to-GND, 3V3-to-GND, 1V8-to-GND $\rightarrow$ no shorts.
+\item SDA/SCL (both buses) to GND $\rightarrow$ no shorts; bus 1 SDA $\leftrightarrow$ SCL not shorted; bus 2 SDA $\leftrightarrow$ SCL not shorted.
+\item Plug into USB-C through an inline current meter (USB-C power meter, USB tester, or bench supply set to 5 V with current limit).
+\item Expected steady-state draw: \textbf{$\sim$100--120 mA} with the stage-2 smoke sketch running. Above $\sim$300 mA at idle, or any visible smoke / smell, $\rightarrow$ unplug immediately and inspect.
+\end{itemize}
+
+\textbf{Verification sketch:} \texttt{firmware/test/2\_smoke\_test\_mk1\_hotair/2\_smoke\_test\_mk1\_hotair.ino}
+
+\textbf{Pass criteria:} I2C scan returns the full expected stage-2 set --- \mbox{bus 1 = \{0x10, 0x1C, 0x51, 0x6B, 0x76\}} and \mbox{bus 2 = \{0x6A\}}; each chip's WHO\_AM\_I / chip-ID matches; WS2812 colour walk is visible; PDM mic returns non-zero samples; the 1 Hz round-robin loop continues to print live values from every device without dropouts. Missing addresses point at suspect solder joints on that specific chip.
+
+\subsection*{Stage 3 — Daughter PCB + storage (hot air / iron)}
+
+\textbf{Added this stage:}
+\begin{itemize}[nosep]
+\item Micro-SD card slot + associated routing
+\item Daughter PCB (small round board), reflowed \emph{separately} on the hot plate per Page 6: MAX30101 (bus 1 @ 0x57), TMP117 (bus 1 @ 0x48), DRV2605 (bus 2 @ 0x5A)
+\item 12 silicone wires hand-soldered between main PCB and daughter PCB
+\end{itemize}
+
+\textbf{Procedure:} reflow the daughter PCB on its own (full profile, no constraints from the main board), verify it standalone with a small bench fixture, then connect to the main board via the 12 inter-board wires. Hot-air or iron the SD card slot onto the main board.
+
+\textbf{Pass criteria:} I2C scan now also shows 0x48, 0x57 on bus 1 and 0x5A on bus 2; SD card mounts and writes a test file; DRV2605 buzzes when triggered.
+
+\subsection*{Stage 4 — Display + touch}
+
+\textbf{Added this stage:}
+\begin{itemize}[nosep]
+\item CO5300 2.06" AMOLED + CST9217 capacitive touch on the 24-pin FPC
+\item OK-14F024-04 receptacle (J1) mated to the display ribbon
+\end{itemize}
+
+\textbf{Procedure:} the receptacle is hand-soldered or hot-air'd to the main board. Display panel mates to the connector --- no reflow on the panel itself. CST9217 lives on the display assembly (bus 1 @ 0x5A), so it only joins the I2C scan once the panel is plugged in.
+
+\textbf{Pass criteria:} CO5300 driver brings the panel up at COLMOD 0x77 (RGB888) via QSPI on the SPI2/FSPI IOMUX pins; CST9217 ACKs at 0x5A and reports touch events; panel survives a sleep cycle (DISPOFF 0x28 $\rightarrow$ SLPIN 0x10 $\rightarrow$ SLPOUT 0x11 + re-init $\rightarrow$ DISPON 0x29).
+
+\subsection*{Stage 5 — GPS (MAX-M10S, deliberate last)}
+
+\textbf{Added this stage:}
+\begin{itemize}[nosep]
+\item u-blox MAX-M10S-00B (LCC-18, MSL 4) --- soldered first
+\item Johanson 2450AT18A100E (or equivalent) chip antenna --- soldered \emph{after} the M10S is on and verified
+\end{itemize}
+
+\textbf{Why last in this prototype flow:} the MAX-M10S has the tightest constraints on the board (245°C peak, no hot air, no cleaning, MSL 4). On the prescribed single-pass workflow it sits in the same reflow as everything else. In this staged workflow, the hot-plate window has been closed by stage 2 --- so the M10S goes on by hand, via the iron-on-castellation procedure from Page 7:
+
+\begin{enumerate}[nosep]
+\item Bake the M10S per its floor-life recovery (192 hr @ 40°C, RH $<$ 5\%) if its MSL window has been exceeded since opening the bag.
+\item Pre-heat the main board on the hot plate to 150°C (well below all the stage-2 parts' reflow points, USB-C handles this fine).
+\item Pre-tin each castellated pad on the M10S footprint with a tiny SAC305 solder bump using the iron + flux.
+\item Place the M10S, then reflow each castellation locally with the iron + flux + Sn99.3/Cu0.7 wire. Slow and tedious but well within tolerance for an LCC-18 with exposed castellations.
+\item No solvents, no clean --- M10S datasheet forbids cleaning.
+\item \textbf{Verify the M10S electrically before placing the antenna:} open UART1 (GPIO17/18) at 9600 baud, confirm NMEA / UBX traffic, and check no shorts on the antenna pad. The antenna goes on \emph{after} the M10S is confirmed alive --- placing it earlier risks reworking the M10S with the chip antenna already in the heat zone (the Johanson chip antenna tolerates standard SMD reflow but should not see repeated rework cycles).
+\item \textbf{Hand-solder the antenna last:} iron + flux + Sn99.3/Cu0.7 wire on the two antenna pads. Keep the iron contact $<$ 3 s per pad. After it is on, confirm the GPS still streams NMEA, then observe time-to-first-fix outdoors (cold-start can be several minutes).
+\end{enumerate}
+
+\dangerbox{This is the \emph{prototype} accommodation. The intended production workflow is the single-pass reflow on Pages 1--8, where MAX-M10S goes through the controlled hot-plate profile with everything else. Iron-on-castellations is a fallback and adds risk --- expect to use a spare M10S if the first attempt cooks an internal joint.}
+
+\textbf{Pass criteria:} open UART1 (GPIO17 TX / GPIO18 RX) at 9600 baud and confirm NMEA / UBX traffic streaming from the M10S; 1PPS edge visible on GPIO46 once a fix is obtained.
+
+\subsection*{Stage Summary}
+
+{\small
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}cp{3.2cm}p{4.0cm}p{3.4cm}p{3.4cm}@{}}
+\toprule
+\textbf{Stage} & \textbf{Process} & \textbf{Adds} & \textbf{New I2C} & \textbf{Smoke sketch} \\
+\midrule
+1 & Hot plate (full profile)          & Core + RTC                                 & 0x51 (b1), 0x6A (b2)         & 1\_smoke\_test\_mk1\_reflow1 \\
+2 & Hot air (closes hot-plate window) & USB-C + bus-1 sensors + mic + WS2812       & 0x10, 0x1C, 0x6B, 0x76 (b1)  & 2\_smoke\_test\_mk1\_hotair  \\
+3 & Hot air / iron + separate reflow  & SD + daughter PCB                          & 0x48, 0x57 (b1), 0x5A (b2)   & --- (per-chip tests) \\
+4 & Hand solder + mate                & Display panel + touch                      & 0x5A (b1)                    & --- (display driver) \\
+5 & Iron on castellations             & MAX-M10S + antenna                         & --- (UART1, not I2C)         & --- (NMEA dump) \\
+\bottomrule
+\end{tabular}
+\end{table}
+}
+
+\notebox{If you are reproducing the prototype flow: keep a written log of what current the board draws at each stage with each smoke sketch running. Drift in that idle figure stage-over-stage is the cheapest early warning of a marginal joint.}
 
 \end{document}

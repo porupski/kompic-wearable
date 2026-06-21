@@ -4363,6 +4363,32 @@
 		)
 		(uuid "17ed4287-8b5a-49d0-b133-ab21fb93e9de")
 	)
+	(text "BUG: CLK MISSING 10k PULLUP"
+		(exclude_from_sim no)
+		(at 236.728 112.014 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "6c37bd4a-b080-42f2-a49e-91a4800f2d99")
+	)
+	(text "BUG: CMD and DAT to 5k1 (4k7)"
+		(exclude_from_sim no)
+		(at 230.886 119.888 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "6d3b677e-b3a0-4e07-ae83-d4792ab3fb31")
+	)
 	(text "ESP32-S3 WROOM 1U N16R8"
 		(exclude_from_sim no)
 		(at 84.328 21.336 0)

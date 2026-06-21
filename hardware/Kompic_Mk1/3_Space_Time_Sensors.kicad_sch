@@ -3799,6 +3799,19 @@
 		)
 		(uuid "7da80b8f-58f2-4055-a920-f1d720f011a6")
 	)
+	(text "BUG: VDD AND VDD_IO SWAPPED ON LSM AND LIS"
+		(exclude_from_sim no)
+		(at 131.318 31.75 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "8e49cf7c-342d-4099-8d12-384430f689a0")
+	)
 	(text "I2C address is 0x42 (fixed)"
 		(exclude_from_sim no)
 		(at 152.146 117.094 0)

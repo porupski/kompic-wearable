@@ -3610,6 +3610,32 @@
 		)
 		(uuid "46beaa6e-8e37-4705-b25a-34b7271d53c9")
 	)
+	(text "BUG: remove pullup R12"
+		(exclude_from_sim no)
+		(at 173.99 103.632 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "845aac3a-2350-4dc1-a2c8-e9b191ebb13f")
+	)
+	(text "BUG: TS missing R"
+		(exclude_from_sim no)
+		(at 220.472 113.03 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "8fe5a6aa-ad47-454a-8c2b-97895cdc78b8")
+	)
 	(text "Power Managment\n(BQ25619)"
 		(exclude_from_sim no)
 		(at 180.086 36.068 0)
@@ -3631,6 +3657,19 @@
 			)
 		)
 		(uuid "b7cddb3f-64ed-4cc3-b421-9692fb492744")
+	)
+	(text "BUG: PINS 2 and 3 SWAPPED"
+		(exclude_from_sim no)
+		(at 68.326 191.516 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "be580bd5-1f0d-41e5-a892-6c9d36a3ff6d")
 	)
 	(text "USB-C Connector\nWaterproof"
 		(exclude_from_sim no)
