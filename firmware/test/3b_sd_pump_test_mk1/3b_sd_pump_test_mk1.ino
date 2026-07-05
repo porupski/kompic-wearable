@@ -51,7 +51,7 @@
 // signal integrity, different clock targets exercise different driver
 // timing paths. Once one consistently PASSes, lock SD_CLOCK_SWEEP = 0.
 #define SD_CLOCK_SWEEP      1
-static const int sd_clocks_khz[] = { 400, 1000, 4000 };
+static const int sd_clocks_khz[] = {400, 1000, 4000, 20000};
 
 #define RETRY_INTERVAL_MS   100      // short delay so cadence ≈ ramp_up + begin + ramp_down
 

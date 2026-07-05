@@ -32,6 +32,8 @@ firmware/**/*.elf
 firmware/**/*.bin
 firmware/**/*.map
 
+firmware/.data_test
+
 # Datasheets
 docs/datasheets/
 docs/fetch_datasheets.py # utils script for downloading datasheets from datasheet_manifest.md

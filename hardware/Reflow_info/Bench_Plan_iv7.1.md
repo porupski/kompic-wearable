@@ -7,7 +7,9 @@ The board today is a "working but battle-scarred" prototype. Battery is permanen
 
 ## Section 1 — Rework actions (priority order)
 
-### 1.1 SD card — diagnostic before any rework (EXP-0)
+### 1.1 SD card — [RESOLVED 2026-07-05, see Stage_4_Build_Report.md]
+
+> **The whole SD section was a false alarm.** Iv7.1 SD bus is functional as designed — 65/65 PASSes on a 32 GB SDHC msdos card at 400 kHz → 20 MHz with the original wiring. The Stage 3 + 2026-06-29 failures were a dying 64 GB Kodak AliExpress card, not a bus fault. EXP-0 through EXP-5 in the rescue plan are not needed. **Skip this section.** Next SD work is a data-logging sketch (`6_sd_logger_mk1`), not rework — see `Stage_4_Build_Report.md § 6`.
 
 **Open since:** Stage 3 § 4.1, regression confirmed 2026-06-29.
 **Why first:** EXP-0 is a 5-minute multimeter session, no soldering. Resolves a major open question before any other work. **See `SDMMC_Rescue_Plan_iv7.1.md` for the full plan; the entry-point checks are summarized here for the bench operator.**
@@ -182,3 +184,6 @@ If anything goes sideways on a step, stop, document, defer to next bench session
 | 2026-06-29 | DRV2605L OC threshold | Trips at ~28 mA (one-tenth of spec) | Chip silicon damaged; queued for replacement. ESD during rework is the suspected cause. |
 | 2026-06-29 | SDMMC drive cap | CAP_3 sticks through library begin() | Drive cap is NOT the bottleneck. |
 | 2026-06-29 | SDMMC failure mode | Deterministic 643 ms timeout at ACMD51, 0/41 PASS, clock-invariant | Reclassified as single-line electrical fault (vs Stage 3's borderline-SI story). EXP-0 priority. |
+| 2026-07-05 | SDMMC final verdict | **RESOLVED — not a bus fault.** 65/65 PASSes on 32 GB SDHC msdos card at 400 kHz through 20 MHz with original iv7.1 wiring. Was a dying 64 GB Kodak AliExpress SDXC card + exFAT filesystem. § 1.1 obsolete. See `Stage_4_Build_Report.md`. |
+| 2026-07-05 | USB-C reversibility bug | Iv7.1 wires only one D+/D- pair. Only one plug orientation enumerates; other orientation produces dmesg `error -71`. New CRITICAL item for v8 (`Stage_3b_v8_MustFix.md`). |
+| 2026-07-05 | `3c_sd_pin_probe_mk1` diagnostic sketch added | Replicates ESP-IDF PIN-recovery-time test in Arduino. Confirmed all three SD pins healthy. |

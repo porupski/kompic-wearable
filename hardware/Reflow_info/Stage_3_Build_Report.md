@@ -5,7 +5,7 @@
 | # | Bug | Status | Section |
 |:-:|---|---|---|
 | 1 | Flashlight LED in N-FET source-follower topology — LED can't conduct | **RESOLVED on bench**; schematic fix needed for v8 | §4.2 |
-| 2 | SD card init never completes — `send_scr` / `send_op_cond` / `mount_to_vfs` timeouts across every clock / pull-up / card combination tested | **UNRESOLVED** after exhaustive bench investigation. Likely needs SPI-mode fallback (no free GPIOs without freeing DRV_EN) or PCB respin with proper SDMMC pull-ups and trace layout. See §4.1 for the full debug history. | §4.1 |
+| 2 | SD card init never completes — `send_scr` / `send_op_cond` / `mount_to_vfs` timeouts across every clock / pull-up / card combination tested | **RESOLVED 2026-07-05** — was a dying 64 GB Kodak SDXC card + exFAT filesystem, NOT a bus fault. 65/65 PASSes on 32 GB SDHC msdos card at 400 kHz → 20 MHz with original iv7.1 wiring. See `Stage_4_Build_Report.md`. § 4.1 diagnostic content preserved as archive. | §4.1 |
 | 3 | XC6206 LDO Vin/Vout swapped in library symbol — +1V8 rail at 2.3–2.6 V | **RESOLVED on bench** by rotating LDO + lead-bend (no traces cut); fresh chip regulates 1.8 V cleanly | §4.8 |
 | 4 | LSM6DSV16X Vdd_IO and BME688 Vddio routed to +1V8 while I2C runs at +3V3 — chip ESD diodes back-fed the +1V8 rail to 2.3–2.8 V, prevented LDO regulation, contributed to MAX30101 over-voltage death | **RESOLVED on bench**: cut +1V8 branch near ref C29 (cut over the "9"), jumpered the cut-off side to +3V3. LSM/LIS/BME/mic all now on +3V3 supply. +1V8 rail now only feeds MAX (to replace) and M10S GPS | §4.9 |
 | 5 | MAX30101 damaged by Bug #3+#4 over-voltage | UNRESOLVED — replace chip after verifying +1V8 = 1.8 V cleanly | §4.8 / §4.9 |
@@ -109,7 +109,11 @@ Carries forward every Stage 2 check so regressions are visible, then adds:
 
 ## 4. Issues encountered
 
-### 4.1 SD card never enumerates — exhaustive bench investigation, UNRESOLVED
+### 4.1 SD card never enumerates — exhaustive bench investigation, [SUPERSEDED 2026-07-05]
+
+> **This section is preserved for the diagnostic arc. The "unfixable SDMMC" conclusion below was WRONG.** On 2026-07-05, testing with two other cards (32 GB SDHC msdos, 128 MB SDSC msdos) produced 65/65 PASSes at 400 kHz through 20 MHz with the original iv7.1 wiring — no bodges, no caps, even tolerated 3 cm stub wires. The failures documented in this section were dominated by a dying 64 GB Kodak AliExpress SDXC card (formatted exFAT, which arduino-esp32 SD_MMC rejects by default with a `mount_to_vfs 0xffffffff` that looked like signal-integrity roulette). The three-cards-fail-identically observation was based on shortened attempts with insufficient runtime on the other two cards. See `Stage_4_Build_Report.md` for the corrected story. Auto-memory: `feedback_suspect_cheap_sd_cards.md`.
+>
+> Everything below is retained verbatim as a reference for what the debug arc looked like.
 
 **Final state (2026-06-20):** SD card never completes init across *any*
 combination of pull-up value, clock target, drive strength, or card. The

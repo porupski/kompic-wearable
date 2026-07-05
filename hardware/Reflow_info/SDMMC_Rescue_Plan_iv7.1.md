@@ -1,5 +1,19 @@
 # SDMMC 1-bit Rescue Plan — Kompic Mk I (iv7.1)
 
+> ## ⚠ SUPERSEDED 2026-07-05
+>
+> **Iv7.1 SD bus is functional as-designed. This rescue plan is unnecessary.**
+>
+> On 2026-07-05, testing with a 32 GB SDHC (msdos/FAT32) and a 128 MB SDSC (msdos/FAT16) card produced **65 / 65 PASSes at 400 kHz, 1 MHz, 4 MHz, AND 20 MHz** with the original iv7.1 wiring — no 1 µF cap at the socket, no GND bodge, no CLK series-R. The bus tolerates 3 cm stub wires on CLK/CMD/DAT0 without regression.
+>
+> Root cause of all the failures documented below: **a dying 64 GB Kodak AliExpress SDXC card**, which was also formatted exFAT (unsupported by arduino-esp32 SD_MMC by default → `mount_to_vfs 0xffffffff`). The deterministic 643 ms timeout at `send_scr` was the card's own internal firmware timing out at the same step every attempt, not a bus time-constant.
+>
+> EXP-0 through EXP-5 below are all **not needed** for iv7.1. This document is preserved for archaeology and as a lesson in over-attributing to the bus what belongs to the component under test.
+>
+> See `Stage_4_Build_Report.md` for the corrected final state and the diagnostic autopsy. Auto-memory: `feedback_suspect_cheap_sd_cards.md`.
+
+---
+
 **Created:** 2026-06-29
 **Last updated:** 2026-06-29 (post-EXP-3 desk run; failure mode reclassified)
 **Status:** EXP-3 completed at the desk. Failure mode is now reclassified as a *deterministic single-line electrical fault*, not the borderline-signal-integrity story carried over from Stage 3. Priority experiments reordered accordingly — see § 3.

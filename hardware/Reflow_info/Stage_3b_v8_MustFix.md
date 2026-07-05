@@ -54,7 +54,14 @@ These are silent failures. ERC won't catch any of them because the connectivity 
 +5 V → R25 → R26 → LED_anode → LED_cathode → FET_drain → FET_source → GND
 ```
 
-### 2.2 [CRITICAL] BQ25619 /QON pull-up routing (R12)
+### 2.2 [CRITICAL] USB-C both-side D+/D- routing
+
+**Origin:** 2026-07-05 bench session (Stage 4 Build Report § 2.5).
+**Bug:** Iv7.1's USB-C connector only wires *one* D+/D- pair to the ESP32-S3 (GPIO19/20). USB-C is reversible only if either both A-side and B-side D+/D- pairs are wired, or a CC-controlled mux switches between them. Iv7.1 has neither → one plug orientation enumerates cleanly, the other produces `device descriptor read/64, error -71` in dmesg because the ESP is looking at floating pads instead of the cable's data lines.
+**Consequence on iv7.1:** minor annoyance; work around by always plugging the cable the correct way. But this cost half a bench session diagnosing what looked like a firmware/USB-PHY hang.
+**Fix for v8:** wire both D+/D- pairs — either directly (tie A6↔B6 and A7↔B7, works if you don't need USB 3 sideband channels) or through a CC-based orientation mux (TS3USB221, PI3USB102, etc.). Either approach makes the cable truly reversible.
+
+### 2.3 [CRITICAL] BQ25619 /QON pull-up routing (R12)
 
 **Origin:** Stage 3 § 8.1.
 **Bug:** R12 (5.1 kΩ) pulls /QON to +3V3. When ship mode drops BATFET, +3V3 collapses and R12 becomes a hard pull-DOWN — holds /QON LOW, BQ trips t_SHIPMODE after 0.9–1.3 s, BATFET re-enables, board wakes itself. Ship mode unusable without lifting R12.
@@ -63,17 +70,20 @@ These are silent failures. ERC won't catch any of them because the connectivity 
 
 ---
 
-## Section 3 — SDMMC bus design (CRITICAL)
+## Section 3 — SDMMC bus design (mostly IMPROVEMENT after 2026-07-05)
 
-**Origin:** Stage 3 § 4.1 + 2026-06-29 desk session.
-**Bug:** Even with short traces (CLK = 6 mm, CMD/DAT0 = 15 mm) and DAT1/DAT2 pull-ups populated, SDMMC 1-bit init failed deterministically on iv7.1. Best diagnosis points at insufficient VDD decoupling at the socket, plus possible ground-return discontinuity under the ESP module.
+> **Reclassified 2026-07-05:** the iv7.1 SDMMC bus is functional as designed. See `Stage_4_Build_Report.md`. Items 3.1 / 3.2 / 3.4 / 3.5 / 3.6 / 3.7 below are demoted from CRITICAL to IMPROVEMENT — good practice for margin, not required for function. Item 3.3 (CLK pull-up populated by BOM) remains CRITICAL because the empty footprint required a Stage 3 bench bodge.
 
-### 3.1 [CRITICAL] VDD decoupling on the SD socket
+**Origin:** Stage 3 § 4.1 + 2026-06-29 desk session (both retracted 2026-07-05).
+**Original framing (retained for context):** Even with short traces (CLK = 6 mm, CMD/DAT0 = 15 mm) and DAT1/DAT2 pull-ups populated, SDMMC 1-bit init failed deterministically on iv7.1. Best diagnosis points at insufficient VDD decoupling at the socket, plus possible ground-return discontinuity under the ESP module.
+**Corrected framing (2026-07-05):** the failures were card-side (dying 64 GB Kodak AliExpress SDXC + exFAT filesystem), not bus-side. 65/65 PASSes on a 32 GB SDHC msdos card at 400 kHz through 20 MHz with original iv7.1 wiring. Auto-memory: `feedback_suspect_cheap_sd_cards.md`.
+
+### 3.1 [IMPROVEMENT] VDD decoupling on the SD socket
 
 **Bug:** iv7.1 has 100 nF decoupling but on the **opposite face** of the PCB from the socket, ~2–3 mm away across via stack. For the card's 50–100 mA transients during data-block reads, that's effectively no decoupling at SDMMC speeds.
 **Fix for v8:** **1 µF X7R + 100 nF ceramic, both on the same face as the SD socket, vias to plane *adjacent* to the cap pads, not 2–3 mm away.**
 
-### 3.2 [CRITICAL] Default pull-up values
+### 3.2 [IMPROVEMENT] Default pull-up values
 
 **Bug:** iv7.1 defaults to 10 kΩ pull-ups on CLK / CMD / DAT0. Spec allows 10–100 kΩ for legacy mode, but every real-world SDMMC layout above ~1 MHz uses 4.7 kΩ.
 **Fix for v8:** **default 4.7 kΩ pull-ups on CLK / CMD / DAT0.** Leave 10 kΩ on DAT1/2/3 (weak pull-up for noise immunity, lines are unused in 1-bit mode).
@@ -96,6 +106,19 @@ These are silent failures. ERC won't catch any of them because the connectivity 
 
 **Bug:** iv7.1 leaves DAT3 floating. With no DAT3 routed, the rescue path "fall back to SPI mode" requires a GPIO0 / DRV_EN sacrifice to get a CS pin (Stage 3 § 4.1 Plan B).
 **Fix for v8:** **route DAT3 to a real GPIO** with no strapping conflicts. This unlocks both 4-bit SDMMC (if ever wanted) and SPI fallback without bodge wires. Even if SPI is never used, the option-value is worth one GPIO.
+
+### 3.7 [NEW] Replace push-push socket with Molex 472192001 (flip type)
+
+**Origin:** 2026-06-30 session.
+**Bug:** iv7.1 uses a push-push microSD socket. Push-push sockets have notoriously variable contact spring impedance (50 mΩ to a few Ω depending on insertion cycle / oxidation), which contributes parasitic capacitance and contact noise to an already-marginal SDMMC bus. They also have a ~14 × 15 mm plan footprint that's larger than needed since the watch case won't expose an SD slot anyway — card insertion is service-only, push-push eject ergonomics are wasted.
+**Part:** Molex **472192001** (LCSC **C164170**). Hinged-lid microSD socket: lid flips open, card slides in under it, lid clicks closed.
+**Why it's an upgrade:**
+- Plan footprint ~12 × 11 mm vs ~14 × 15 mm push-push — frees board area.
+- Lower profile than push-push, helps the watch sandwich.
+- Hinged contacts: firmer / less variable than push-push spring tabs. May also help SDMMC signal integrity by reducing contact-impedance variability.
+- 8-pin microSD standard, identical pin assignment — zero firmware impact.
+**Trade-off:** card change requires opening the case (acceptable since the case has no SD slot exposed anyway). Hinge can fatigue after ~thousands of cycles, irrelevant for "factory load + occasional service" use.
+**Fix for v8:** swap the socket in `5_Lights.kicad_sch` (or wherever the SD subsheet lives) for the Molex 472192001 footprint. Verify pad pitch against the datasheet before fab.
 
 ---
 
@@ -191,8 +214,43 @@ These aren't bugs — they're open questions Ivan is weighing for whether v8 is 
 
 ---
 
-## Section 9 — Update log
+## Section 9 — Footprint design rule: extend perimeter pads outward
+
+**Origin:** 2026-06-30 session, generalized from the Stages 1–3 rework experience.
+
+**Bug:** EasyEDA's auto-converted footprints follow JEDEC standard — pads sized tight to the package body, optimized for high-density automated assembly. On iv7.1 this meant the LGA / DFN parts (LSM6DSV16X, LIS3MDLTR, BME688, TPS62840, XC6206) have pads entirely *under* the chip body. Three real costs:
+1. **Smaller pad area → smaller paste volume → higher cold-joint risk.** Especially with the manual-paste fallback (50:50 lead-free + leaded on hidden pads).
+2. **No probe point** during bring-up. The reason BQ25619 was easy to debug in Stage 3 was that its WQFN-24 leads stick out past the body — the LSM/LIS/BME/TPS could not be probed at all without lifting the chip.
+3. **No visible fillet** under magnification — joint quality has to be inferred from electrical behavior, not visual inspection.
+
+**Fix for v8:** **manually edit every footprint after EasyEDA → KiCad import to extend perimeter pads outward from the package body.** Direction is **outward only** (toward board edge), never inward. Standard extension by part class:
+
+| Part class | Extend? | How much |
+|---|---|---|
+| QFN / WQFN with already-exposed leads (BQ25619 style) | already done | n/a |
+| LGA with hidden pads (LSM6DSV16X, LIS3MDLTR, BME688) | **yes, extend** | 0.4–0.5 mm outward |
+| DFN with hidden pads (TPS62840, XC6206, PCF85063A) | **yes, extend** | 0.4–0.5 mm outward |
+| Fine-pitch (≤0.4 mm pitch) chips | extend small | 0.2–0.3 mm — bridge risk past that |
+| Center thermal pads (QFN bellies) | leave standard | thermal connection only, no probe value |
+| 0402 passives | **leave standard** | extension causes tombstoning during reflow (asymmetric thermal mass) |
+| 0603 / 0805 passives | optional small extension | 0.1–0.2 mm OK, low tombstone risk |
+
+**Wins per Stage-3 lessons:**
+- More paste flow per pad → less cold-joint risk (matches the dire-straits paste workflow we keep falling back to).
+- Probe access for the LGA/DFN parts that were un-debuggable on iv7.1.
+- Better visual inspection of solder fillet at the package edge.
+- Larger pad mass = better thermal anchor + less mechanical stress concentration.
+
+**Don't apply** to: center thermal pads, 0402 passives, anything finer than 0.4 mm pitch (judgment call per part).
+
+## Section 10 — 3D model housekeeping
+
+EasyEDA-derived STEP/WRL models carry small "EasyEDA" branding visible in the 3D viewer. Acceptable for this personal / educational project — keep the models as-is. If v8 ever moves toward commercial review, swap the chip-specific models for manufacturer-sourced STEP (ST, TI, Bosch all host them) and use KiCad's built-in 3D library for generic passives.
+
+## Section 11 — Update log
 
 | Date | Item | Status |
 |---|---|---|
 | 2026-06-29 | Initial draft, post-2026-06-29 desk session | Captured all known critical bugs from Stages 1–3 + new conclusions (DRV chip damage, SDMMC regression, MAX17048G add). |
+| 2026-06-30 | Added § 3.7 (Molex 472192001 flip SD socket), § 9 (footprint pad-extension design rule + per-part table), § 10 (EasyEDA 3D model branding note). Renumbered update log → § 11. | — |
+| 2026-07-05 | § 3 SDMMC items 3.1/3.2/3.4/3.5/3.6/3.7 demoted CRITICAL → IMPROVEMENT after Stage 4 verification. 3.3 still CRITICAL (empty CLK pull-up footprint). Added new § 2.2 CRITICAL: USB-C both-side D+/D- routing (iv7.1 wires only one, breaks reversibility). Renumbered BQ /QON to § 2.3. | See `Stage_4_Build_Report.md`. |
