@@ -1,0 +1,12 @@
+## Bosch BME68x Sensor API -- managed component for the BME688 driver.
+## Pulled at build time by IDF's component manager.
+##
+## Registry note (2026-07-07): Bosch does not publish the sensor API to the
+## Espressif registry directly. The original port planner assumed a
+## "boschsensortec/bme68x_sensor_api" namespace that does not exist. The
+## community adaptation `francisduvivier/bme68x_sensorapi_espidf` wraps the
+## same source with an ESP-IDF-friendly build shim (I2C only -- our use case).
+## Same headers (bme68x.h, bme68x_defs.h), same function names.
+dependencies:
+  francisduvivier/bme68x_sensorapi_espidf: "^0.0.6"
+  idf: ">=5.0"

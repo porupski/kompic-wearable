@@ -27454,6 +27454,36 @@
 		(uuid "14a30737-0cfc-415c-af11-ec2ab9942ac3")
 	)
 	(gr_line
+		(start 172.1 103.8)
+		(end 172.1 105.7)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "918dd7cc-2b0a-43b1-b4ff-3a5ecb03dfdc")
+	)
+	(gr_line
+		(start 174.2 116.05)
+		(end 176 116.8)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "46e1266f-7bf5-4569-be4f-a9ef3a801325")
+	)
+	(gr_line
+		(start 174.8 110.85)
+		(end 174.8 112.75)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "53dd3213-de2e-4499-9427-507236c7a98c")
+	)
+	(gr_line
 		(start 132.63 98.46)
 		(end 132.63 111.76)
 		(stroke
@@ -28307,6 +28337,30 @@
 				(size 1 1)
 				(thickness 0.2)
 				(bold yes)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "CUT 1v8 BRANCH"
+		(at 166.8 102.9 0)
+		(layer "Eco2.User")
+		(uuid "f78944bd-3557-4ef3-9d05-59c9d3300642")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "2x FLASHLIGHT\nCUTS"
+		(at 177.5 116.4 0)
+		(layer "Eco2.User")
+		(uuid "2458723e-729b-4041-bfad-28e78e12b946")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
 			)
 			(justify left bottom)
 		)

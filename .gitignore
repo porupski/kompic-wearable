@@ -32,7 +32,10 @@ firmware/**/*.elf
 firmware/**/*.bin
 firmware/**/*.map
 
-firmware/.data_test
+firmware/**/.data_test
+firmware/arduino/legacy
+firmware/esp-idf/test_drafts
+firmware/esp-idf/.claude
 
 # Datasheets
 docs/datasheets/

@@ -1,0 +1,12 @@
+## IDF Component Manager Manifest File
+##
+## LVGL / esp_lvgl_port pairing (2026-07-07): the previous pin of lvgl "9.2.0"
+## together with esp_lvgl_port "^2.4.1" is incompatible -- esp_lvgl_port 2.8.0
+## uses LV_COLOR_FORMAT_RGB565_SWAPPED which was introduced in LVGL 9.3.
+## Bumped LVGL to ^9.3 so the resolver picks a matched pair. Kept within the
+## 9.x major so the driver *_tile.c files (written against 9.x) still compile.
+dependencies:
+  espressif/esp_lvgl_port: "^2.4.1"
+  lvgl/lvgl: "^9.3"
+  espressif/esp_lcd_touch_cst816s: "1.0.3"
+  idf: ">=5.0"
