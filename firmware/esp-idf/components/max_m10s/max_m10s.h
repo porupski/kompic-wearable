@@ -34,6 +34,10 @@
 #ifndef MAX_M10S_H
 #define MAX_M10S_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define MAX_M10S_DRIVER_VERSION  "0.2.0"
 #include "esp_err.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"

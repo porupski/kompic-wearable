@@ -27,6 +27,10 @@
 #ifndef CO5300_H
 #define CO5300_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define CO5300_DRIVER_VERSION  "0.2.0"
 #include "esp_err.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"

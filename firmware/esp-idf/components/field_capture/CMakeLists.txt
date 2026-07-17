@@ -4,6 +4,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         driver
+        esp_driver_tsens   # temperature_sensor.h for ESP32-S3 SoC temp in FCM_TEMP
         freertos
         esp_timer
         nvs_flash

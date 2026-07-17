@@ -33,9 +33,16 @@ firmware/**/*.bin
 firmware/**/*.map
 
 firmware/**/.data_test
+
 firmware/arduino/legacy
+
 firmware/esp-idf/test_drafts
 firmware/esp-idf/.claude
+
+firmware/esp-idf/archive
+
+# Hardware related docs
+hardware/Reflow_info/reference_files
 
 # Datasheets
 docs/datasheets/

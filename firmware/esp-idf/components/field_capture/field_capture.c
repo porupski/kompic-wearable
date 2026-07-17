@@ -4,6 +4,7 @@
  */
 
 #include "field_capture.h"
+#include "firmware_version.h"
 
 #include <math.h>
 #include <string.h>
@@ -117,8 +118,9 @@ static esp_err_t qvar_local_disable(void) {
 #define BTN_DEBOUNCE_MS        30
 #define BTN_DOUBLE_GAP_MS      350
 #define ENC_DETENT_REST_MS     10   // both A+B HIGH continuously to confirm rest
-#define RECORDING_MS           30000
-#define VOICE_ANNOT_MS         5000
+// Recording sessions run until button click -- no fixed duration. The 15-min
+// uptime cap in task_shutdown_watcher_fn covers the "left running" case.
+#define VOICE_ANNOT_MS         5000     // fixed voice-annotation prelude (WAV)
 #define BEEP_COUNT             3
 #define BEEP_ON_MS             140
 #define BEEP_OFF_MS            260
@@ -155,11 +157,19 @@ static const mode_info_t MODE_INFO[FCM_COUNT] = {
     { "fl",      18, 18, 18 },
     { "alarm",    8,  0, 26 },
     // COMPASS palette isn't used for solid/pulse in standby -- it renders
-    // as a 2 Hz yellow<->purple alternation to distinguish it visually.
+    // as a 2 Hz red<->blue alternation (matches the live N/S gradient).
     // Kept here for logging + parity with the enum.
-    { "compass", 14, 26,  0 },
-    // ECG same story -- rendered as a 2 Hz pink<->red alternation.
-    { "ecg",     26,  0,  8 },
+    { "compass", 26,  0, 26 },
+    // QVAR touch-button demo (was "ecg" through Stage 6 -- renamed
+    // Stage 7 § 4 after QVAR was confirmed as a touch sensor, not ECG).
+    // Rendered as a 2 Hz yellow<->purple alternation in standby.
+    { "qvar",    26, 26,  0 },
+    // TEMP -- rendered as a slow warm-color cycle (red -> orange -> yellow),
+    // handled specially in the standby LED path.
+    { "temp",    26,  8,  0 },
+    // BCG (Stage 8) -- rendered as a 2 Hz yellow<->red alternation, handled
+    // specially in the standby LED path.
+    { "bcg",     26, 12,  0 },
 };
 
 typedef enum {
@@ -288,6 +298,8 @@ static void ensure_sd(void) {
     try_mkdir("/sd/data/env");
     try_mkdir("/sd/data/mot");
     try_mkdir("/sd/data/skin");
+    try_mkdir("/sd/data/bcg");    // Stage 7: BCG session recordings
+    try_mkdir("/sd/data/qvar");   // Stage 7: QVAR session recordings
     ESP_LOGI(TAG, "SD mounted (%ld MiB free)", (long)sdcard_get_free_mib());
 }
 static void rtc_iso_now(char *out, size_t n) {
@@ -340,6 +352,32 @@ static void wav_patch_header(FILE *f, uint32_t data_bytes) {
 }
 
 // ── Blocking WAV recorder ────────────────────────────────────────────────────
+// Forward declarations for helpers defined further down (button state machine
+// lives with the encoder logic; wav_record_to calls into it to allow the MIC
+// mode to exit on click).
+static int button_poll(void);
+
+// Write a "<wav_path>.meta.txt" sidecar next to a WAV file with the same
+// provenance line the CSV files carry. WAV lacks a standard text-comment
+// field we can rely on, so we keep the metadata as a separate small text
+// file with a matching stem.
+static void wav_write_meta_sidecar(const char *wav_path, const char *tag) {
+    char meta[128];
+    snprintf(meta, sizeof(meta), "%s.meta.txt", wav_path);
+    FILE *f = fopen(meta, "w");
+    if (!f) return;
+    char now[32]; rtc_iso_now(now, sizeof(now));
+    fprintf(f, "rtc_start=%s hw=%s fw=%s boot=%lu seq=%lu tag=%s\n",
+            now, KOMPIC_HW_VERSION, KOMPIC_FW_VERSION,
+            (unsigned long)s_boot_seq, (unsigned long)s_rec_seq, tag);
+    fclose(f);
+}
+
+// Record a WAV file.
+//   duration_ms == 0  -> record until the button is clicked (or the 15-min
+//                        global uptime cap fires). Suitable for MIC mode.
+//   duration_ms  > 0  -> hard-capped duration (used for the 5 s voice-annotation
+//                        prelude of the CSV modes). Button click also exits.
 static uint32_t wav_record_to(const char *path, uint32_t duration_ms) {
     ensure_sd();
     if (!s_sd_ready) return 0;
@@ -358,13 +396,16 @@ static uint32_t wav_record_to(const char *path, uint32_t duration_ms) {
     static uint8_t frame[MIC_PDM_FRAME_BYTES];
     uint32_t written = 0;
     uint32_t start = millis_u32();
-    while ((millis_u32() - start) < duration_ms && !s_recording_early_end) {
+    for (;;) {
+        if (s_recording_early_end) break;
+        if (duration_ms > 0 && (millis_u32() - start) >= duration_ms) break;
+        if (button_poll() == 1) { s_recording_early_end = true; break; }
+
         size_t got = 0;
         if (mic_pdm_read(frame, sizeof(frame), &got, 40) == ESP_OK && got) {
             fwrite(frame, 1, got, f);
             written += got;
         }
-        // Pulse red at 1 Hz while capturing (annot + MIC mode).
         rgb_pulse(FCM_MIC, start, PULSE_RECORD_MS);
     }
     wav_patch_header(f, written);
@@ -388,8 +429,13 @@ static FILE *csv_open(const char *dir, uint32_t seq, const char *header) {
         return NULL;
     }
     char now[32]; rtc_iso_now(now, sizeof(now));
-    fprintf(f, "# rtc_start=%s boot=%lu seq=%lu mode=%s\n",
-            now, (unsigned long)s_boot_seq, (unsigned long)seq, dir);
+    // Provenance line -- every SD file starts with this. Traces the recording
+    // back to (a) the RTC wall-clock at file open, (b) the physical hardware
+    // revision, (c) the firmware version compiled into this binary, and
+    // (d) the boot / session sequence numbers.
+    fprintf(f, "# rtc_start=%s hw=%s fw=%s boot=%lu seq=%lu mode=%s\n",
+            now, KOMPIC_HW_VERSION, KOMPIC_FW_VERSION,
+            (unsigned long)s_boot_seq, (unsigned long)seq, dir);
     fprintf(f, "%s\n", header);
     ESP_LOGI(TAG, "CSV %s opened", path);
     return f;
@@ -521,32 +567,11 @@ static int encoder_delta(void) {
     return emit;
 }
 
-// ── Ship mode ────────────────────────────────────────────────────────────────
-static void abort_recording_and_flush(void) {
-    if (s_csv_file) { fflush(s_csv_file); fclose(s_csv_file); s_csv_file = NULL; }
-    mic_pdm_stop();
-}
-static void enter_ship_mode(void) {
-    ESP_LOGW(TAG, "SHIP MODE requested (double-click)");
-    abort_recording_and_flush();
-    if (!broker_battery_hw_alive()) {
-        ESP_LOGE(TAG, "BQ not alive -- cannot ship mode");
-        return;
-    }
-    // 2 s red LED countdown, hands off the button.
-    for (int i = 0; i < 40; i++) {
-        ws2812_set_color(WS_MAX, 0, 0);
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    if (gpio_get_level(PIN_BUTTON) == 0) {
-        ESP_LOGI(TAG, "button held at end of countdown -- ship mode aborted");
-        rgb_off();
-        return;
-    }
-    bq25619_enter_ship_mode(I2C_NUM_1);
-    ESP_LOGW(TAG, "BATFET cmd issued -- power down or USB unplug now");
-    while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
-}
+// (Old double-click enter_ship_mode() + abort_recording_and_flush() lived
+// here. Ship-mode is now owned by task_shutdown_watcher_fn (4 s hold, Stage 7
+// § 3), which calls watcher_ship_mode() directly and does not attempt to
+// flush open files. If a future feature wants clean file wind-down on
+// shutdown, add it back and call from watcher_ship_mode() before BATFET.)
 
 // ── Sensor wake / park (only the sensors used by the given mode) ────────────
 // RTC + battery + haptic are always-on (enabled in boot_hw_init.c).
@@ -569,6 +594,20 @@ static void wake_sensors_for_mode(fc_mode_t m) {
         break;
     case FCM_COMPASS:
         broker_mag_set_enabled(true);
+        break;
+    case FCM_TEMP:
+        // ENV has die + air (BME688); SKIN has TMP117; IMU has on-die
+        // temp (LSM6DSV16X) published on broker_imu_data_t.temperature.
+        // The MAX30101 die-temp is read directly via one-shot register
+        // poke in read_max_die_temp() -- we do NOT enable the HR task,
+        // because that would kick the MAX out of shutdown into PPG mode
+        // and turn the green LED on (unnecessary + adds thermal load).
+        broker_env_set_enabled(true);
+        broker_imu_set_enabled(true);
+        broker_skin_set_enabled(true);
+        break;
+    case FCM_BCG:
+        broker_imu_set_enabled(true);
         break;
     default: break;  // MIC / FL / ALARM don't wake I2C sensors
     }
@@ -595,13 +634,14 @@ static void park_all_modal_sensors(void) {
 // E/W (LED off), -1 at S (blue = max). Smooth curve between.
 
 // LED helpers specific to compass/cal
-static void rgb_compass_alt_yellow_purple(void) {
-    // 2 Hz alternation, 250 ms per colour. Yellow (motion) + purple
-    // (alarm) merged into one hint that this is the compass/cal mode.
+static void rgb_compass_alt_red_blue(void) {
+    // 2 Hz alternation, 250 ms per colour. Same red/blue palette as the
+    // live compass gradient -- the alternation just distinguishes "waiting
+    // to enter compass" from "in compass mode" (where hue depends on heading).
     uint32_t t = millis_u32();
-    bool yellow = ((t / 250) % 2) == 0;
-    if (yellow) ws2812_set_color(14, 26, 0);
-    else        ws2812_set_color( 8, 0, 26);
+    bool red = ((t / 250) % 2) == 0;
+    if (red) ws2812_set_color(26, 0,  0);
+    else     ws2812_set_color( 0, 0, 26);
 }
 static void rgb_flash_purple(void) {
     // 5 Hz on/off flash during the 10 s figure-8 cal.
@@ -610,11 +650,16 @@ static void rgb_flash_purple(void) {
     if (on) ws2812_set_color(12, 0, 26);
     else    ws2812_set_color( 0, 0,  0);
 }
+// Compass LED gradient (simple version, iv7.1 baseline):
+// cos(heading) drives a red<->blue mix. +1 at N (pure red), -1 at S (pure
+// blue), 0 at E/W (LED off). No tilt overlay -- watch must be roughly flat
+// for meaningful readings. Tilt-comp + tilt-hue overlay left for a future
+// pass once LSM/LIS axis-alignment is confirmed on the bench.
 static void rgb_compass_gradient(float heading_deg) {
     float rad = heading_deg * (float)M_PI / 180.0f;
-    float c = cosf(rad);
-    uint8_t r = c < 0.0f ? (uint8_t)(-c * (float)WS_MAX) : 0;
-    uint8_t b = c > 0.0f ? (uint8_t)( c * (float)WS_MAX) : 0;
+    float c   = cosf(rad);
+    uint8_t r = c > 0.0f ? (uint8_t)( c * (float)WS_MAX) : 0;
+    uint8_t b = c < 0.0f ? (uint8_t)(-c * (float)WS_MAX) : 0;
     ws2812_set_color(r, 0, b);
 }
 
@@ -625,27 +670,55 @@ static bool heading_on_ns(float heading_deg) {
     return d_n < 5.0f || d_s < 5.0f;
 }
 
-// 10 s figure-8 hard-iron calibration. Tracks per-axis min/max on X and Y
-// (Z is not needed for a flat-worn 2D compass). Aborts early on button.
+// 10 s figure-8 hard-iron calibration. Tracks per-axis min/max on X and Y.
+// Stage 7 § 9: outlier rejection cuts the "one spike ruined my cal" failure
+// mode by clamping input samples to a plausible local-field range before the
+// min/max update. Local Earth field on the surface is ~30-70 uT vector
+// magnitude, so any per-axis reading outside +/-500 uT is either a nearby
+// magnet or a chip glitch -- skip it.
+#define MAG_CAL_MAX_ABS_UT   500.0f
 static void run_mag_cal(void) {
     ESP_LOGI(TAG, "[COMPASS] calibration START -- figure-8 for 10 seconds");
     haptic_play_forced(DRV_MEDIUM_CLICK);   // "get moving" tick
     float min_x =  1e9f, max_x = -1e9f;
     float min_y =  1e9f, max_y = -1e9f;
+    uint32_t rejected = 0;
+    uint32_t accepted = 0;
     uint32_t start = millis_u32();
     bool aborted = false;
     while ((millis_u32() - start) < 10000) {
         rgb_flash_purple();
         broker_mag_data_t m; broker_mag_read(&m);
-        if (m.x_ut < min_x) min_x = m.x_ut;
-        if (m.x_ut > max_x) max_x = m.x_ut;
-        if (m.y_ut < min_y) min_y = m.y_ut;
-        if (m.y_ut > max_y) max_y = m.y_ut;
+
+        // Outlier rejection: skip samples with per-axis magnitudes outside
+        // physically plausible Earth-field range. Kills single spikes from
+        // passing magnets / laptop / clasp interference.
+        if (fabsf(m.x_ut) > MAG_CAL_MAX_ABS_UT ||
+            fabsf(m.y_ut) > MAG_CAL_MAX_ABS_UT) {
+            rejected++;
+        } else {
+            if (m.x_ut < min_x) min_x = m.x_ut;
+            if (m.x_ut > max_x) max_x = m.x_ut;
+            if (m.y_ut < min_y) min_y = m.y_ut;
+            if (m.y_ut > max_y) max_y = m.y_ut;
+            accepted++;
+        }
+
         if (button_poll() == 1) { aborted = true; break; }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     if (aborted) {
         ESP_LOGW(TAG, "[COMPASS] cal aborted -- press again in compass mode to retry");
+        return;
+    }
+    if (accepted < 50) {
+        ESP_LOGW(TAG, "[COMPASS] cal REJECTED -- only %u accepted samples (%u rejected as outliers). retry.",
+                 (unsigned)accepted, (unsigned)rejected);
+        // "cal failed" feedback: three short clicks.
+        for (int i = 0; i < 3; i++) {
+            haptic_play_forced(DRV_STRONG_CLICK);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
         return;
     }
     s_mag_offset_x = (min_x + max_x) * 0.5f;
@@ -656,31 +729,41 @@ static void run_mag_cal(void) {
     s_mag_scale_x = (rx > 1.0f) ? rx : 1.0f;
     s_mag_scale_y = (ry > 1.0f) ? ry : 1.0f;
     s_mag_cal_done = true;
-    ESP_LOGI(TAG, "[COMPASS] cal DONE  off=(%.1f, %.1f) uT  span=(%.1f, %.1f) uT",
-             s_mag_offset_x, s_mag_offset_y, rx * 2.0f, ry * 2.0f);
+    ESP_LOGI(TAG, "[COMPASS] cal DONE  off=(%.1f, %.1f) uT  span=(%.1f, %.1f) uT  (%u kept / %u rejected)",
+             s_mag_offset_x, s_mag_offset_y, rx * 2.0f, ry * 2.0f,
+             (unsigned)accepted, (unsigned)rejected);
     haptic_play_forced(DRV_LONG_BUZZ);
 }
 
 // Live compass -- runs until single button press. LED red<->blue on the
 // N-S axis, DRV pulses at 1 Hz whenever heading is within +/-5 deg of
 // N or S.
+//
+// TODO(iv8.0): on-demand recal is intentionally NOT bound to a button
+// hold here. Single-click exits, and any hold >= 2 s belongs to the
+// shutdown watcher's warn/fire ladder -- there is no clean window in
+// between. Recal will move to a 3-second sustained QVAR-electrode touch
+// once the always-on QVAR dispatcher lands (see Stage 8 §5). Until then,
+// recal only happens on cold boot / after mag disturbance -> reset.
 static void run_compass(void) {
-    ESP_LOGI(TAG, "[COMPASS] compass ACTIVE (press to exit)");
+    ESP_LOGI(TAG, "[COMPASS] compass ACTIVE  (single-click: exit)");
     uint32_t last_ns_pulse = 0;
     uint32_t last_print    = 0;
     while (1) {
         if (button_poll() == 1) break;
+        uint32_t now = millis_u32();
+
         broker_mag_data_t m; broker_mag_read(&m);
         float nx = (m.x_ut - s_mag_offset_x) / s_mag_scale_x;
         float ny = (m.y_ut - s_mag_offset_y) / s_mag_scale_y;
-        // Bearing 0..360 CW-from-N. Flip -ny to +ny if the compass spins
-        // the wrong way on the bench (see coordinate note above).
+        // 2D heading from X/Y only. Watch must be roughly flat for accuracy.
+        // Sign of +ny flips the CW/CCW direction if the mag axis orientation
+        // on the PCB is mirrored -- flip if compass spins the wrong way.
         float heading = atan2f(+ny, nx) * 180.0f / (float)M_PI;
         if (heading < 0.0f) heading += 360.0f;
 
         rgb_compass_gradient(heading);
 
-        uint32_t now = millis_u32();
         if (heading_on_ns(heading) && (now - last_ns_pulse) >= 1000) {
             last_ns_pulse = now;
             haptic_play(DRV_MEDIUM_CLICK);
@@ -719,99 +802,546 @@ static void run_compass_or_cal(void) {
 // via a fast-then-slow EMA baseline, local-max of AC above adaptive
 // threshold, 300 ms refractory (200 BPM cap).
 
-// LED indicator: 2 Hz alternation between pink (skin palette) and red
-// (mic palette). Visually distinct from both individually.
-static void rgb_ecg_alt_pink_red(void) {
+// QVAR LED signature: 2 Hz yellow<->purple alternation. Distinct from
+// every other mode at a glance (mic=red pulse, env=green, mot=yellow-green,
+// skin=pink, temp=warm cycle, compass=red/blue alt, bcg=yellow/red alt).
+static void rgb_qvar_alt_yellow_purple(void) {
     uint32_t t = millis_u32();
-    bool pink = ((t / 250) % 2) == 0;
-    if (pink) ws2812_set_color(26, 0, 12);
-    else      ws2812_set_color(26, 0,  0);
+    bool yellow = ((t / 250) % 2) == 0;
+    if (yellow) ws2812_set_color(26, 26,  0);   // yellow
+    else        ws2812_set_color(14,  0, 26);   // purple
 }
 
-// 50 Hz IIR biquad notch @ fs=240 Hz, Q=5. Same coefficients as the
-// arduino sketch 9_test_ecg. If you're in a 60 Hz-mains country,
-// recompute with w0 = 2*pi*60/240.
-#define ECG_NOTCH_B0   0.9119f
-#define ECG_NOTCH_B1  -0.4721f
-#define ECG_NOTCH_B2   0.9119f
-#define ECG_NOTCH_A1  -0.4721f
-#define ECG_NOTCH_A2   0.8238f
+// TEMP mode signature: warm-color cycle red -> orange -> yellow at ~0.5 Hz
+// (2000 ms period, 666 ms per step). Distinct from every other mode's
+// signature at a glance.
+static void rgb_temp_warm_cycle(void) {
+    uint32_t t = millis_u32();
+    uint32_t phase = (t / 666) % 3;
+    switch (phase) {
+    case 0: ws2812_set_color(26,  0, 0); break;   // red
+    case 1: ws2812_set_color(26,  8, 0); break;   // orange
+    case 2: ws2812_set_color(26, 20, 0); break;   // yellow
+    }
+}
+
+// QVAR button demo. Physics recap:
+//   The LSM6DSV16X QVAR is a charge-variometer, not a voltage sensor. It
+//   integrates the current flowing on/off the two Qvar pins. When a finger
+//   touches an electrode, charge redistributes: big transient spike (onset),
+//   then internal leakage equalizes the amp back toward baseline within ~1s.
+//   Release produces another transient in the opposite direction.
+//
+// Three observed states on iv7.1 (Stage 7 bench, 2026-07-17):
+//   idle           slow rail-to-rail sawtooth (amp drift, seconds-long period)
+//   one electrode  raw swings full-scale, spiky, oscillating (mains + body AC)
+//   both touched   raw sits railed on one side, tight envelope near the rail
+//
+// The idle sawtooth produces |raw| ≈ 30 k for long stretches -- naive
+// envelope-of-|raw| detection would false-trigger on it. Fix: a 1st-order
+// high-pass filter kills the slow drift so only the AC content of a real
+// touch feeds into the envelope. Idle -> HPF output ≈ 0, one-electrode -> big
+// HPF output, both-touched -> small HPF output (railed = derivative near 0).
+//
+// Plotter output (tab-separated):
+//   raw      -- the 16-bit signed differential (post-HPF, for plot clarity)
+//   touch_p  -- +10000 while envelope > THRESH AND last onset was positive
+//   touch_n  -- -10000 while envelope > THRESH AND last onset was negative
+//
+// HPF: 1st-order at ~2 Hz cutoff (fs = 250 Hz -> alpha = tau/(tau+dt) with
+//      tau = 1/(2*pi*2) = 0.0796 s -> alpha = 0.0796/(0.0796+0.004) = 0.952).
+#define QVAR_HPF_ALPHA          0.952f
+#define QVAR_ONSET_THRESH_RAW   800.0f
+#define QVAR_TOUCH_THRESH_RAW   400.0f
+#define QVAR_ENV_DECAY          0.985f    // per-sample decay at 250 Hz => ~66 ms tau
+
+// Both-touched detection: when both electrodes are held, HPF-envelope is
+// LOW (railed = flat derivative) but the raw signal sits pegged at one of
+// the amp rails. Track the slow raw mean; if it's near a rail AND the HPF
+// envelope is quiet for a sustained window, treat as "both touched."
+#define QVAR_RAIL_ABS_MIN       15000.0f  // |raw_mean| this large = near a rail
+#define QVAR_QUIET_ENV_MAX      150.0f    // HPF envelope this small = flat
+#define QVAR_RAW_MEAN_ALPHA     0.02f     // ~50-sample EMA of raw
+
+// Output mode: 0 = human-readable monitor (default, ~1 Hz INFO logs);
+//              1 = Arduino-Serial-Plotter (tab-separated numbers).
+#define QVAR_PLOTTER_MODE   0
+
+// Sessions run until the button is pressed -- no auto-timeout. The 15-min
+// global uptime cap in task_shutdown_watcher_fn is the final safety net.
+
+typedef enum {
+    QVAR_NO_TOUCH = 0,
+    QVAR_QVAR1_TOUCH,
+    QVAR_QVAR2_TOUCH,
+    QVAR_BOTH_TOUCH,
+} qvar_touch_state_t;
+
+static const char *qvar_state_name(qvar_touch_state_t s) {
+    switch (s) {
+    case QVAR_QVAR1_TOUCH: return "Qvar1";
+    case QVAR_QVAR2_TOUCH: return "Qvar2";
+    case QVAR_BOTH_TOUCH:  return "both";
+    case QVAR_NO_TOUCH:
+    default:               return "none";
+    }
+}
 
 static void run_ecg(void) {
     if (qvar_local_enable() != ESP_OK) {
-        ESP_LOGE(TAG, "[ECG] QVAR enable failed -- skipping");
+        ESP_LOGE(TAG, "[QVAR] enable failed -- skipping");
         return;
     }
-    ESP_LOGI(TAG, "[ECG] active (50 Hz notch on). Open Arduino Serial Plotter.");
-    // Silence our own INFO chatter during the plot -- keeps the plotter
-    // input as clean as possible without touching global log level.
+#if QVAR_PLOTTER_MODE
+    ESP_LOGI(TAG, "[QVAR] active (PLOTTER mode). plot: raw touch_p touch_n. exit: click.");
     esp_log_level_set(TAG, ESP_LOG_WARN);
+#else
+    ESP_LOGI(TAG, "[QVAR] active (MONITOR mode). recording -> SD until click.");
+#endif
 
-    // Baseline + AC envelope for the beat detector.
-    float    baseline       = 0.0f;
-    bool     baseline_ready = false;
-    float    ac_peak        = 0.0f;
-    float    ac_prev        = 0.0f;
-    uint32_t last_beat_ms   = 0;
-    uint32_t start_ms       = millis_u32();
+    s_rec_seq++;
+    FILE *csv = csv_open("qvar", s_rec_seq, "time_ms,raw,hpf,state");
+    uint32_t rows_written = 0;
+
+    float    hp_prev_x   = 0.0f;
+    float    hp_prev_y   = 0.0f;
+    float    envelope    = 0.0f;
+    float    raw_mean    = 0.0f;   // slow EMA of raw for "both-touched" detect
+    int8_t   last_sign   = 0;
+    bool     prev_touching = false;
     uint32_t last_led_tick  = 0;
-    // Notch filter state
-    float    nx1 = 0.0f, nx2 = 0.0f, ny1 = 0.0f, ny2 = 0.0f;
+    uint32_t last_status_ms = 0;
+    qvar_touch_state_t state      = QVAR_NO_TOUCH;
+    qvar_touch_state_t last_logged_state = QVAR_NO_TOUCH;
+
+    uint32_t session_start = millis_u32();
 
     while (1) {
         if (button_poll() == 1) break;
+        uint32_t now = millis_u32();
 
         int16_t raw = 0;
         if (qvar_reg_read_word(ECG_REG_OUT_AH_L, &raw) == ESP_OK) {
-            // ── Apply 50 Hz notch first ─────────────────────────────────
             float xin = (float)raw;
-            float notched = ECG_NOTCH_B0 * xin + ECG_NOTCH_B1 * nx1 + ECG_NOTCH_B2 * nx2
-                          - ECG_NOTCH_A1 * ny1 - ECG_NOTCH_A2 * ny2;
-            nx2 = nx1; nx1 = xin;
-            ny2 = ny1; ny1 = notched;
+            float y   = QVAR_HPF_ALPHA * (hp_prev_y + xin - hp_prev_x);
+            hp_prev_x = xin;
+            hp_prev_y = y;
 
-            // ── 1) Serial-Plotter feed: emit notched value ─────────────
-            printf("%d\n", (int)notched);
+            float abs_y = fabsf(y);
+            envelope *= QVAR_ENV_DECAY;
+            if (abs_y > envelope) envelope = abs_y;
 
-            // ── 2) Beat detector runs on notched signal ────────────────
-            uint32_t now     = millis_u32();
-            uint32_t elapsed = now - start_ms;
-            float    x       = notched;
-            if (baseline == 0.0f) baseline = x;
-            float alpha = (elapsed < 3000) ? 0.05f : 0.005f;
-            baseline = baseline * (1.0f - alpha) + x * alpha;
-            if (elapsed >= 3000) baseline_ready = true;
-            float ac     = x - baseline;
-            float ac_abs = fabsf(ac);
-            if (ac_abs > ac_peak) ac_peak = ac_abs;
-            else                  ac_peak *= 0.9995f;
+            // Slow mean of raw for rail-detection.
+            raw_mean = raw_mean + QVAR_RAW_MEAN_ALPHA * (xin - raw_mean);
 
-            if (baseline_ready) {
-                float thresh = ac_peak * 0.5f;
-                if (thresh < 50.0f) thresh = 50.0f;
-                if (ac_prev > ac && ac_prev > thresh &&
-                    (now - last_beat_ms) > 300) {
-                    last_beat_ms = now;
-                    haptic_play_forced(DRV_STRONG_CLICK);
-                }
+            if (abs_y > QVAR_ONSET_THRESH_RAW) {
+                last_sign = (y > 0.0f) ? +1 : -1;
             }
-            ac_prev = ac;
+
+            // State classification. Priority:
+            //   (1) big AC envelope     -> one-electrode touch
+            //   (2) railed raw + quiet  -> both-electrode touch
+            //   (3) otherwise           -> no touch
+            bool touching_one = envelope > QVAR_TOUCH_THRESH_RAW;
+            bool railed = fabsf(raw_mean) > QVAR_RAIL_ABS_MIN;
+            bool quiet  = envelope < QVAR_QUIET_ENV_MAX;
+            if (touching_one) {
+                state = (last_sign > 0) ? QVAR_QVAR1_TOUCH : QVAR_QVAR2_TOUCH;
+            } else if (railed && quiet) {
+                state = QVAR_BOTH_TOUCH;
+            } else {
+                state = QVAR_NO_TOUCH;
+            }
+
+            // Haptic on rising edge of any-touch (state transitions from
+            // NO_TOUCH into any active state).
+            bool touching_now = (state != QVAR_NO_TOUCH);
+            if (touching_now && !prev_touching) {
+                haptic_play_forced(DRV_MEDIUM_CLICK);
+            }
+            prev_touching = touching_now;
+
+            if (csv) {
+                fprintf(csv, "%lu,%d,%d,%d\n",
+                        (unsigned long)(now - session_start),
+                        (int)raw, (int)y, (int)state);
+                rows_written++;
+            }
+
+#if QVAR_PLOTTER_MODE
+            int touch_p_out = (state == QVAR_QVAR1_TOUCH) ?  10000 : 0;
+            int touch_n_out = (state == QVAR_QVAR2_TOUCH) ? -10000 : 0;
+            printf("%d\t%d\t%d\n", (int)y, touch_p_out, touch_n_out);
+#else
+            // Monitor mode: log on state change immediately, and a 1 Hz
+            // heartbeat so the user knows the session is still running.
+            if (state != last_logged_state) {
+                ESP_LOGI(TAG, "[QVAR] state -> %s   raw_mean=%.0f  env=%.0f",
+                         qvar_state_name(state), (double)raw_mean, (double)envelope);
+                last_logged_state = state;
+            }
+            if ((now - last_status_ms) >= 1000) {
+                last_status_ms = now;
+                uint32_t elapsed = (now - session_start) / 1000;
+                ESP_LOGI(TAG, "[QVAR] t=%us  state=%s  raw=%d  rows=%u",
+                         (unsigned)elapsed,
+                         qvar_state_name(state),
+                         (int)raw,
+                         (unsigned)rows_written);
+            }
+#endif
         }
 
-        // Refresh the LED alternation ~20 Hz so the pink/red flash stays
-        // smooth without spamming ws2812_set_color() every 4 ms.
-        uint32_t now_ms = millis_u32();
-        if ((now_ms - last_led_tick) >= 50) {
-            last_led_tick = now_ms;
-            rgb_ecg_alt_pink_red();
+        if ((now - last_led_tick) >= 50) {
+            last_led_tick = now;
+            rgb_qvar_alt_yellow_purple();
         }
 
         vTaskDelay(pdMS_TO_TICKS(4));   // ~250 Hz poll (driver ODR 240 Hz)
     }
 
+    if (csv) {
+        fflush(csv);
+        fclose(csv);
+        ESP_LOGI(TAG, "[QVAR] CSV closed (%u rows)", (unsigned)rows_written);
+    }
+#if QVAR_PLOTTER_MODE
     esp_log_level_set(TAG, ESP_LOG_INFO);
+#endif
     qvar_local_disable();
-    ESP_LOGI(TAG, "[ECG] exit -> STANDBY");
+    ESP_LOGI(TAG, "[QVAR] exit -> STANDBY");
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FCM_TEMP -- aggregate thermal map of every onboard temp source
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Reads:
+//   - TMP117 skin temp (via broker_skin_data_t.skin_temp_c)
+//   - BME688 die/air temp (via broker_env_data_t.temperature_c)
+//   - LSM6DSV16X on-die temp (via broker_imu_data_t.temperature)
+//   - MAX30101 die temp (direct register poke -- one-shot TEMP_EN trigger)
+//   - ESP32-S3 SoC junction temp (temperature_sensor API)
+//
+// Print cadence: 1 Hz. Single-click during the mode exits back to STANDBY.
+
+#include "driver/temperature_sensor.h"
+
+// LSM6DSV16X OUT_TEMP register layout: signed 16-bit at 256 LSB/degC with
+// a +25 degC zero offset. Same address (0x6B) as the IMU. Requires the
+// accel to be at HP or Normal mode.
+#define LSM_ADDR              0x6B
+#define LSM_REG_OUT_TEMP_L    0x20
+
+// MAX30101 die-temp: write 1 to TEMP_CONFIG (0x21), wait ~30 ms, read
+// TINT (0x1F, signed int8) and TFRAC (0x20, bits 3:0). Temp = TINT + TFRAC * 0.0625.
+// Note: the temperature ADC does NOT update while the chip is in shutdown
+// (SHDN=1 in MODE_CONFIG). read_max_die_temp() below wakes the chip with all
+// LED currents zeroed, triggers the conversion, then returns to shutdown.
+#define MAX_ADDR              0x57
+#define MAX_REG_MODE_CONFIG   0x09
+#define MAX_REG_LED1_PA       0x0C   // Red
+#define MAX_REG_LED2_PA       0x0D   // IR
+#define MAX_REG_LED3_PA       0x0E   // Green
+#define MAX_REG_TEMP_INT      0x1F
+#define MAX_REG_TEMP_FRAC     0x20
+#define MAX_REG_TEMP_CONFIG   0x21
+#define MAX_MODE_HR           0x02   // MODE[2:0] = 010 -- lowest-power active mode
+#define MAX_MODE_SHDN         0x80   // SHDN = 1
+
+// Take g_i2c_mutex for these reads -- shares bus 0 with all other sensors.
+static float read_lsm_die_temp(void) {
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return -273.15f;
+    uint8_t rx[2] = {0};
+    uint8_t reg = LSM_REG_OUT_TEMP_L;
+    esp_err_t r = i2c_master_write_read_device(I2C_NUM_0, LSM_ADDR,
+                                               &reg, 1, rx, 2, pdMS_TO_TICKS(20));
+    xSemaphoreGive(g_i2c_mutex);
+    if (r != ESP_OK) return -273.15f;
+    int16_t raw = (int16_t)((uint16_t)rx[1] << 8 | rx[0]);
+    return 25.0f + (float)raw / 256.0f;
+}
+
+static float read_max_die_temp(void) {
+    // Step 1: force all LED currents to 0, then wake from shutdown into HR
+    // mode. LED_PA = 0 guarantees no LED fires during the brief wake window.
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
+    uint8_t buf_led1[] = { MAX_REG_LED1_PA, 0x00 };
+    uint8_t buf_led2[] = { MAX_REG_LED2_PA, 0x00 };
+    uint8_t buf_led3[] = { MAX_REG_LED3_PA, 0x00 };
+    uint8_t buf_wake[] = { MAX_REG_MODE_CONFIG, MAX_MODE_HR };
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led1, 2, pdMS_TO_TICKS(20));
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led2, 2, pdMS_TO_TICKS(20));
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led3, 2, pdMS_TO_TICKS(20));
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_wake, 2, pdMS_TO_TICKS(20));
+    xSemaphoreGive(g_i2c_mutex);
+
+    vTaskDelay(pdMS_TO_TICKS(5));   // analog wake settling
+
+    // Step 2: trigger one-shot temp conversion.
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
+    uint8_t buf_trig[] = { MAX_REG_TEMP_CONFIG, 0x01 };
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_trig, 2, pdMS_TO_TICKS(20));
+    xSemaphoreGive(g_i2c_mutex);
+
+    vTaskDelay(pdMS_TO_TICKS(35));   // TEMP_RDY typically clears in <30 ms
+
+    // Step 3: read TINT/TFRAC and return the chip to shutdown.
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
+    int8_t  tint  = 0;
+    uint8_t tfrac = 0;
+    uint8_t reg;
+    reg = MAX_REG_TEMP_INT;
+    i2c_master_write_read_device(I2C_NUM_0, MAX_ADDR, &reg, 1, (uint8_t *)&tint, 1, pdMS_TO_TICKS(20));
+    reg = MAX_REG_TEMP_FRAC;
+    i2c_master_write_read_device(I2C_NUM_0, MAX_ADDR, &reg, 1, &tfrac, 1, pdMS_TO_TICKS(20));
+    uint8_t buf_shdn[] = { MAX_REG_MODE_CONFIG, MAX_MODE_SHDN };
+    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_shdn, 2, pdMS_TO_TICKS(20));
+    xSemaphoreGive(g_i2c_mutex);
+
+    return (float)tint + (float)(tfrac & 0x0F) * 0.0625f;
+}
+
+static void run_temp_session(void) {
+    ESP_LOGI(TAG, "[TEMP] active. single-click to exit.");
+
+    // ESP32-S3 internal temperature sensor: one-time install on first entry.
+    // Range -10..80C default. Kept installed after exit -- cheap to leave on.
+    static temperature_sensor_handle_t s_esp_ts = NULL;
+    static bool s_esp_ts_installed = false;
+    if (!s_esp_ts_installed) {
+        temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+        if (temperature_sensor_install(&cfg, &s_esp_ts) == ESP_OK &&
+            temperature_sensor_enable(s_esp_ts) == ESP_OK) {
+            s_esp_ts_installed = true;
+        } else {
+            ESP_LOGW(TAG, "[TEMP] ESP32-S3 temp sensor install failed -- SoC reading disabled");
+        }
+    }
+
+    uint32_t last_print = 0;
+    while (1) {
+        // Exit on single click.
+        if (button_poll() == 1) break;
+
+        uint32_t now = millis_u32();
+        rgb_temp_warm_cycle();
+
+        if ((now - last_print) >= 1000) {
+            last_print = now;
+
+            broker_env_data_t  e;  broker_env_read(&e);
+            broker_skin_data_t s;  broker_skin_read(&s);
+            broker_imu_data_t  im; broker_imu_read(&im);
+
+            float t_lsm  = read_lsm_die_temp();
+            float t_max  = read_max_die_temp();
+            float t_soc  = -273.15f;
+            if (s_esp_ts_installed) {
+                temperature_sensor_get_celsius(s_esp_ts, &t_soc);
+            }
+
+            (void)im;   // broker_imu_data_t.temperature also available; direct read (t_lsm) preferred for freshness.
+            printf("[TEMP] skin(TMP117)=%.2fC  air(BME688)=%.2fC  imu(LSM)=%.1fC  ppg(MAX)=%.1fC  soc(ESP32)=%.1fC\n",
+                   s.skin_temp_c, e.temperature_c, t_lsm, t_max, t_soc);
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    ESP_LOGI(TAG, "[TEMP] exit -> STANDBY");
+}
+
+// Called from the button-press dispatcher for FCM_TEMP.
+static void run_temp_mode(void) {
+    wake_sensors_for_mode(FCM_TEMP);
+    vTaskDelay(pdMS_TO_TICKS(200));   // let sensor tasks publish first reads
+    run_temp_session();
+    park_all_modal_sensors();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FCM_BCG -- ballistocardiography on LSM6DSV16X accelerometer
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Reads accel_z from the broker (LSM publishes at ~240 Hz). Filter chain:
+//   HPF @ 1 Hz  (removes gravity + baseline drift)
+//   LPF @ 15 Hz (removes motion artifact + high-freq noise)
+// Both 1st-order IIR RC-cascade. Combined = 40 dB/decade band edges.
+//
+// Peak detector: adaptive threshold on the filtered signal envelope, with a
+// 400 ms refractory window (150 BPM cap).
+//
+// Works best worn tightly on the wrist during rest / sleep -- BCG amplitude
+// (~10-50 mg wrist-side at rest) is 20-35 dB above the LSM noise floor
+// there. Any motion completely swamps the signal; that's a physics limit,
+// not a chip limit.
+//
+// Plotter output (tab-separated): filtered   beat_marker
+//   filtered      -- the bandpassed accel_z in milli-g
+//   beat_marker   -- 100 for one sample after each detected peak, else 0
+
+// 1st-order IIR coefficients precomputed for fs = 240 Hz.
+// alpha_hp = tau / (tau + dt), tau = 1/(2*pi*fc). At fc=1Hz, tau=0.1592s
+//   alpha_hp = 0.1592 / (0.1592 + 0.00417) ≈ 0.9745
+// alpha_lp = dt / (dt + tau), tau = 1/(2*pi*fc). At fc=15Hz, tau=0.01061s
+//   alpha_lp = 0.00417 / (0.00417 + 0.01061) ≈ 0.2822
+#define BCG_HPF_ALPHA   0.9745f
+#define BCG_LPF_ALPHA   0.2822f
+#define BCG_REFRACTORY_MS   400
+#define BCG_THRESH_FLOOR    0.003f   // 3 mg minimum peak (wrist-BCG amplitude
+                                     // observed at rest, iv7.1 Stage 7: ~5-13 mg
+                                     // with occasional excursions to ±20 mg)
+
+// Output mode: 0 = human-readable monitor (default, ~1 Hz INFO logs);
+//              1 = Arduino-Serial-Plotter (tab-separated numbers, per sample).
+// Toggle at compile time. Monitor mode still writes SD; plotter mode adds
+// the serial trace but SD recording remains identical.
+#define BCG_PLOTTER_MODE     0
+
+// Sessions run until the button is pressed -- no auto-timeout. The 15-min
+// global uptime cap in task_shutdown_watcher_fn is the final safety net.
+
+static void rgb_bcg_alt_yellow_red(void) {
+    // 2 Hz yellow<->red alternation. Distinct from every other mode.
+    uint32_t t = millis_u32();
+    bool yellow = ((t / 250) % 2) == 0;
+    if (yellow) ws2812_set_color(26, 26, 0);
+    else        ws2812_set_color(26,  0, 0);
+}
+
+// BPM smoothing: median-of-N interval samples avoids spurious BPM jumps
+// from any single skipped/added beat. N=5 samples => 5 heartbeats of latency
+// on the reported number (a few seconds), which is fine for a resting HR.
+#define BCG_BPM_MEDIAN_N   5
+
+static void run_bcg(void) {
+    // In plotter mode we silence our own INFO logs so the plotter stream
+    // stays clean. Monitor mode keeps INFO on (1 Hz status line).
+#if BCG_PLOTTER_MODE
+    ESP_LOGI(TAG, "[BCG] active (PLOTTER mode). plot: filtered_mg  beat_marker. exit: click.");
+    esp_log_level_set(TAG, ESP_LOG_WARN);
+#else
+    ESP_LOGI(TAG, "[BCG] active (MONITOR mode). recording -> SD until click.");
+#endif
+
+    // Open the recording CSV. If SD isn't ready we just skip the write and
+    // still run the session -- the LED / beat detect / BPM still work.
+    s_rec_seq++;
+    FILE *csv = csv_open("bcg", s_rec_seq,
+                         "time_ms,accel_z_g,filt_mg,beat");
+    uint32_t rows_written = 0;
+
+    // Filter + peak state.
+    float hp_prev_x = 0.0f, hp_prev_y = 0.0f, lp_prev_y = 0.0f;
+    float envelope  = 0.0f, prev_af   = 0.0f;
+    uint32_t last_beat_ms  = 0;
+    uint32_t last_led_tick = 0;
+    uint32_t last_status_ms = 0;
+    uint32_t total_beats   = 0;
+
+    // Rolling ring of beat intervals for the median BPM estimate.
+    uint32_t intervals[BCG_BPM_MEDIAN_N] = {0};
+    uint8_t  int_idx    = 0;
+    uint8_t  int_filled = 0;
+    float    bpm_last   = 0.0f;
+
+    uint32_t session_start = millis_u32();
+
+    while (1) {
+        if (button_poll() == 1) break;
+        uint32_t now = millis_u32();
+
+        broker_imu_data_t im; broker_imu_read(&im);
+        float x = im.accel_z / 9.81f;
+
+        float y_hp = BCG_HPF_ALPHA * (hp_prev_y + x - hp_prev_x);
+        hp_prev_x = x; hp_prev_y = y_hp;
+        float y_lp = BCG_LPF_ALPHA * y_hp + (1.0f - BCG_LPF_ALPHA) * lp_prev_y;
+        lp_prev_y = y_lp;
+
+        float filtered = y_lp;
+        float filt_mg  = filtered * 1000.0f;
+
+        float af = fabsf(filtered);
+        envelope *= 0.998f;
+        if (af > envelope) envelope = af;
+        float thresh = envelope * 0.4f;
+        if (thresh < BCG_THRESH_FLOOR) thresh = BCG_THRESH_FLOOR;
+
+        int beat_marker = 0;
+        if (prev_af > af && prev_af > thresh &&
+            (now - last_beat_ms) > BCG_REFRACTORY_MS) {
+            // On the very first beat of the session, last_beat_ms is still 0
+            // -- the "interval" would be the whole boot-time-so-far. Skip
+            // the BPM update, just anchor last_beat_ms.
+            if (last_beat_ms != 0) {
+                uint32_t interval = now - last_beat_ms;
+                intervals[int_idx] = interval;
+                int_idx = (int_idx + 1) % BCG_BPM_MEDIAN_N;
+                if (int_filled < BCG_BPM_MEDIAN_N) int_filled++;
+
+                uint32_t sorted[BCG_BPM_MEDIAN_N];
+                for (int i = 0; i < int_filled; i++) sorted[i] = intervals[i];
+                for (int i = 1; i < int_filled; i++) {
+                    uint32_t k = sorted[i]; int j = i - 1;
+                    while (j >= 0 && sorted[j] > k) { sorted[j+1] = sorted[j]; j--; }
+                    sorted[j+1] = k;
+                }
+                uint32_t med = sorted[int_filled / 2];
+                bpm_last = (med > 0) ? (60000.0f / (float)med) : 0.0f;
+            }
+            last_beat_ms = now;
+            total_beats++;
+            beat_marker = 100;
+        }
+        prev_af = af;
+
+        if (csv) {
+            fprintf(csv, "%lu,%.4f,%.2f,%d\n",
+                    (unsigned long)(now - session_start),
+                    im.accel_z / 9.81f, (double)filt_mg, beat_marker);
+            rows_written++;
+        }
+
+#if BCG_PLOTTER_MODE
+        printf("%d\t%d\n", (int)filt_mg, beat_marker);
+#else
+        // Monitor mode: one status line per second at INFO.
+        if ((now - last_status_ms) >= 1000) {
+            last_status_ms = now;
+            uint32_t elapsed = (now - session_start) / 1000;
+            ESP_LOGI(TAG, "[BCG] t=%us  BPM=%3.0f  beats=%u  rows=%u",
+                     (unsigned)elapsed,
+                     (double)bpm_last,
+                     (unsigned)total_beats,
+                     (unsigned)rows_written);
+        }
+#endif
+
+        if ((now - last_led_tick) >= 50) {
+            last_led_tick = now;
+            rgb_bcg_alt_yellow_red();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(4));   // ~250 Hz poll
+    }
+
+    if (csv) {
+        fflush(csv);
+        fclose(csv);
+        ESP_LOGI(TAG, "[BCG] CSV closed (%u rows)", (unsigned)rows_written);
+    }
+#if BCG_PLOTTER_MODE
+    esp_log_level_set(TAG, ESP_LOG_INFO);
+#endif
+    ESP_LOGI(TAG, "[BCG] exit -> STANDBY  (%u beats total)", (unsigned)total_beats);
+}
+
+// Called from the button-press dispatcher for FCM_BCG.
+static void run_bcg_mode(void) {
+    wake_sensors_for_mode(FCM_BCG);
+    vTaskDelay(pdMS_TO_TICKS(200));   // let LSM task publish first reads
+    run_bcg();
+    park_all_modal_sensors();
 }
 
 // FCM_ECG single click: enable QVAR block, stream + detect beats, park on exit.
@@ -854,6 +1384,7 @@ static void run_recording_for_current_mode(void) {
         snprintf(path, sizeof(path), "/sd/data/mic/s%04lu_r%04lu_annot.wav",
                  (unsigned long)s_boot_seq, (unsigned long)s_rec_seq);
         wav_record_to(path, VOICE_ANNOT_MS);
+        wav_write_meta_sidecar(path, "annot");
     }
 
     switch (s_mode) {
@@ -862,7 +1393,8 @@ static void run_recording_for_current_mode(void) {
         snprintf(path, sizeof(path), "/sd/data/mic/s%04lu_r%04lu.wav",
                  (unsigned long)s_boot_seq, (unsigned long)s_rec_seq);
         rgb_set_max(FCM_MIC);
-        wav_record_to(path, RECORDING_MS);
+        wav_record_to(path, 0);   // 0 = record until button click
+        wav_write_meta_sidecar(path, "mic");
         break;
     }
     case FCM_ENV:
@@ -883,7 +1415,9 @@ static void run_recording_for_current_mode(void) {
     if (s_csv_file) {
         uint32_t start = millis_u32();
         const uint32_t row_period_ms = (s_mode == FCM_ENV) ? 500 : 100;
-        while ((millis_u32() - start) < RECORDING_MS && !s_recording_early_end) {
+        // Record indefinitely -- exit only on button click. The 15-min
+        // global uptime cap in task_shutdown_watcher_fn is the final safety net.
+        while (!s_recording_early_end) {
             rgb_pulse(s_mode, start, PULSE_RECORD_MS);
             switch (s_mode) {
             case FCM_ENV:    csv_row_env(s_csv_file);    break;
@@ -900,7 +1434,7 @@ static void run_recording_for_current_mode(void) {
         fflush(s_csv_file);
         fclose(s_csv_file);
         s_csv_file = NULL;
-        ESP_LOGI(TAG, "CSV closed (%s)", s_recording_early_end ? "early" : "full");
+        ESP_LOGI(TAG, "CSV closed (click-exit)");
     }
 
     // End-of-recording DRV signal + park modal sensors again.
@@ -1081,6 +1615,12 @@ void task_rtc_cli_fn(void *arg) {
 
 static volatile bool s_ship_mode_latched = false;
 
+// Set by the shutdown watcher while the button is held. Field_capture's
+// standby LED animation checks this and skips its WS2812 writes during
+// the hold so the watcher's red-LED countdown isn't flickered by concurrent
+// field_capture writes. Cleared on release or on ship-mode fire.
+volatile bool g_shutdown_hold_active = false;
+
 // Best-effort "shut down NOW". Does NOT try to flush open files -- if a
 // recording is in progress and the user wants it out, that is their call
 // (single-click can early-end a recording; double-click drops power).
@@ -1109,11 +1649,26 @@ static void watcher_ship_mode(void) {
 }
 
 // Own state machine so it doesn't fight the field_capture button_poll().
+// Hold-to-shutdown replaces the old double-click (Stage 7 § 3): pocket taps
+// were false-triggering ship mode. Sequence:
+//   0 - 2 s pressed  : solid red LED (visual confirmation)
+//   2 - 4 s pressed  : DRV click every 500 ms (haptic countdown warning)
+//   >= 4 s pressed   : long DRV buzz + fire watcher_ship_mode()
+//   any release < 4 s: reset state, no fire, LED released back to field_capture
+#define SHDN_WARN_MS     2000
+#define SHDN_FIRE_MS     4000
+#define SHDN_BUZZ_MS      500
+
+// Damage-control auto-shutoff: if the firmware has been running for this long
+// regardless of what the user has been doing, drop BATFET. Protects the
+// battery in the case where the button dies mechanically while the device is
+// left running, or the operator forgets to shut down. Currently 15 minutes;
+// bump generously once we trust battery + hardware reliability.
+#define SHDN_MAX_UPTIME_MS  (15u * 60u * 1000u)
+
 void task_shutdown_watcher_fn(void *arg) {
     (void)arg;
 
-    // Redundantly configure the pin (field_capture_init also does this;
-    // gpio_config is idempotent when values match).
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << PIN_BUTTON,
         .mode         = GPIO_MODE_INPUT,
@@ -1123,39 +1678,88 @@ void task_shutdown_watcher_fn(void *arg) {
     };
     gpio_config(&io);
 
-    typedef enum { W_IDLE, W_PRESSED, W_WAIT_DBL, W_PRESSED_2 } w_state_t;
-    w_state_t state       = W_IDLE;
-    uint32_t  last_change = 0;
-    uint32_t  release_ms  = 0;
-    bool      prev_low    = (gpio_get_level(PIN_BUTTON) == 0);
+    bool     hold_active   = false;
+    uint32_t press_start   = 0;
+    uint32_t last_buzz_ms  = 0;
+    bool     warn_started  = false;
 
-    ESP_LOGI(TAG, "shutdown watcher armed (double-click = priority ship mode)");
+    ESP_LOGI(TAG, "shutdown watcher armed: hold %d ms to ship (buzz warn at %d ms). "
+                  "hard uptime cap = %u s.",
+             SHDN_FIRE_MS, SHDN_WARN_MS, (unsigned)(SHDN_MAX_UPTIME_MS / 1000));
 
     for (;;) {
         uint32_t now = millis_u32();
         bool     low = (gpio_get_level(PIN_BUTTON) == 0);
 
-        if (low != prev_low && (now - last_change) >= BTN_DEBOUNCE_MS) {
-            last_change = now;
-            prev_low    = low;
-            if (low) {
-                state = (state == W_WAIT_DBL) ? W_PRESSED_2 : W_PRESSED;
-            } else {
-                if (state == W_PRESSED) {
-                    release_ms = now;
-                    state = W_WAIT_DBL;
-                } else if (state == W_PRESSED_2) {
-                    state = W_IDLE;
-                    watcher_ship_mode();   // never returns
+        // ── Damage-control uptime cap ────────────────────────────────────
+        // Independent of button state. Fires unconditionally at the cap so
+        // a dead / stuck button cannot leave the device running until the
+        // battery is dead.
+        if (now >= SHDN_MAX_UPTIME_MS) {
+            ESP_LOGW(TAG, "shutdown FIRE (uptime cap %u ms reached)", (unsigned)now);
+            g_shutdown_hold_active = true;
+            ws2812_set_color(WS_MAX, 0, 0);
+            haptic_play_forced(DRV_LONG_BUZZ);
+            watcher_ship_mode();   // never returns
+        }
+
+        if (low && !hold_active) {
+            // -- Fresh press begins --
+            hold_active   = true;
+            press_start   = now;
+            last_buzz_ms  = 0;
+            warn_started  = false;
+            g_shutdown_hold_active = true;
+            // LED starts dark and ramps to full red over 4 s -- distinct from
+            // mic-mode's solid red so the operator can't confuse them.
+            ws2812_set_color(0, 0, 0);
+        } else if (!low && hold_active) {
+            // -- Released before fire threshold --
+            uint32_t held = now - press_start;
+            hold_active   = false;
+            g_shutdown_hold_active = false;
+            if (held >= SHDN_WARN_MS) {
+                // The operator got a buzz warning but backed off. Give a
+                // single confirmation click so they know we noticed.
+                haptic_play(DRV_MEDIUM_CLICK);
+                ESP_LOGI(TAG, "shutdown aborted (released after %u ms)",
+                         (unsigned)held);
+            }
+            // Field_capture's own STANDBY LED tick will refresh the color
+            // within 5 ms.
+        } else if (low && hold_active) {
+            uint32_t held = now - press_start;
+
+            // Linear red-intensity ramp: 0 at press start -> WS_MAX at fire
+            // threshold (4 s). Overrides any field_capture LED writes because
+            // g_shutdown_hold_active is set.
+            uint32_t intensity = (held * WS_MAX) / SHDN_FIRE_MS;
+            if (intensity > WS_MAX) intensity = WS_MAX;
+            ws2812_set_color((uint8_t)intensity, 0, 0);
+
+            // Enter the warn-buzz phase at 2 s. First buzz fires immediately,
+            // then every 500 ms until fire threshold.
+            if (held >= SHDN_WARN_MS && held < SHDN_FIRE_MS) {
+                if (!warn_started) {
+                    warn_started = true;
+                    ESP_LOGW(TAG, "shutdown warn phase started -- release to abort");
+                    haptic_play_forced(DRV_STRONG_CLICK);
+                    last_buzz_ms = now;
+                } else if ((now - last_buzz_ms) >= SHDN_BUZZ_MS) {
+                    last_buzz_ms = now;
+                    haptic_play_forced(DRV_STRONG_CLICK);
                 }
             }
+
+            // Fire at threshold.
+            if (held >= SHDN_FIRE_MS) {
+                ESP_LOGW(TAG, "shutdown FIRE at %u ms hold", (unsigned)held);
+                haptic_play_forced(DRV_LONG_BUZZ);
+                watcher_ship_mode();   // never returns
+            }
         }
-        if (state == W_WAIT_DBL && (now - release_ms) > BTN_DOUBLE_GAP_MS) {
-            // Single click detected -- ignored here; field_capture's own
-            // button_poll() picks it up and dispatches per mode.
-            state = W_IDLE;
-        }
-        vTaskDelay(pdMS_TO_TICKS(5));   // fast poll, ~200 Hz
+
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
@@ -1194,9 +1798,9 @@ void task_field_capture_fn(void *arg) {
         int btn = button_poll();
         int enc = encoder_delta();
 
-        if (btn == 2) {
-            enter_ship_mode();       // does not return
-        }
+        // NOTE: double-click was the previous ship-mode trigger; now
+        // handled by task_shutdown_watcher_fn as a 4-second hold (Stage 7
+        // § 3). btn == 2 events from button_poll() are ignored below.
 
         switch (s_state) {
 
@@ -1225,6 +1829,12 @@ void task_field_capture_fn(void *arg) {
                 } else if (s_mode == FCM_ECG) {
                     run_ecg_session();
                     s_state = ST_STANDBY;
+                } else if (s_mode == FCM_TEMP) {
+                    run_temp_mode();
+                    s_state = ST_STANDBY;
+                } else if (s_mode == FCM_BCG) {
+                    run_bcg_mode();
+                    s_state = ST_STANDBY;
                 } else {
                     s_state = ST_RECORDING;
                     run_recording_for_current_mode();
@@ -1232,17 +1842,22 @@ void task_field_capture_fn(void *arg) {
                 }
                 s_last_activity_ms = millis_u32();
             }
-            // LED animation. FCM_COMPASS and FCM_ECG each use a distinct
-            // 2 Hz alternation so the operator can tell them apart from the
-            // standard solid-then-pulse modes at a glance.
-            if (s_mode == FCM_COMPASS) {
-                rgb_compass_alt_yellow_purple();
-            } else if (s_mode == FCM_ECG) {
-                rgb_ecg_alt_pink_red();
-            } else {
-                uint32_t solid_end = s_last_activity_ms + SOLID_ON_ACTIVITY_MS;
-                if (millis_u32() < solid_end) rgb_set_max(s_mode);
-                else                          rgb_pulse(s_mode, solid_end, PULSE_STANDBY_MS);
+            // LED animation. Skip entirely while the shutdown watcher is
+            // running its hold-countdown -- watcher owns the LED then.
+            if (!g_shutdown_hold_active) {
+                if (s_mode == FCM_COMPASS) {
+                    rgb_compass_alt_red_blue();
+                } else if (s_mode == FCM_ECG) {
+                    rgb_qvar_alt_yellow_purple();
+                } else if (s_mode == FCM_TEMP) {
+                    rgb_temp_warm_cycle();
+                } else if (s_mode == FCM_BCG) {
+                    rgb_bcg_alt_yellow_red();
+                } else {
+                    uint32_t solid_end = s_last_activity_ms + SOLID_ON_ACTIVITY_MS;
+                    if (millis_u32() < solid_end) rgb_set_max(s_mode);
+                    else                          rgb_pulse(s_mode, solid_end, PULSE_STANDBY_MS);
+                }
             }
             break;
         }

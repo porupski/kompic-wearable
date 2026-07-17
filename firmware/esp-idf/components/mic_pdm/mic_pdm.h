@@ -32,6 +32,10 @@
 #ifndef MIC_PDM_H
 #define MIC_PDM_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define MIC_PDM_DRIVER_VERSION  "0.2.0"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>

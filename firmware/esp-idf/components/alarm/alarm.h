@@ -19,6 +19,10 @@
 #ifndef ALARM_H
 #define ALARM_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define ALARM_DRIVER_VERSION  "0.2.0"
 #include <stdint.h>
 #include <stdbool.h>
 

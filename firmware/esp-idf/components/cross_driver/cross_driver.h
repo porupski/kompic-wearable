@@ -34,6 +34,10 @@
 #ifndef CROSS_DRIVER_H
 #define CROSS_DRIVER_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define CROSS_DRIVER_DRIVER_VERSION  "0.2.0"
 #include <stdint.h>
 #include <stdbool.h>
 

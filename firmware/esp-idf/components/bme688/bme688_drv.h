@@ -29,6 +29,10 @@
 #ifndef BME688_DRV_H
 #define BME688_DRV_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define BME688_DRIVER_VERSION  "0.2.0"
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

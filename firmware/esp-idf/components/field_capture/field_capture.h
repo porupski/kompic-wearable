@@ -24,6 +24,10 @@
 #ifndef FIELD_CAPTURE_H
 #define FIELD_CAPTURE_H
 
+
+// Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
+// MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
+#define FIELD_CAPTURE_DRIVER_VERSION  "0.2.0"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,6 +46,14 @@ typedef enum {
                    // sensing between two body electrodes. Streams raw samples
                    // in Arduino-Serial-Plotter-compatible format and fires DRV
                    // on each detected beat.
+    FCM_TEMP,      // Stage 7 addition: aggregates every onboard temperature
+                   // sensor (TMP117, BME688, LSM die, MAX30101 die, ESP32-S3
+                   // SoC) into one 1 Hz thermal-map printout. Foundation for
+                   // future graphical heat-map overlay on the display.
+    FCM_BCG,       // Stage 8 addition: ballistocardiography via LSM6DSV16X
+                   // accel Z-axis. Bandpass 1-15 Hz, peak-detect with 400 ms
+                   // refractory. DRV pulse on each beat, yellow<->red LED.
+                   // Best-effort HR while worn tightly and still (rest / sleep).
     FCM_COUNT,
 } fc_mode_t;
 
