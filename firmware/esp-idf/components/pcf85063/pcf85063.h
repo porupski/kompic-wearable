@@ -38,7 +38,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define PCF85063_DRIVER_VERSION  "0.2.0"
+#define PCF85063_DRIVER_VERSION  "0.3.2"
 #include "esp_err.h"
 #include "driver/i2c.h"
 #include "driver/gpio.h"
@@ -201,5 +201,40 @@ esp_err_t pcf85063_install_alarm_isr(TaskHandle_t notify_task);
  *        Caller must NOT hold g_i2c_mutex.
  */
 esp_err_t pcf85063_clear_alarm_flag(i2c_port_t i2c_num);
+
+// -- RAM_byte (register 0x03) ---------------------------------------------------
+//
+// PCF85063A has a single 8-bit general-purpose RAM register at address 0x03.
+// It is battery-backed: the value survives loss of VDD as long as Vbat (coin
+// cell) is present. Used as a redundancy channel for "last command received"
+// bookkeeping -- Ivan can cross-check this byte against the ESP32 NVS record
+// after any reboot / brown-out to see if the two ever diverge.
+//
+// Command-ID codes (kept intentionally short so we get one byte per command):
+//   0x00 = never written  (default cold-boot state after Vbat replacement)
+//   0x01 = SET_TIME
+//   0x02 = GET_TIME
+//   0x10..0xFF = reserved for future commands
+//
+// Callers must NOT hold g_i2c_mutex (the function takes it internally).
+
+#define PCF85063_RAM_CMD_NONE       0x00
+#define PCF85063_RAM_CMD_SET_TIME   0x01
+#define PCF85063_RAM_CMD_GET_TIME   0x02
+
+/** @brief Write one byte to PCF85063A register 0x03 (battery-backed GP RAM). */
+esp_err_t pcf85063_ram_byte_write(i2c_port_t i2c_num, uint8_t value);
+
+/** @brief Read the RAM_byte. Sets *out on success. */
+esp_err_t pcf85063_ram_byte_read(i2c_port_t i2c_num, uint8_t *out);
+
+/**
+ * @brief Read `len` PCF85063A registers starting at `reg` into `out`.
+ *        Used by the RTC_DUMP CLI to snapshot the whole chip state.
+ *        Registers 0x00..0x11 span every documented field.
+ *        Caller must NOT hold g_i2c_mutex (the function takes it internally).
+ */
+esp_err_t pcf85063_read_regs_raw(i2c_port_t i2c_num, uint8_t reg,
+                                  uint8_t *out, size_t len);
 
 #endif // PCF85063_H

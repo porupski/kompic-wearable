@@ -140,6 +140,18 @@ esp_err_t flashlight_off(void)
     return flashlight_set_brightness(0);
 }
 
+esp_err_t flashlight_hard_off(void)
+{
+    if (!s_initialised) return ESP_OK;   // already off
+    (void)ledc_set_duty(LEDC_LOW_SPEED_MODE, FLASHLIGHT_LEDC_CHANNEL, 0);
+    (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, FLASHLIGHT_LEDC_CHANNEL);
+    esp_err_t r = ledc_stop(LEDC_LOW_SPEED_MODE, FLASHLIGHT_LEDC_CHANNEL, 0);
+    s_initialised = false;
+    s_current_pct = 0;
+    ESP_LOGI(TAG, "hard-off: LEDC stopped, GPIO%d pinned LOW", FLASHLIGHT_GPIO);
+    return r;
+}
+
 uint8_t flashlight_get_brightness(void)
 {
     return s_current_pct;

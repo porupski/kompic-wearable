@@ -38,7 +38,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define WS2812_DRIVER_VERSION  "0.2.0"
+#define WS2812_DRIVER_VERSION  "0.2.5"
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

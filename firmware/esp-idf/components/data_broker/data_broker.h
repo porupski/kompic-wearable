@@ -29,7 +29,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define DATA_BROKER_DRIVER_VERSION  "0.2.0"
+#define DATA_BROKER_DRIVER_VERSION  "0.2.1"
 #include <stdint.h>
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
@@ -219,6 +219,18 @@ void            broker_alarm_set_enabled(bool en);
 bool            broker_alarm_get_enabled(void);
 void            broker_alarm_set_hw_status(bool ok);
 bool            broker_alarm_hw_alive(void);
+
+// --- Steps API (LSM6DSV16X embedded pedometer, macro-generated) -------------
+// Data struct + timeout in lsm6dsv16x.h (broker_steps_data_t). hw_alive is
+// latched TRUE alongside broker_imu_set_hw_status() in boot_hw_init.c since
+// the pedometer runs on the same chip.
+void            broker_steps_write(const broker_steps_data_t *data);
+void            broker_steps_read(broker_steps_data_t *out);
+sensor_status_t broker_steps_get_status(void);
+void            broker_steps_set_enabled(bool en);
+bool            broker_steps_get_enabled(void);
+void            broker_steps_set_hw_status(bool ok);
+bool            broker_steps_hw_alive(void);
 
 // -- ADD NEW MODULE API BLOCK HERE (7 lines) ------------------------------------
 

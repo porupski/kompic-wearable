@@ -6,6 +6,9 @@ idf_component_register(
         data_broker
         cross_driver
         app_logic
+        nvs_cfg
+        field_capture     # for firmware_version.h (KOMPIC_FW_VERSION)
+        driver
         nvs_flash
     # esp_lvgl_port intentionally omitted until display returns.
     # It stays in the graph transitively via lvgl_ui / driver *_tile.c files

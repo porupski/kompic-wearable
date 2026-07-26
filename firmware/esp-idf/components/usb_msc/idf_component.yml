@@ -1,0 +1,8 @@
+## USB MSC component -- pulls the espressif/esp_tinyusb managed component in.
+##
+## esp_tinyusb 1.7.x is the current major stable branch on ESP-IDF 5.5, and
+## carries the tusb_msc_storage helper we rely on. Pinning ^1.7 to allow
+## automatic patch/minor upgrades but pin the major so the API stays stable.
+dependencies:
+  espressif/esp_tinyusb: "^1.7"
+  idf: ">=5.0"

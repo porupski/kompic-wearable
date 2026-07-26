@@ -40,9 +40,11 @@ typedef enum {
     UI_EVENT_ALARM_FIRED    = 0,   // RTC match → show alarm overlay + haptic
     UI_EVENT_NOTIF_SHOW     = 1,   // show notification overlay (title + body)
     UI_EVENT_NOTIF_DISMISS  = 2,   // dismiss current notification overlay
+    UI_EVENT_TAP_Z_SINGLE   = 3,   // LSM Z-axis single tap (unbound in UI for now)
+    UI_EVENT_TAP_Z_DOUBLE   = 4,   // LSM Z-axis double tap — "go back" gesture (LSM submenu exit)
     // Future:
-    // UI_EVENT_NAV_TO_TILE  = 3,
-    // UI_EVENT_POWER_MODE   = 4,
+    // UI_EVENT_NAV_TO_TILE  = 5,
+    // UI_EVENT_POWER_MODE   = 6,
 } ui_event_type_t;
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,9 @@ typedef struct {
             char     body[64];          // null-terminated, truncated if longer
             uint32_t timeout_ms;        // 0 = no auto-dismiss
         } notif;
+        struct {
+            uint8_t  src;               // raw TAP_SRC byte for debug/audit
+        } tap;
     } payload;
 } ui_event_t;
 

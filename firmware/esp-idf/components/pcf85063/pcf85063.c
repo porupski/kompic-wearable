@@ -29,6 +29,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+#include <sys/time.h>       // settimeofday() -- FatFs get_fattime() reads this
+#include <time.h>
 
 static const char *TAG = "PCF85063";
 
@@ -38,6 +40,7 @@ static const char *TAG = "PCF85063";
 // -- Register addresses ---------------------------------------------------------
 #define REG_CONTROL_1     0x00
 #define REG_CONTROL_2     0x01   // bit 7 = AIE, bit 6 = AF (write 0 to clear)
+#define REG_RAM_BYTE      0x03   // 8-bit general-purpose battery-backed RAM
 #define REG_SECONDS       0x04
 #define REG_MINUTES       0x05
 #define REG_HOURS         0x06
@@ -237,6 +240,37 @@ void task_rtc_fn(void *arg)
         };
         broker_rtc_write(&bd);
 
+        // Bridge PCF85063 → newlib CLOCK_REALTIME so FatFs get_fattime()
+        // stamps SD files with the real UTC. Without this every file mtime
+        // stays at 1980-01-01 and sorting-by-date on the host is useless.
+        // Skipped if the oscillator-stop flag is set (t.valid=false) or if
+        // the year is still the RTC's cold-boot default (0 -> 2000-01-01),
+        // to avoid overwriting a good clock with a bogus one.
+        if (t.valid && bd.year >= 2024) {
+            // Inline civil (UTC) → Unix epoch. Avoids timegm() (not in newlib
+            // by default) and mktime() (respects TZ, which we don't set).
+            // Valid for 1970..2099 which brackets our operational window.
+            static const int dpm[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+            uint64_t days = 0;
+            for (int y = 1970; y < (int)bd.year; y++) {
+                days += ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 366 : 365;
+            }
+            for (int m = 0; m < (int)bd.month - 1; m++) {
+                int dm = dpm[m];
+                if (m == 1 &&
+                    ((bd.year % 4 == 0 && bd.year % 100 != 0) || bd.year % 400 == 0))
+                    dm = 29;
+                days += dm;
+            }
+            days += (bd.day - 1);
+            time_t epoch = (time_t)(days * 86400ULL
+                                    + (uint64_t)bd.hour   * 3600
+                                    + (uint64_t)bd.minute * 60
+                                    + (uint64_t)bd.second);
+            struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+            settimeofday(&tv, NULL);
+        }
+
         vTaskDelayUntil(&last, period);
     }
 }
@@ -346,6 +380,57 @@ esp_err_t pcf85063_clear_alarm_flag(i2c_port_t i2c_num)
         c2 &= (uint8_t)~CTRL2_AF;  // W1C semantics: writing 0 clears
         ret = i2c_write_reg(i2c_num, REG_CONTROL_2, c2);
     }
+    xSemaphoreGive(g_i2c_mutex);
+    return ret;
+}
+
+// =============================================================================
+// RAM_byte (register 0x03) -- battery-backed GP RAM for last-command redundancy.
+// =============================================================================
+
+esp_err_t pcf85063_ram_byte_write(i2c_port_t i2c_num, uint8_t value)
+{
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t ret = i2c_write_reg(i2c_num, REG_RAM_BYTE, value);
+    xSemaphoreGive(g_i2c_mutex);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "RAM_byte write 0x%02X failed: %s", value, esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+esp_err_t pcf85063_ram_byte_read(i2c_port_t i2c_num, uint8_t *out)
+{
+    if (out == NULL) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t ret = i2c_read_reg(i2c_num, REG_RAM_BYTE, out);
+    xSemaphoreGive(g_i2c_mutex);
+    return ret;
+}
+
+esp_err_t pcf85063_read_regs_raw(i2c_port_t i2c_num, uint8_t reg,
+                                  uint8_t *out, size_t len)
+{
+    if (out == NULL || len == 0) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg, true);
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_READ, true);
+    i2c_master_read(cmd, out, len, I2C_MASTER_LAST_NACK);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(50));
+    i2c_cmd_link_delete(cmd);
+
     xSemaphoreGive(g_i2c_mutex);
     return ret;
 }

@@ -116,6 +116,13 @@ static void drain_ui_event_queue(void)
                 ESP_LOGI(TAG, "UI_EVENT_NOTIF_DISMISS (handler stub)");
                 break;
 
+            case UI_EVENT_TAP_Z_SINGLE:
+            case UI_EVENT_TAP_Z_DOUBLE:
+                // Consumed by field_capture via the monotonic counters in
+                // lsm6dsv16x_tap_z_{single,double}_count(). Queue entry is
+                // best-effort for a future overlay; currently a no-op.
+                break;
+
             default:
                 ESP_LOGW(TAG, "Unknown ui_event type=%d", (int)evt.type);
                 break;

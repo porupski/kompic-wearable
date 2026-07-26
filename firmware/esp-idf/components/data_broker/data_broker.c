@@ -56,6 +56,7 @@ typedef struct {
     broker_hr_data_t      hr;
     broker_skin_data_t    skin;
     broker_alarm_data_t   alarm;
+    broker_steps_data_t   steps;
     // -- ADD NEW MODULE SLOT HERE ---------------------------------------------
 } broker_state_t;
 
@@ -70,6 +71,7 @@ static struct {
     bool imu, env, hr, haptic, skin;
     bool fusion;
     bool alarm;
+    bool steps;
     // -- ADD NEW MODULE FLAG HERE ---------------------------------------------
 } hw = {0};
 
@@ -197,6 +199,7 @@ BROKER_MODULE_IMPL(imu,    IMU,    BROKER_IMU_TIMEOUT_MS,    true)
 BROKER_MODULE_IMPL(env,    ENV,    BROKER_ENV_TIMEOUT_MS,    true)
 BROKER_MODULE_IMPL(hr,     HR,     BROKER_HR_TIMEOUT_MS,     true)
 BROKER_MODULE_IMPL(skin,   SKIN,   BROKER_SKIN_TIMEOUT_MS,   true)
+BROKER_MODULE_IMPL(steps,  STEPS,  BROKER_STEPS_TIMEOUT_MS,  true)
 // -- ADD NEW STANDARD MODULE HERE ---------------------------------------------
 
 // Modules with custom get_status (write/read/enable generated, status manual):

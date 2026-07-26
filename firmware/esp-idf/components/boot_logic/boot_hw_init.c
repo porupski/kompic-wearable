@@ -87,7 +87,17 @@ static void bringup_bus0(void)
     if (i2c_probe(I2C_NUM_0, 0x6B)) {  // LSM6DSV16X
         if (lsm6dsv16x_init(I2C_NUM_0) == ESP_OK) {
             broker_imu_set_hw_status(true);
-            ESP_LOGI(TAG, "  LSM6DSV 0x6B OK");
+            // Advanced features live on the same chip -- once init passes,
+            // pedometer + tap-Z + activity/inactivity auto-sleep all come up
+            // as a baseline. Activity/inactivity is a no-op at the current
+            // firmware-forced HP 240 Hz accel (see Stage_10_LSM_report §3);
+            // configured now so it becomes free once we ODR-mode-switch.
+            (void)lsm6dsv16x_pedometer_enable(true);
+            (void)lsm6dsv16x_tap_z_enable(true);
+            (void)lsm6dsv16x_activity_sleep_enable(true);
+            broker_steps_set_hw_status(true);
+            broker_steps_set_enabled(true);
+            ESP_LOGI(TAG, "  LSM6DSV 0x6B OK  (pedo+tap-Z+act-sleep armed)");
         } else ESP_LOGW(TAG, "  LSM6DSV init failed");
     }
 

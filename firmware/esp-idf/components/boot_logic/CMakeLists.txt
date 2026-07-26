@@ -3,10 +3,12 @@ idf_component_register(
         "boot_power.c"
         "boot_tasks.c"
         "boot_hw_init.c"
+        "boot_pm.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
         freertos
+        esp_pm             # Stage 11 Item D Block A -- esp_pm_configure
         esp_timer
         data_broker
         app_logic

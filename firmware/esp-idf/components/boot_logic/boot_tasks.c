@@ -49,6 +49,10 @@ extern void task_shutdown_watcher_fn(void *arg);   // field_capture/field_captur
 // Small stdin-reader for RTC CLI: SET_TIME <ISO> and GET_TIME on USB-CDC.
 extern void task_rtc_cli_fn(void *arg);            // field_capture/field_capture.c
 
+// BLACKBOX telemetry logger. Self-terminates at startup if cfg_sys.blackbox
+// is off OR batt_test is on -- unconditionally created here.
+extern void task_blackbox_fn(void *arg);           // field_capture/field_capture.c
+
 // -- Held out for later phases (uncomment when re-enabling) -------------------
 // extern void task_power_btn_fn(void *arg);    // GPIO16 owned by field_capture in Phase 2
 // extern void task_fusion_fn(void *arg);        // depends on IMU + MAG + BARO stability
@@ -96,6 +100,12 @@ static const task_entry_t task_table[] = {
 
     // RTC CLI on stdin. Low priority; only wakes on serial input.
     { "task_rtccli", task_rtc_cli_fn,          3072, 2, tskNO_AFFINITY },
+
+    // BLACKBOX -- Stage 11 background telemetry logger. Pinned Core 0
+    // (utility side). Priority 1 so it never contends with sensors. Stack
+    // 4096 (fprintf into ~35 fields is generous). Task self-exits when
+    // cfg_sys.blackbox=0.
+    { "task_bbox",   task_blackbox_fn,         4096, 1, 0 },
 };
 #define TASK_COUNT (sizeof(task_table) / sizeof(task_table[0]))
 

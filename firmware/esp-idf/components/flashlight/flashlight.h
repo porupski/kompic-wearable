@@ -31,7 +31,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define FLASHLIGHT_DRIVER_VERSION  "0.2.0"
+#define FLASHLIGHT_DRIVER_VERSION  "0.2.1"
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
@@ -74,6 +74,21 @@ esp_err_t flashlight_on(void);
 
 /** @brief Convenience: brightness = 0. */
 esp_err_t flashlight_off(void);
+
+/**
+ * @brief Fully stop the LEDC channel and pin GPIO41 to LOW. Saves ~50 µA of
+ *        LEDC peripheral quiescent versus `flashlight_off()` (which just
+ *        sets duty=0 while keeping the timer running).
+ *
+ * After a `flashlight_hard_off()`, the next call to any brightness API
+ * transparently re-inits the peripheral. **Do not** call from a fast path
+ * -- re-init adds ~1 ms; use `flashlight_off()` when you may re-light soon.
+ *
+ * Reserved for the "device is truly parked, no LED coming for a while"
+ * case (e.g. entering deep-sleep or the Stage 11 idle state). Not wired
+ * into the current default idle path; call it explicitly if you want it.
+ */
+esp_err_t flashlight_hard_off(void);
 
 /** @brief Last commanded brightness (0..100). 0 if not initialised. */
 uint8_t flashlight_get_brightness(void);

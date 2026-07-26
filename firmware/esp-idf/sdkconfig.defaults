@@ -1,0 +1,24 @@
+# Project-level sdkconfig defaults.
+#
+# These apply on a fresh build (or when the corresponding sdkconfig lines
+# are removed). They do NOT overwrite existing entries in sdkconfig -- if
+# you need to change a value, edit sdkconfig directly and let
+# sdkconfig.defaults document the intended baseline.
+#
+# ─── USB Mass Storage (Stage 11 Item A) ────────────────────────────────────
+#
+# Only MSC is enabled -- no CDC, no HID -- keeps the descriptor small and
+# reduces the surface area where a broken managed-component release could
+# hang boot. TinyUSB is initialised LAZILY from usb_msc.c ONLY when the
+# operator clicks the cyan tile; the boot path never touches USB at all.
+# See components/usb_msc/usb_msc.h for the bricking-risk analysis.
+#
+# WARNING: the ESP32-S3 has a single USB PHY shared between USB-Serial-JTAG
+# and TinyUSB. Once TinyUSB installs (mid-session), the JTAG monitor +
+# esptool reset path over USB-C is gone until the next reset. iv7.1 has
+# NO exposed BOOT button, so if the app hangs while TinyUSB is active,
+# recovery requires a hardware reset via the BQ25619 QON pin (ship-mode
+# gesture) or full power removal.
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_MSC_BUFSIZE=4096
+CONFIG_TINYUSB_TASK_PRIORITY=5

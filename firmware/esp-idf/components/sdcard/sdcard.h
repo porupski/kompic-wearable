@@ -45,7 +45,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define SDCARD_DRIVER_VERSION  "0.2.0"
+#define SDCARD_DRIVER_VERSION  "0.2.1"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>

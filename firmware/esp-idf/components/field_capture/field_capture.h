@@ -27,15 +27,26 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define FIELD_CAPTURE_DRIVER_VERSION  "0.2.0"
+#define FIELD_CAPTURE_DRIVER_VERSION  "0.3.1"
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// -- Mode enum ---------------------------------------------------------------
+// Stage 10 restructure: flat "one slot per use-case" list is transitioning
+// to "one slot per sensor" with per-sensor submenus. LSM is the first sensor
+// to migrate: FCM_LSM is a top-level gateway that owns FCM_MOTION, FCM_BCG,
+// FCM_STEPS, and FCM_MLC_COLLECT as its submenu entries. The top-level
+// encoder cycle SKIPS submenu-only entries (see is_lsm_submode in .c). Other
+// sensors stay flat during transition. See project memory:
+// [[project-mode-restructure]]. New enum values are appended (not inserted)
+// so NVS-stored numeric mode indices from older firmware still decode.
 typedef enum {
     FCM_MIC = 0,
     FCM_ENV,
-    FCM_MOTION,
+    FCM_MOTION,      // LSM submenu entry (no longer top-level after Stage 10)
     FCM_SKIN,
     FCM_FLASHLIGHT,
     FCM_ALARM,
@@ -48,14 +59,29 @@ typedef enum {
                    // on each detected beat.
     FCM_TEMP,      // Stage 7 addition: aggregates every onboard temperature
                    // sensor (TMP117, BME688, LSM die, MAX30101 die, ESP32-S3
-                   // SoC) into one 1 Hz thermal-map printout. Foundation for
-                   // future graphical heat-map overlay on the display.
-    FCM_BCG,       // Stage 8 addition: ballistocardiography via LSM6DSV16X
-                   // accel Z-axis. Bandpass 1-15 Hz, peak-detect with 400 ms
-                   // refractory. DRV pulse on each beat, yellow<->red LED.
-                   // Best-effort HR while worn tightly and still (rest / sleep).
+                   // SoC) into one 1 Hz thermal-map printout. Stage 10 visual
+                   // upgraded to fire strobing (rgb_temp_fire_strobe).
+    FCM_BCG,       // LSM submenu entry (no longer top-level after Stage 10).
+                   // Ballistocardiography via LSM6DSV16X accel Z-axis.
+    // -- Stage 10 additions ------------------------------------------------
+    FCM_LSM,           // Top-level gateway to LSM submenu (yellow slot).
+    FCM_STEPS,         // LSM submenu: embedded pedometer step counter.
+    FCM_MLC_COLLECT,   // LSM submenu: raw accel+gyro CSV for MLC training (S5 stub).
+    FCM_TAP_DBG,       // LSM submenu: host-side magnitude-based tap detector
+                       // + chip-tap event echo + orientation gate diagnostics.
+                       // Used to prove tap subsystem end-to-end at the bench.
+    // -- Stage 11 additions ------------------------------------------------
+    FCM_USB_MSC,       // Cyan top-level tile. Click -> unmount SD, install
+                       // TinyUSB MSC, host sees a removable drive. Second
+                       // click or USB unplug -> esp_restart() (fresh state).
+                       // See components/usb_msc/ for the bricking-risk story.
     FCM_COUNT,
 } fc_mode_t;
+
+// -- LSM submenu order (used by encoder-scroll while in submenu) -------------
+// Not an enum -- explicit array. Order = presentation order.
+extern const fc_mode_t FC_LSM_SUBMENU[];
+extern const uint8_t   FC_LSM_SUBMENU_LEN;
 
 /**
  * @brief Initialise NVS state (current mode, boot_seq) and best-effort mount
@@ -68,6 +94,13 @@ void field_capture_init(void);
  *        Pinned to Core 1 in boot_tasks.c. Never returns.
  */
 void task_field_capture_fn(void *arg);
+
+/**
+ * @brief Read the current-boot sequence number that field_capture loaded from
+ *        NVS on startup. Returns 0 before field_capture_init() has run. Used
+ *        by the RTC CLI to stamp NVS SET_TIME records with a coherent boot_seq.
+ */
+uint32_t field_capture_get_boot_seq(void);
 
 #ifdef __cplusplus
 }

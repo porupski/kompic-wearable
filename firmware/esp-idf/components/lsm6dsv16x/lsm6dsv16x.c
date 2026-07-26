@@ -18,9 +18,11 @@
 
 #include "lsm6dsv16x.h"
 #include "data_broker.h"
+#include "ui_event.h"
 #include "driver/i2c.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -40,6 +42,15 @@ static const char *TAG = "LSM6DSV16X";
 static float s_roll_deg     = 0.0f;
 static float s_pitch_deg    = 0.0f;
 static bool  s_filter_seeded = false;
+
+// ---------------------------------------------------------------------------
+// Tap-Z monotonic counters (see lsm6dsv16x.h for consumer contract)
+// ---------------------------------------------------------------------------
+static volatile uint32_t s_tap_z_single_count = 0;
+static volatile uint32_t s_tap_z_double_count = 0;
+
+uint32_t lsm6dsv16x_tap_z_single_count(void) { return s_tap_z_single_count; }
+uint32_t lsm6dsv16x_tap_z_double_count(void) { return s_tap_z_double_count; }
 
 // ---------------------------------------------------------------------------
 // INT1 ISR plumbing
@@ -115,11 +126,23 @@ esp_err_t lsm6dsv16x_init(i2c_port_t i2c_num)
     // BDU = 1 (block data update), IF_INC = 1 (auto-increment for burst reads)
     (void)write_reg(i2c_num, REG_CTRL3, CTRL3_BDU | CTRL3_IF_INC);
 
-    // Accel: 120 Hz, ±4g
-    (void)write_reg(i2c_num, REG_CTRL1, CTRL1_ODR_120HZ | CTRL1_FS_XL_4G);
+    // ─── Stage 11 Item C: correct DSV16X CTRL1/2/6/8 layout ────────────────────
+    // Pre-Item-C the accel silently ran at OP_MODE_XL=LP3 + ODR_XL=7.5 Hz +
+    // (likely) ±8g scale -- bench 2026-07-24 confirmed with MLC file rows
+    // repeating every ~140 ms and az~19.5 m/s^2 at rest. See lsm6dsv16x.h
+    // header comment for the datasheet layout.
 
-    // Gyro: 240 Hz, ±2000 dps
-    (void)write_reg(i2c_num, REG_CTRL2, CTRL2_ODR_240HZ | CTRL2_FS_G_2000DPS);
+    // Accel: High-Performance mode, 120 Hz ODR
+    (void)write_reg(i2c_num, REG_CTRL1, CTRL1_OP_MODE_HP | CTRL1_ODR_XL_120HZ);
+
+    // Gyro: High-Performance mode, 240 Hz ODR
+    (void)write_reg(i2c_num, REG_CTRL2, CTRL2_OP_MODE_HP | CTRL2_ODR_G_240HZ);
+
+    // Gyro full-scale: ±2000 dps (matches GYRO_LSB_PER_DPS=14.286)
+    (void)write_reg(i2c_num, REG_CTRL6, CTRL6_FS_G_2000DPS);
+
+    // Accel full-scale: ±4g (matches ACCEL_LSB_PER_G=8192)
+    (void)write_reg(i2c_num, REG_CTRL8, CTRL8_FS_XL_4G);
 
     // INT1: enable DRDY_XL routing (useful for ISR-driven mode later).
     // For wake-on-motion, MD1_CFG bit 5 must also be set (done in install_int1_isr).
@@ -251,5 +274,57 @@ void task_imu_fn(void *arg)
         bd.pitch_deg = s_pitch_deg;
 
         broker_imu_write(&bd);
+
+        // ─── Advanced-feature polling (Blueprint 4 §3 read-before-write) ──────
+        //   Runs every tick at the base 50 Hz poll rate. Tap-Z is polled every
+        //   tick (chip clears TAP_SRC on read when LIR=0, so we can't miss an
+        //   event by reading too often). Pedometer is polled once per second
+        //   -- the on-chip counter accumulates, no need to slam I2C on it.
+
+        // Tap -> UI event queue. Two independent fixes on top of the
+        // Stage-10 all-axes accept:
+        //  1. Accept any of the three enabled axes (wrist geometry means
+        //     the "tap the case" gesture mostly lands on X, not Z).
+        //  2. Edge-detect on the SINGLE/DOUBLE bits -- TAP_SRC latches
+        //     for ~365 ms per real tap event with LIR=1, so a naive
+        //     level-based count fires 15-20 times per tap at 20 ms poll
+        //     (bench log 2026-07-23). We track prev-poll state and count
+        //     only on 0->1 transitions. One real double-tap => cnt+=1.
+        static uint8_t s_prev_flags = 0;
+        if (broker_imu_hw_alive()) {
+            uint8_t src = lsm6dsv16x_tap_poll_src();
+            bool any_axis = (src & (TAP_SRC_X_TAP | TAP_SRC_Y_TAP | TAP_SRC_Z_TAP)) != 0;
+            bool now_double  = any_axis && (src & TAP_SRC_DOUBLE_TAP);
+            bool now_single  = any_axis && (src & TAP_SRC_SINGLE_TAP);
+            bool prev_double = (s_prev_flags & TAP_SRC_DOUBLE_TAP) != 0;
+            bool prev_single = (s_prev_flags & TAP_SRC_SINGLE_TAP) != 0;
+            ui_event_t ev = { .payload = { .tap = { .src = src } } };
+            if (now_double && !prev_double) {
+                s_tap_z_double_count++;
+                ev.type = UI_EVENT_TAP_Z_DOUBLE;
+                (void)ui_event_send(&ev);
+            } else if (now_single && !prev_single) {
+                s_tap_z_single_count++;
+                ev.type = UI_EVENT_TAP_Z_SINGLE;
+                (void)ui_event_send(&ev);
+            }
+            // Remember only the SINGLE/DOUBLE bits (axis bits reset per tap).
+            s_prev_flags = src & (TAP_SRC_DOUBLE_TAP | TAP_SRC_SINGLE_TAP);
+        }
+
+        // Pedometer -> broker_steps, once per second.
+        static uint32_t s_next_pedo_ms = 0;
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        if (broker_steps_hw_alive() && broker_steps_get_enabled() && now_ms >= s_next_pedo_ms) {
+            s_next_pedo_ms = now_ms + 1000;
+            uint32_t steps = 0;
+            if (lsm6dsv16x_pedometer_read(&steps) == ESP_OK) {
+                broker_steps_data_t sd = {0};
+                broker_steps_read(&sd);
+                sd.step_count = steps;
+                sd.enabled    = true;
+                broker_steps_write(&sd);
+            }
+        }
     }
 }

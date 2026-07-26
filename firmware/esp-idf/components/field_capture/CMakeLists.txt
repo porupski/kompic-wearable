@@ -5,6 +5,7 @@ idf_component_register(
     REQUIRES
         driver
         esp_driver_tsens   # temperature_sensor.h for ESP32-S3 SoC temp in FCM_TEMP
+        esp_adc            # Stage 11 TEMPORARY: Vbat divider on GPIO9 in BATT_TEST
         freertos
         esp_timer
         nvs_flash
@@ -20,6 +21,8 @@ idf_component_register(
         flashlight
         encoder
         pcf85063
+        nvs_cfg
+        usb_msc
         bq25619
         bme688
         lsm6dsv16x

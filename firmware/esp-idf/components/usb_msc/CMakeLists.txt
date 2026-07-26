@@ -1,13 +1,14 @@
 idf_component_register(
     SRCS
-        "sdcard.c"
+        "usb_msc.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
+        esp_timer
+        freertos
         sdmmc
         fatfs
         vfs
-        esp_pm             # Stage 11 Item D: PM lock while mounted
-        esp_timer
-        freertos
+        sdcard
+        ws2812
 )

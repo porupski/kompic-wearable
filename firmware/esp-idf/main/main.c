@@ -19,12 +19,16 @@
  */
 
 #include "boot_power.h"
+#include "boot_pm.h"
 #include "boot_hw_init.h"
 // #include "boot_display.h"   // TODO: restore when display returns
 #include "boot_tasks.h"
 #include "data_broker.h"
 #include "cross_driver.h"
 #include "app_nvs.h"
+#include "nvs_cfg.h"
+#include "firmware_version.h"    // KOMPIC_FW_VERSION for nvs_cfg_sys_check_fw_version
+#include "driver/i2c.h"
 // #include "ui_broker.h"      // TODO: restore when display returns
 // #include "lvgl_ui.h"        // TODO: restore when display returns
 // #include "esp_lvgl_port.h"  // TODO: restore when display returns
@@ -36,6 +40,11 @@ void app_main(void)
 {
     // -- 1. Power primitives --------------------------------------------------
     boot_power_init();
+
+    // -- 1b. Dynamic frequency scaling + light-sleep (Stage 11 Item D) --------
+    // No-op unless CONFIG_PM_ENABLE=y is set in menuconfig. Safe to leave in
+    // regardless. Must run before any task grabs a PM lock.
+    boot_pm_init();
 
     // -- 2. Broker ------------------------------------------------------------
     broker_init();
@@ -52,6 +61,21 @@ void app_main(void)
 
     // -- 5. Hardware bringup --------------------------------------------------
     boot_hw_init(&cal);
+
+    // -- 5b. Boot-time NVS command-state printout ----------------------------
+    // Toggle with the "NVS_PRINT ON/OFF" serial command. Reads PCF85063A
+    // RAM_byte (0x03) for redundancy cross-check against ESP NVS.
+    //
+    // Also compare-and-update the last-known fw version (Stage 11): if the
+    // stored value differs from KOMPIC_FW_VERSION, log "upgraded X -> Y".
+    nvs_cfg_sys_check_fw_version(KOMPIC_FW_VERSION);
+    nvs_cfg_boot_print(I2C_NUM_0);
+
+    // -- 5c. PM lock inventory (Item D diagnosis) ----------------------------
+    // Enable CONFIG_PM_PROFILING=y in menuconfig to see actual lock holders.
+    // Without profiling this is a stub print. Runs after boot_hw_init so all
+    // driver-initiated locks (I2C/RMT/SDMMC) are visible.
+    boot_pm_dump_locks();
 
     // -- 6. Display + LVGL UI (deferred until display returns) ---------------
     // TODO: restore when display returns.

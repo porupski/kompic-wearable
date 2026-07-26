@@ -38,6 +38,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "esp_pm.h"                    // Stage 11 Item D: PM lock while mounted
 #include "driver/sdmmc_host.h"
 #include "sdmmc_cmd.h"
 
@@ -58,6 +59,13 @@ static sdmmc_card_t     *s_card      = NULL;
 static bool              s_mounted   = false;
 static FILE             *s_session_f = NULL;
 static char              s_session_path[SDCARD_PATH_MAX];
+
+// Stage 11 Item D: PM lock. Held for the entire duration the SDMMC host is
+// mounted -- APB clock feeds the SDMMC peripheral, so DFS dropping mid-write
+// would corrupt FatFs. Acquire in sdcard_mount, release in sdcard_unmount.
+// When CONFIG_PM_ENABLE is off, the handle stays NULL and everything is a
+// no-op. See boot_pm.h for the DFS window.
+static esp_pm_lock_handle_t s_pm_lock = NULL;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -122,6 +130,23 @@ esp_err_t sdcard_init(void)
     s_card      = NULL;
     s_session_f = NULL;
     s_session_path[0] = '\0';
+
+#ifdef CONFIG_PM_ENABLE
+    // Stage 11 Item D: create the PM lock now, use it only while mounted.
+    // Failure is non-fatal -- we continue without the lock (SDMMC would then
+    // be vulnerable to DFS-induced timing shifts during writes; better than
+    // refusing to boot).
+    if (s_pm_lock == NULL) {
+        esp_err_t lr = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0,
+                                          "sdmmc", &s_pm_lock);
+        if (lr != ESP_OK) {
+            ESP_LOGW(TAG, "PM lock create failed: %s (continuing without)",
+                     esp_err_to_name(lr));
+            s_pm_lock = NULL;
+        }
+    }
+#endif
+
     ESP_LOGI(TAG, "sdcard_init OK (host not yet mounted)");
     return ESP_OK;
 }
@@ -167,6 +192,11 @@ esp_err_t sdcard_mount(void)
     }
 
     s_mounted = true;
+    // Stage 11 Item D: hold APB @ MAX_FREQ for the entire mounted window.
+    // DFS dropping APB mid-write is a corruption risk (SDMMC clock is derived
+    // from APB on ESP32-S3). Released in sdcard_unmount.
+    if (s_pm_lock) esp_pm_lock_acquire(s_pm_lock);
+
     if (s_card) {
         ESP_LOGI(TAG, "Card mounted: name=%s, capacity=%llu MiB",
                  s_card->cid.name,
@@ -196,6 +226,8 @@ esp_err_t sdcard_unmount(void)
     }
     s_card    = NULL;
     s_mounted = false;
+    // Stage 11 Item D: release the APB lock so DFS can drop again.
+    if (s_pm_lock) esp_pm_lock_release(s_pm_lock);
     ESP_LOGI(TAG, "Unmounted " SDCARD_MOUNT_POINT);
     give();
     return r;

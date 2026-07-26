@@ -5,6 +5,7 @@ idf_component_register(
     REQUIRES
         driver
         esp_driver_rmt
+        esp_pm             # Stage 11 Item D: PM lock around RMT tx
         esp_timer
         freertos
 )
