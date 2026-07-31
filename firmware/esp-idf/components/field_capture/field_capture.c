@@ -2194,6 +2194,7 @@ static void rtc_cli_print_help(void) {
     printf("    BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)\n");
     printf("    BLACKBOX_CADENCE <s>             sample cadence in seconds (default 10, range 1..3600)\n");
     printf("    WHOAMI                           I2C sensor identification + hw_alive status\n");
+    printf("    TEMP_DUMP                        read every onboard temp source (waits for stable, non-zero)\n");
     printf("    PM_DUMP                          dump PM lock inventory now\n");
     printf("    RGB <r> <g> <b> | RGB AUTO       bench-poke WS2812 (0..255) / release override\n");
     printf("    FS_LS [/sd/path]                 list SD directory\n");
@@ -2401,6 +2402,111 @@ static void rtc_cli_dump_whoami(void) {
     printf("  Mic (PDM)             running=%d\n", mic_pdm_is_running() ? 1 : 0);
 }
 
+// TEMP_DUMP -- one-shot readout of every onboard temperature source.
+// Wakes ENV / IMU / SKIN if they aren't already running, polls until every
+// sensor returns a non-zero, stable value (all deltas < STABLE_DELTA_C
+// between consecutive polls) for STABLE_HITS iterations, prints once, then
+// restores whichever sensors we woke back to their prior state so we don't
+// step on an in-progress mode.
+//
+// Sources:
+//   TMP117     -- skin temp,     via broker_skin_data_t.skin_temp_c
+//   BME688     -- air/die temp,  via broker_env_data_t.temperature_c
+//   LSM6DSV16X -- IMU die temp,  direct I2C poke (read_lsm_die_temp)
+//   MAX30101   -- PPG die temp,  one-shot TEMP_EN trigger (read_max_die_temp)
+//   ESP32-S3   -- SoC junction,  temperature_sensor_get_celsius (esp_ts_*)
+//
+// The BQ25619 TS pin isn't wired to a thermistor on iv7.1 -- once the TS
+// network is populated, add a bq_die_temp source here.
+static void rtc_cli_dump_temps(void) {
+    printf("[TEMP_DUMP] waking sensors, polling for stable readings...\n");
+
+    // Snapshot enabled state so we only park what we woke -- leaves any
+    // in-progress mode (TEMP session, BCG, etc.) undisturbed.
+    bool had_env  = broker_env_get_enabled();
+    bool had_imu  = broker_imu_get_enabled();
+    bool had_skin = broker_skin_get_enabled();
+
+    if (!had_env)  broker_env_set_enabled(true);
+    if (!had_imu)  broker_imu_set_enabled(true);
+    if (!had_skin) broker_skin_set_enabled(true);
+
+    esp_ts_ensure_init();
+
+    // Poll cadence + convergence thresholds. TIMEOUT_MS is a soft cap so a
+    // dead sensor can't wedge the CLI forever -- we still print the last
+    // reading with a TIMEOUT tag.
+    const int   TICK_MS        = 500;
+    const int   TIMEOUT_MS     = 15000;
+    const float STABLE_DELTA_C = 0.5f;
+    const int   STABLE_HITS    = 2;
+
+    float t_tmp = 0, t_bme = 0, t_lsm = 0, t_max = 0, t_soc = 0;
+    float p_tmp = 999, p_bme = 999, p_lsm = 999, p_max = 999, p_soc = 999;
+    int   hits = 0;
+    int   elapsed_ms = 0;
+    bool  timed_out = true;
+
+    // First-pass settle so newly-woken sensor tasks have time to publish
+    // at least one broker update before we start comparing deltas.
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    while (elapsed_ms <= TIMEOUT_MS) {
+        broker_env_data_t  e; broker_env_read(&e);
+        broker_skin_data_t s; broker_skin_read(&s);
+
+        t_tmp = s.skin_temp_c;
+        t_bme = e.temperature_c;
+        t_lsm = read_lsm_die_temp();
+        t_max = read_max_die_temp();
+        t_soc = esp_ts_read_c();
+
+        // "Valid" = not the -273.15 error sentinel, not the exact-zero
+        // uninitialised broker cache, and inside a plausibility band.
+        #define VALID_C(v) ((v) > -40.0f && (v) < 120.0f && (v) != 0.0f)
+        bool all_valid = VALID_C(t_tmp) && VALID_C(t_bme) &&
+                         VALID_C(t_lsm) && VALID_C(t_max) && VALID_C(t_soc);
+        #undef VALID_C
+
+        bool all_stable =
+            fabsf(t_tmp - p_tmp) < STABLE_DELTA_C &&
+            fabsf(t_bme - p_bme) < STABLE_DELTA_C &&
+            fabsf(t_lsm - p_lsm) < STABLE_DELTA_C &&
+            fabsf(t_max - p_max) < STABLE_DELTA_C &&
+            fabsf(t_soc - p_soc) < STABLE_DELTA_C;
+
+        if (all_valid && all_stable) {
+            if (++hits >= STABLE_HITS) { timed_out = false; break; }
+        } else {
+            hits = 0;
+        }
+
+        p_tmp = t_tmp; p_bme = t_bme; p_lsm = t_lsm;
+        p_max = t_max; p_soc = t_soc;
+
+        vTaskDelay(pdMS_TO_TICKS(TICK_MS));
+        elapsed_ms += TICK_MS;
+    }
+
+    if (timed_out) {
+        printf("[TEMP_DUMP] TIMEOUT after %d ms -- printing last read anyway:\n",
+               TIMEOUT_MS);
+    } else {
+        printf("[TEMP_DUMP] settled in %d ms\n", elapsed_ms);
+    }
+    printf("  skin (TMP117)      = %6.2f C\n", t_tmp);
+    printf("  air  (BME688)      = %6.2f C\n", t_bme);
+    printf("  imu  (LSM6DSV16X)  = %6.2f C\n", t_lsm);
+    printf("  ppg  (MAX30101)    = %6.2f C\n", t_max);
+    printf("  soc  (ESP32-S3)    = %6.2f C\n", t_soc);
+    printf("  bq   (BQ25619)     =    --   (TS network not populated on iv7.1)\n");
+
+    // Restore whichever sensors we woke.
+    if (!had_env)  broker_env_set_enabled(false);
+    if (!had_imu)  broker_imu_set_enabled(false);
+    if (!had_skin) broker_skin_set_enabled(false);
+}
+
 // Dump 18 PCF85063A registers (0x00..0x11 covers control, RAM_byte, time,
 // alarm, timer, and CLKOUT).
 static void rtc_cli_dump_pcf_regs(void) {
@@ -2563,6 +2669,10 @@ static void rtc_cli_handle_line(char *line) {
     }
     if (startswith_ci(line, "WHOAMI")) {
         rtc_cli_dump_whoami();
+        return;
+    }
+    if (startswith_ci(line, "TEMP_DUMP")) {
+        rtc_cli_dump_temps();
         return;
     }
     if (startswith_ci(line, "PM_DUMP")) {

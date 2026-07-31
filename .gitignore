@@ -41,6 +41,8 @@ firmware/esp-idf/.claude
 
 firmware/esp-idf/archive
 
+models/ML_models/data/lsm_data
+
 # Hardware related docs
 hardware/Reflow_info/reference_files
 
