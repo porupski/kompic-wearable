@@ -115,6 +115,19 @@ esp_err_t nvs_cfg_sys_set_blackbox(bool enabled);
 uint16_t nvs_cfg_sys_get_bb_cadence_s(void);
 esp_err_t nvs_cfg_sys_set_bb_cadence_s(uint16_t s);
 
+/**
+ * @brief Audio-annotation pre-roll flag.
+ *
+ * When TRUE (default), entering FCM_ENV / FCM_MOTION plays 3 beeps then records
+ * a fixed 5 s voice-annotation WAV before the CSV starts. When FALSE, the
+ * recording skips the mic entirely and jumps straight into the mode's CSV.
+ * Live-tunable via "REC_AUDIO ON|OFF" -- takes effect on the next recording
+ * start. Stage 17 removed FCM_SKIN from this list (slot is now FCM_PPG_BCG,
+ * which prints its own start banner via fc_sync state — no voice annotation).
+ */
+bool nvs_cfg_sys_get_rec_audio(void);
+esp_err_t nvs_cfg_sys_set_rec_audio(bool enabled);
+
 // -- Firmware version bookkeeping ---------------------------------------------
 
 #define NVS_CFG_FW_STR_MAX  16   // "MAJOR.MINOR.PATCH" + NUL, generous
@@ -136,6 +149,16 @@ esp_err_t nvs_cfg_sys_set_last_fw(const char *fw);
  *        and update NVS to the current value. Idempotent within a boot.
  */
 void nvs_cfg_sys_check_fw_version(const char *current_fw);
+
+// -- PC sync offset persistence -----------------------------------------------
+//
+// Stores the signed µs offset (t_pc_us = t_local_us + offset_us) computed by
+// sync.py during a PC-mediated ECG↔Kompic sync session. Persisted as a pair:
+// the offset itself and the esp_timer uptime at write time (for staleness checks
+// on the next boot -- offsets older than 24 h are discarded).
+
+esp_err_t nvs_cfg_sys_get_pc_sync(int64_t *offset_us, int64_t *write_uptime_us);
+esp_err_t nvs_cfg_sys_set_pc_sync(int64_t offset_us, int64_t write_uptime_us);
 
 // -- Boot printout -------------------------------------------------------------
 

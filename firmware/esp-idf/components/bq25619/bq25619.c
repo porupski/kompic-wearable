@@ -259,7 +259,28 @@ esp_err_t bq25619_set_boost(i2c_port_t i2c_num, bool enable)
 esp_err_t bq25619_enter_ship_mode(i2c_port_t i2c_num)
 {
     ESP_LOGW(TAG, "Entering ship-mode (BATFET_DIS) -- battery disconnect imminent");
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
+
+    // Ship-mode is king. If another task has the I2C mutex (drv2605 mid-buzz,
+    // BQ polling loop, TMP117 read...) we WAIT rather than silently timing out
+    // at the normal 300 ms budget. Escalating retry so a genuinely stuck mutex
+    // eventually surfaces as an error log instead of hanging the watcher task.
+    const TickType_t attempts[] = {
+        pdMS_TO_TICKS(500),
+        pdMS_TO_TICKS(1500),
+        pdMS_TO_TICKS(3000),   // total worst case ~5 s -- longer than any
+                               // in-flight I2C transaction on the bus.
+    };
+    bool got = false;
+    for (size_t i = 0; i < sizeof(attempts) / sizeof(attempts[0]); i++) {
+        if (xSemaphoreTake(g_i2c_mutex, attempts[i]) == pdTRUE) {
+            got = true;
+            break;
+        }
+        ESP_LOGW(TAG, "ship-mode mutex busy, retrying (attempt %zu)", i + 1);
+    }
+    if (!got) {
+        ESP_LOGE(TAG, "ship-mode ABORT: I2C mutex stuck after ~5 s. "
+                      "Battery will NOT disconnect on next unplug.");
         return ESP_ERR_TIMEOUT;
     }
 

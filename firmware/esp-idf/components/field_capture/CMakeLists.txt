@@ -1,6 +1,15 @@
 idf_component_register(
     SRCS
         "field_capture.c"
+        "fc_common.c"
+        "fc_recording.c"
+        "fc_modes.c"
+        "fc_modes_lsm.c"
+        "fc_modes_ppg_bcg.c"
+        "fc_battery_test.c"
+        "fc_shutdown.c"
+        "fc_cli.c"
+        "fc_sync.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver

@@ -20,6 +20,6 @@
 #define FIRMWARE_VERSION_H
 
 #define KOMPIC_HW_VERSION   "iv7.1"
-#define KOMPIC_FW_VERSION   "0.4.13"
+#define KOMPIC_FW_VERSION   "0.4.17"
 
 #endif // FIRMWARE_VERSION_H

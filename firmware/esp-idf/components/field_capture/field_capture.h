@@ -27,7 +27,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define FIELD_CAPTURE_DRIVER_VERSION  "0.3.1"
+#define FIELD_CAPTURE_DRIVER_VERSION  "0.3.2"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -47,7 +47,10 @@ typedef enum {
     FCM_MIC = 0,
     FCM_ENV,
     FCM_MOTION,      // LSM submenu entry (no longer top-level after Stage 10)
-    FCM_SKIN,
+    FCM_PPG_BCG,     // Stage 17: repurposed FCM_SKIN slot -- combined PPG (MAX30101
+                     // multi-LED raw) + BCG (LSM6DSV16X accel Z) at 200 Hz with
+                     // pc_sync_* CSV headers per Stage 15. Enum ordinal preserved
+                     // for NVS boot-mode compatibility. Old skin behaviour deleted.
     FCM_FLASHLIGHT,
     FCM_ALARM,
     FCM_COMPASS,   // ESP-IDF-only addition (not in 7_demo_field_capture sketch):

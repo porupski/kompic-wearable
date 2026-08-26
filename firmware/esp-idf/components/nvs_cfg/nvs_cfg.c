@@ -31,7 +31,10 @@ static const char *TAG = "NVS_CFG";
 #define K_SYS_BATT_TEST "batt_test"   // u8; 0 = normal, 1 = battery-test mode
 #define K_SYS_BLACKBOX  "blackbox"    // u8; 0 = off, 1 = BLACKBOX telemetry
 #define K_SYS_BB_CAD    "bb_cadence"  // u16; sample cadence in seconds (default 10)
+#define K_SYS_REC_AUDIO "rec_audio"   // u8; 0 = skip mic annot, 1 = 5 s pre-roll (default)
 #define K_SYS_LAST_FW   "last_fw"     // str; MAJOR.MINOR.PATCH of last-seen fw
+#define K_SYS_PC_SYNC_OFF "pc_sync_off_us"  // i64; signed ECG offset µs
+#define K_SYS_PC_SYNC_UPT "pc_sync_upt_us"  // i64; esp_timer at write (staleness)
 
 // ── RTC ────────────────────────────────────────────────────────────────────────
 
@@ -200,6 +203,29 @@ esp_err_t nvs_cfg_sys_set_bb_cadence_s(uint16_t s)
     return err;
 }
 
+bool nvs_cfg_sys_get_rec_audio(void)
+{
+    // Default TRUE -- preserves the historical 5 s mic annotation pre-roll
+    // for anyone who never touches this flag. Toggle via "REC_AUDIO OFF".
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return true;
+    uint8_t v = 1;
+    nvs_get_u8(h, K_SYS_REC_AUDIO, &v);
+    nvs_close(h);
+    return v != 0;
+}
+
+esp_err_t nvs_cfg_sys_set_rec_audio(bool enabled)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_SYS_REC_AUDIO, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
 esp_err_t nvs_cfg_sys_get_last_fw(char *out, size_t out_len)
 {
     if (out == NULL || out_len == 0) return ESP_ERR_INVALID_ARG;
@@ -240,6 +266,34 @@ void nvs_cfg_sys_check_fw_version(const char *current_fw)
     } else {
         ESP_LOGI(TAG, "fw version unchanged since last boot: %s", current_fw);
     }
+}
+
+// ── PC sync ────────────────────────────────────────────────────────────────────
+
+esp_err_t nvs_cfg_sys_get_pc_sync(int64_t *offset_us, int64_t *write_uptime_us)
+{
+    if (!offset_us || !write_uptime_us) return ESP_ERR_INVALID_ARG;
+    *offset_us      = 0;
+    *write_uptime_us = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return ESP_ERR_NVS_NOT_FOUND;
+    esp_err_t r1 = nvs_get_i64(h, K_SYS_PC_SYNC_OFF, offset_us);
+    esp_err_t r2 = nvs_get_i64(h, K_SYS_PC_SYNC_UPT, write_uptime_us);
+    nvs_close(h);
+    return (r1 == ESP_OK && r2 == ESP_OK) ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
+}
+
+esp_err_t nvs_cfg_sys_set_pc_sync(int64_t offset_us, int64_t write_uptime_us)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err  = nvs_set_i64(h, K_SYS_PC_SYNC_OFF, offset_us);
+    err |= nvs_set_i64(h, K_SYS_PC_SYNC_UPT, write_uptime_us);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) ESP_LOGE(TAG, "pc_sync save failed: %s", esp_err_to_name(err));
+    return err;
 }
 
 // ── Boot printout ──────────────────────────────────────────────────────────────
@@ -324,11 +378,22 @@ void nvs_cfg_boot_print(int i2c_num)
     printf("[SYS]   blackbox  = %d  cadence=%u s  (BLACKBOX ON|OFF, BLACKBOX_CADENCE <s>)\n",
            nvs_cfg_sys_get_blackbox() ? 1 : 0,
            (unsigned)nvs_cfg_sys_get_bb_cadence_s());
+    printf("[SYS]   rec_audio = %d  (toggle: REC_AUDIO ON|OFF -- skip 5 s mic annotation)\n",
+           nvs_cfg_sys_get_rec_audio() ? 1 : 0);
     {
         char last_fw[NVS_CFG_FW_STR_MAX] = {0};
         (void)nvs_cfg_sys_get_last_fw(last_fw, sizeof(last_fw));
         printf("[SYS]   last_fw   = \"%s\"  (updated by nvs_cfg_sys_check_fw_version at boot)\n",
                last_fw[0] ? last_fw : "(none)");
+    }
+    {
+        int64_t off_us = 0, upt_us = 0;
+        if (nvs_cfg_sys_get_pc_sync(&off_us, &upt_us) == ESP_OK) {
+            printf("[SYS]   pc_sync   = offset=%" PRId64 " µs  written_uptime=%" PRId64 " µs\n",
+                   off_us, upt_us);
+        } else {
+            printf("[SYS]   pc_sync   = (not stored)\n");
+        }
     }
     printf("\n");
 }
