@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "Kompic_Mk1b") (type "KiCad") (uri "${KIPRJMOD}/Kompic_Mk1b_library/Kompic_Mk1b.pretty") (options "") (descr ""))
+	(lib (name "Kompic_Mk1b") (type "KiCad") (uri "${KIPRJMOD}/Kompic_Mk1b_library/Kompic_Mk1b.pretty") (options "") (descr ""))
+)

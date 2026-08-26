@@ -4363,6 +4363,19 @@
 		)
 		(uuid "17ed4287-8b5a-49d0-b133-ab21fb93e9de")
 	)
+	(text "CRITICAL BUG: Connector wired in mirror!!!"
+		(exclude_from_sim no)
+		(at 55.626 156.972 0)
+		(effects
+			(font
+				(size 2.54 2.54)
+				(thickness 0.508)
+				(bold yes)
+				(color 255 38 26 1)
+			)
+		)
+		(uuid "32de3307-8e4e-4f1f-b733-1a688e9d4042")
+	)
 	(text "BUG: CLK MISSING 10k PULLUP"
 		(exclude_from_sim no)
 		(at 236.728 112.014 0)
