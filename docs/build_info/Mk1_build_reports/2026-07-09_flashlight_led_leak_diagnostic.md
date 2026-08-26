@@ -155,3 +155,36 @@ worse outcome.
 +5 V online, flashlight commanded OFF: **gate reads ~0 V, LED fully dark, gate→GND
 a solid ~10k.** If the gate still sits high after a confirmed-good pull-down and a
 proper clean, the FET has an internal gate-drain leak → replace and re-verify.
+
+---
+
+## 13. Resolution (2026-08-19) — RESOLVED via BC847C swap; batch condemned
+
+Rebuilt the exact circuit on a bench ESP32-C3 SuperMini (LED_PIN=GPIO2) to
+isolate from the iv7.1 board. Same symptom immediately: ~0.75 mA bleed with
+GATE shorted directly to SOURCE. Confirmed the leak is drain-to-source, not
+gate-side.
+
+Removed the BSS138W and DMM'd it out-of-circuit: **1.5 MΩ D↔S with V_GS = 0**.
+Spec is OL (≥ GΩ). The die is leaky. Whole batch condemned.
+
+**Fix applied:** BC847C NPN drop-in — same SOT-23 footprint, same pinout
+mapping for this topology (1↔Base, 2↔Emitter, 3↔Collector). Base resistor
+increased from 47 R to **3 kΩ** (see Stage 14 for why 3–10 kΩ is the correct
+range and why the 47 R that survives on the current bench build is wasteful
+but functionally OK).
+
+**Post-fix bench measurement:** LED fully dark with GPIO2 = 0, no bleed at
+DMM resolution. Fault closed.
+
+**iv7.1 board:** same swap to be applied at the GPIO41 flashlight FET when
+next on the bench — pending physical rework. Once done, re-verify against
+Section 12 criteria.
+
+**Backup plan** if BC847C ever proves insufficient (higher-current LED
+variants, faster PWM): source a fresh N-MOS batch from a reputable channel
+(LCSC first-party, not marketplace), re-test I_DSS at V_GS = 0 before
+committing.
+
+Full write-up, including the Vbat divider relocation triggered by the same
+bench session, lives in `Stage_14_Flashlight_Fixed.md`.
