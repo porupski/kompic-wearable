@@ -12,6 +12,7 @@ hardware/**/gerbers/
 hardware/Kompic_Mk1/ignore/
 docs/build_info/reference_files
 docs/build_info/datasheets
+docs/build_info/aux_scripts/other
 
 # ---------- 3D Models (ignore heavy mesh/CAD exports, keep sources) ----------
 models/**/*.stl

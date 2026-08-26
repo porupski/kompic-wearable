@@ -62,6 +62,18 @@ void app_main(void)
     // -- 5. Hardware bringup --------------------------------------------------
     boot_hw_init(&cal);
 
+    // -- 5a. Eager telemetry init (Stage 17) ---------------------------------
+    // vbat_adc_ensure_init() and esp_ts_ensure_init() used to lazy-init on
+    // first STATUS call, which surfaced their log lines mid-CLI output long
+    // after boot. Firing them here places their log lines in the right slot
+    // and shaves ~2 ms off the first STATUS invocation.
+    {
+        extern void vbat_adc_ensure_init(void);
+        extern void esp_ts_ensure_init(void);
+        vbat_adc_ensure_init();
+        esp_ts_ensure_init();
+    }
+
     // -- 5b. Boot-time NVS command-state printout ----------------------------
     // Toggle with the "NVS_PRINT ON/OFF" serial command. Reads PCF85063A
     // RAM_byte (0x03) for redundancy cross-check against ESP NVS.

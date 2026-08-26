@@ -28,6 +28,8 @@
 
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "BOOT_HW";
 
@@ -189,11 +191,6 @@ void boot_hw_init(const app_calibration_t *cal)
     if (sdcard_init()     == ESP_OK) ESP_LOGI(TAG, "sdcard   mutex up (mount deferred)");
     if (mic_pdm_init()    == ESP_OK) ESP_LOGI(TAG, "mic PDM  channel installed");
 
-    // -- Haptic command queue (requires DRV2605 alive) ------------------------
-    if (broker_haptic_hw_alive()) {
-        if (haptic_init() == ESP_OK) ESP_LOGI(TAG, "haptic queue OK");
-    }
-
     // -- Sensor enable policy -------------------------------------------------
     // Always-on: RTC (timestamps), battery (ship-mode + monitor), haptic
     //            (encoder feedback). Their tasks poll at low duty anyway.
@@ -206,6 +203,33 @@ void boot_hw_init(const app_calibration_t *cal)
     if (broker_battery_hw_alive()) broker_battery_set_enabled(true);
     if (broker_haptic_hw_alive())  broker_haptic_set_enabled(true);
     ESP_LOGI(TAG, "Always-on sensors enabled (RTC/battery/haptic); modal sensors parked");
+
+    // -- Haptic command queue LAST (Stage 17) ---------------------------------
+    // Placed at the very end of boot_hw_init so a successful boot-OK buzz below
+    // implicitly confirms every prior step. drv2605_init() runs auto-cal (up to
+    // 1.5 s poll window); on COLD boot the chip needs settling time after
+    // DRV_EN goes high or the BEMF loop fails to converge (STATUS bit 3 =
+    // DIAG_RESULT = 1, bit 2 = OVER_TEMP flag set) -- warm reboots work
+    // because the chip stayed powered. A 2 s pre-delay lets VDD/BEMF fully
+    // settle before we poke GO=1. Bench-confirmed 2026-08-26.
+    if (broker_haptic_hw_alive()) {
+        ESP_LOGI(TAG, "DRV: settling 2000 ms before auto-cal (cold-boot BEMF stabilisation)");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (haptic_init() == ESP_OK) {
+            ESP_LOGI(TAG, "haptic queue OK");
+            // Boot-OK confirmation: queue two STRONG_CLICKs. They play as the
+            // haptic task drains after boot_tasks_start; the task's own
+            // per-effect wait_go pacing separates them audibly. If the LRA
+            // moves, everything above this line ran; if it stays quiet, watch
+            // the log for the failing step.
+            haptic_play_forced(1);   // DRV_STRONG_CLICK (ROM effect index 1)
+            haptic_play_forced(1);
+        } else {
+            ESP_LOGW(TAG, "haptic queue init FAILED -- no boot buzz");
+        }
+    } else {
+        ESP_LOGW(TAG, "DRV2605 not alive -- no boot buzz");
+    }
 
     ESP_LOGI(TAG, "boot_hw_init complete");
 }
