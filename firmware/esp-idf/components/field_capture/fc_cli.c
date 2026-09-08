@@ -131,6 +131,10 @@ static void rtc_cli_print_help(void) {
     printf("    LOGLEVEL [OFF|E|W|I|D|V|AUTO]    runtime esp_log level (no arg = show current)\n");
     printf("    GESTURE                          dump wrist-gesture state + LPF value\n");
     printf("    BATT_TEST [ON|OFF]               enter battery-test mode on next boot (no arg = state)\n");
+    printf("    LVGL_FORCE [ON|OFF]              force LVGL up on next boot even without a panel (no arg = state)\n");
+    printf("    TILE [list | <n> | <name>]       jump tileview to a tile (bench-testable under LVGL_FORCE)\n");
+    printf("    TOUCH                            dump CST9217 touch state (last x/y, event count, pressed)\n");
+    printf("    GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)\n");
     printf("    BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)\n");
     printf("    BLACKBOX_CADENCE <s>             sample cadence in seconds (default 10, range 1..3600)\n");
     printf("    REC_AUDIO [ON|OFF]               5 s voice annotation before ENV/MOTION/SKIN (no arg = state)\n");
@@ -195,15 +199,32 @@ static void rtc_cli_dump_status(void) {
     // log dropped its BOOT_DISP lines (persistent USB Serial JTAG dropout).
     {
         extern bool boot_display_is_present(void);
-        printf("  display      = %s (Stage 21 §4.1a probe)\n",
-               boot_display_is_present() ? "PRESENT (CO5300 up)" : "absent (headless)");
+        extern bool boot_display_touch_is_present(void);
+        printf("  display      = %s  touch = %s (Stage 21/22)\n",
+               boot_display_is_present() ? "PRESENT (CO5300 up)" : "absent (headless)",
+               boot_display_touch_is_present() ? "CST9217 up" : "off");
     }
-    printf("  NVS: print_boot=%d  batt_test=%d  blackbox=%d  bb_cadence=%u s  rec_audio=%d\n",
+    // LVGL bring-up state (Stage 22 §4.1b). up=real panel, forced=bench-only
+    // (flush is a no-op), off=LVGL never came up.
+    {
+        extern bool   lvgl_ui_display_is_up(void);
+        extern bool   lvgl_ui_display_is_forced(void);
+        extern size_t lvgl_ui_display_buf_bytes(void);
+        if (lvgl_ui_display_is_up()) {
+            printf("  lvgl         = %s  buf=%lu KB\n",
+                   lvgl_ui_display_is_forced() ? "forced (no panel)" : "up (CO5300)",
+                   (unsigned long)(lvgl_ui_display_buf_bytes() / 1024U));
+        } else {
+            printf("  lvgl         = off\n");
+        }
+    }
+    printf("  NVS: print_boot=%d  batt_test=%d  blackbox=%d  bb_cadence=%u s  rec_audio=%d  lvgl_force=%d\n",
            nvs_cfg_sys_get_print_on_boot() ? 1 : 0,
            nvs_cfg_sys_get_batt_test()     ? 1 : 0,
            nvs_cfg_sys_get_blackbox()      ? 1 : 0,
            (unsigned)nvs_cfg_sys_get_bb_cadence_s(),
-           nvs_cfg_sys_get_rec_audio()     ? 1 : 0);
+           nvs_cfg_sys_get_rec_audio()     ? 1 : 0,
+           nvs_cfg_sys_get_lvgl_force_on() ? 1 : 0);
 }
 
 // ── WHOAMI helpers ──────────────────────────────────────────────────────────
@@ -649,6 +670,162 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
                    nvs_cfg_sys_get_batt_test() ? 1 : 0);
         } else {
             printf("[BATT] usage: BATT_TEST [ON|OFF]  (no arg = show state)\n");
+        }
+        return;
+    }
+    if (startswith_ci(line, "GPS_VIEW")) {
+        // GPS_VIEW is a per-tile mode setter; typing here dispatches to the
+        // same gps_tile_cmd_view_set() that the in-tile PHOTO button calls.
+        // Both outlets share one code path (Module_Blueprint.md §6).
+        extern bool lvgl_ui_display_is_up(void);
+        extern bool lvgl_port_lock(uint32_t);
+        extern void lvgl_port_unlock(void);
+        // Enum values must match gps_tile.h GPS_TILE_VIEW_* (0=normal, 1=photo).
+        extern void gps_tile_cmd_view_set(int v);
+        extern void gps_tile_cmd_view_toggle(void);
+        extern int  gps_tile_cmd_view_get(void);
+
+        if (!lvgl_ui_display_is_up()) {
+            printf("[GPS] LVGL is off -- enable with LVGL_FORCE ON + reboot\n");
+            return;
+        }
+        const char *arg = line + 8;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        int action = -1;              // 0=set normal, 1=set photo, 2=toggle, 3=get
+        if      (*arg == 0)                          action = 3;
+        else if (startswith_ci(arg, "NORMAL"))       action = 0;
+        else if (startswith_ci(arg, "PHOTO"))        action = 1;
+        else if (startswith_ci(arg, "TOGGLE"))       action = 2;
+        else if (startswith_ci(arg, "STATUS") ||
+                 startswith_ci(arg, "GET"))          action = 3;
+
+        if (action < 0) {
+            printf("[GPS] usage: GPS_VIEW [normal|photo|toggle]  (no arg = show state)\n");
+            return;
+        }
+
+        if (action != 3) {
+            if (!lvgl_port_lock(pdMS_TO_TICKS(100))) {
+                printf("[GPS] lvgl_port_lock timeout -- try again\n");
+                return;
+            }
+            if      (action == 0) gps_tile_cmd_view_set(0);
+            else if (action == 1) gps_tile_cmd_view_set(1);
+            else                  gps_tile_cmd_view_toggle();
+            lvgl_port_unlock();
+        }
+
+        const int v = gps_tile_cmd_view_get();
+        printf("[GPS] view = %s\n", (v == 1) ? "PHOTO" : "NORMAL");
+        return;
+    }
+    if (startswith_ci(line, "TOUCH")) {
+        extern bool boot_display_touch_is_present(void);
+        extern bool lvgl_ui_display_touch_indev_ready(void);
+        extern void lvgl_ui_display_touch_snapshot(uint16_t *x, uint16_t *y,
+                                                   uint32_t *ev, bool *pressed);
+        if (!boot_display_touch_is_present()) {
+            printf("[TOUCH] CST9217 absent -- no touch hardware (iv7.1 has no panel; "
+                   "Mk1b brings it up when the display FPC is populated)\n");
+            return;
+        }
+        uint16_t x = 0, y = 0;
+        uint32_t ev = 0;
+        bool pressed = false;
+        lvgl_ui_display_touch_snapshot(&x, &y, &ev, &pressed);
+        printf("[TOUCH] indev=%s  last=(%u,%u)  events=%lu  now=%s\n",
+               lvgl_ui_display_touch_indev_ready() ? "bound" : "off",
+               (unsigned)x, (unsigned)y,
+               (unsigned long)ev,
+               pressed ? "PRESSED" : "released");
+        return;
+    }
+    if (startswith_ci(line, "TILE")) {
+        // Tile column ordering mirrors components/lvgl_ui/tile_registry.c.
+        // Names are hard-coded here rather than added to tile_desc_t so no
+        // widget file needs touching -- an eventual `name` descriptor field
+        // would obsolete this table (revisit next time tile_desc_t is touched
+        // per feedback_group_work_by_venue.md).
+        static const char *TILE_NAMES[] = {
+            "health",   // col 0
+            "haptic",   // col 1
+            "light",    // col 2
+            "system",   // col 3
+            "gps",      // col 4
+            "rtc",      // col 5
+            "env",      // col 6
+            "compass",  // col 7
+            "imu",      // col 8
+            "ecg",      // col 9
+        };
+        const int TILE_NAME_COUNT = (int)(sizeof(TILE_NAMES) / sizeof(TILE_NAMES[0]));
+
+        extern int       lvgl_ui_display_tile_count(void);
+        extern esp_err_t lvgl_ui_display_jump_tile(int col);
+        extern bool      lvgl_ui_display_is_up(void);
+
+        if (!lvgl_ui_display_is_up()) {
+            printf("[TILE] LVGL is off -- enable with LVGL_FORCE ON + reboot, or plug a real panel\n");
+            return;
+        }
+
+        const char *arg = line + 4;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        if (*arg == 0 || startswith_ci(arg, "LIST")) {
+            const int n = lvgl_ui_display_tile_count();
+            printf("[TILE] %d tiles registered:\n", n);
+            for (int i = 0; i < n; i++) {
+                const char *nm = (i < TILE_NAME_COUNT) ? TILE_NAMES[i] : "(unnamed)";
+                printf("  col %d  %s\n", i, nm);
+            }
+            return;
+        }
+
+        int col = -1;
+        // Numeric first.
+        char *endp = NULL;
+        long lv = strtol(arg, &endp, 10);
+        if (endp != arg && *endp <= ' ') {
+            col = (int)lv;
+        } else {
+            // Name match.
+            for (int i = 0; i < TILE_NAME_COUNT; i++) {
+                if (startswith_ci(arg, TILE_NAMES[i])) { col = i; break; }
+            }
+        }
+        if (col < 0) {
+            printf("[TILE] usage: TILE list | <n> | <name>  (e.g. TILE 4  or  TILE gps)\n");
+            return;
+        }
+        esp_err_t r = lvgl_ui_display_jump_tile(col);
+        if (r == ESP_OK) {
+            const char *nm = (col < TILE_NAME_COUNT) ? TILE_NAMES[col] : "(unnamed)";
+            printf("[TILE] jumped to col %d (%s)\n", col, nm);
+        } else {
+            printf("[TILE] jump failed: %s\n", esp_err_to_name(r));
+        }
+        return;
+    }
+    if (startswith_ci(line, "LVGL_FORCE")) {
+        const char *arg = line + 10;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (startswith_ci(arg, "ON")) {
+            esp_err_t r = nvs_cfg_sys_set_lvgl_force_on(true);
+            printf("[LVGL] lvgl_force=1 (%s). Reboot to bring the LVGL side up "
+                   "without a panel; flush callback becomes a no-op.\n",
+                   esp_err_to_name(r));
+        } else if (startswith_ci(arg, "OFF")) {
+            esp_err_t r = nvs_cfg_sys_set_lvgl_force_on(false);
+            printf("[LVGL] lvgl_force=0 (%s). Reboot to return to probe-gated "
+                   "behaviour (default).\n",
+                   esp_err_to_name(r));
+        } else if (*arg == 0) {
+            printf("[LVGL] lvgl_force = %d\n",
+                   nvs_cfg_sys_get_lvgl_force_on() ? 1 : 0);
+        } else {
+            printf("[LVGL] usage: LVGL_FORCE [ON|OFF]  (no arg = show state)\n");
         }
         return;
     }

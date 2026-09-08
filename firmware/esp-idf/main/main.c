@@ -29,9 +29,7 @@
 #include "nvs_cfg.h"
 #include "firmware_version.h"    // KOMPIC_FW_VERSION for nvs_cfg_sys_check_fw_version
 #include "driver/i2c.h"
-// #include "ui_broker.h"      // TODO: restore when display returns
-// #include "lvgl_ui.h"        // TODO: restore when display returns
-// #include "esp_lvgl_port.h"  // TODO: restore when display returns
+#include "lvgl_ui_display.h"     // Stage 22 §4.1b: lvgl port + CO5300 flush
 #include "esp_log.h"
 
 static const char *TAG = "MAIN";
@@ -109,8 +107,33 @@ void app_main(void)
             ESP_LOGW(TAG, "display init returned %s", esp_err_to_name(disp_err));
         }
     }
-    // TODO (Stage 21 §4.1b): LVGL port + tile registry, gated on
-    // boot_display_is_present().
+
+    // -- 6b. LVGL port + display (Stage 22 §4.1b) ----------------------------
+    // Runs when the panel is present, OR when the bench-only NVS override
+    // "LVGL_FORCE ON" was set on the previous boot. In force mode the flush
+    // callback is a no-op so iv7.1 can exercise the tile pipeline without a
+    // real CO5300. See lvgl_ui_display.{c,h} and Stage 22 §4.1b.
+    {
+        const bool present   = boot_display_is_present();
+        const bool forced    = nvs_cfg_sys_get_lvgl_force_on();
+        if (present || forced) {
+            esp_err_t lvgl_err = lvgl_ui_display_setup(!present && forced);
+            if (lvgl_err != ESP_OK) {
+                ESP_LOGW(TAG, "LVGL setup failed: %s (continuing headless)",
+                         esp_err_to_name(lvgl_err));
+            } else {
+                // §4.3: build screens + register tiles once the port is up,
+                // then spawn the LVGL refresh + settings-saver tasks. The
+                // refresh task reads from broker; sensor tasks aren't started
+                // yet, so the first few refreshes render empty state -- that's
+                // fine, widgets self-populate on the next tick.
+                (void)lvgl_ui_display_boot_screens();
+                lvgl_ui_display_start_tasks();
+            }
+        } else {
+            ESP_LOGI(TAG, "LVGL skipped -- no panel and LVGL_FORCE=OFF");
+        }
+    }
 
     // -- 7. Kick tasks --------------------------------------------------------
     boot_tasks_start(NULL);

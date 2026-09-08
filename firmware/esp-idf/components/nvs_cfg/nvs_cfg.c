@@ -36,6 +36,7 @@ static const char *TAG = "NVS_CFG";
 #define K_SYS_PC_SYNC_OFF "pc_sync_off_us"  // i64; signed ECG offset µs
 #define K_SYS_PC_SYNC_UPT "pc_sync_upt_us"  // i64; esp_timer at write (staleness)
 #define K_SYS_LOG_LEVEL   "log_level"       // u8; ESP_LOG_* value 0..5, 0xFF = auto (Stage 17 §3.2)
+#define K_SYS_LVGL_FORCE  "lvgl_force"      // u8; 0 = auto (honour probe), 1 = force LVGL up even without a panel (Stage 22 §4.1a)
 
 // ── RTC ────────────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,27 @@ esp_err_t nvs_cfg_sys_set_batt_test(bool enabled)
     esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     err = nvs_set_u8(h, K_SYS_BATT_TEST, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+bool nvs_cfg_sys_get_lvgl_force_on(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t v = 0;
+    nvs_get_u8(h, K_SYS_LVGL_FORCE, &v);
+    nvs_close(h);
+    return v != 0;
+}
+
+esp_err_t nvs_cfg_sys_set_lvgl_force_on(bool enabled)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_SYS_LVGL_FORCE, enabled ? 1 : 0);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
@@ -405,6 +427,8 @@ void nvs_cfg_boot_print(int i2c_num)
            (unsigned)nvs_cfg_sys_get_bb_cadence_s());
     printf("[SYS]   rec_audio = %d  (toggle: REC_AUDIO ON|OFF -- skip 5 s mic annotation)\n",
            nvs_cfg_sys_get_rec_audio() ? 1 : 0);
+    printf("[SYS]   lvgl_force= %d  (toggle: LVGL_FORCE ON|OFF -- bring LVGL up without a panel, reboot to apply)\n",
+           nvs_cfg_sys_get_lvgl_force_on() ? 1 : 0);
     {
         char last_fw[NVS_CFG_FW_STR_MAX] = {0};
         (void)nvs_cfg_sys_get_last_fw(last_fw, sizeof(last_fw));

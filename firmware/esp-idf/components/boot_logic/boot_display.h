@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "co5300.h"     // co5300_handle_t for the getter below
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,6 +59,24 @@ bool boot_display_is_present(void);
  *        never brought up. Safe to call from any task.
  */
 void backlight_set_brightness(uint8_t pct);
+
+/**
+ * @brief Return the CO5300 device handle owned by boot_display, or NULL if the
+ *        panel is absent (or was not brought up). Used by the LVGL display
+ *        module in Stage 22 §4.1b so its flush callback can call
+ *        co5300_set_window() / co5300_write_pixels() directly. When the caller
+ *        gets NULL under `LVGL_FORCE ON`, it treats the flush as a no-op.
+ */
+co5300_handle_t boot_display_get_co5300(void);
+
+/**
+ * @brief True if boot_display_init() also brought up the CST9217 touch chip
+ *        (Stage 22 §4.2). Distinct from boot_display_is_present(): the panel
+ *        can be present but the touch init could have failed independently,
+ *        and Mk1b bring-up must not block the panel on a bad touch chip.
+ *        Under LVGL_FORCE (no real hardware) this is always false.
+ */
+bool boot_display_touch_is_present(void);
 
 #ifdef __cplusplus
 }

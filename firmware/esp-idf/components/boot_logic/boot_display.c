@@ -20,8 +20,9 @@
 
 static const char *TAG = "BOOT_DISP";
 
-static co5300_handle_t s_disp    = NULL;
-static bool            s_present = false;
+static co5300_handle_t s_disp          = NULL;
+static bool            s_present       = false;
+static bool            s_touch_present = false;
 
 // ── Presence probe ────────────────────────────────────────────────────────────
 // Panel + touch share the display FPC. If CST9217 answers at 0x5A on bus 0
@@ -83,6 +84,19 @@ esp_err_t boot_display_init(void)
     s_present = true;
     ESP_LOGI(TAG, "CO5300 ready (%dx%d logical, brightness ~80%%)",
              LCD_H_RES, LCD_V_RES);
+
+    // Touch chip lives on the same FPC. If it faults, log + continue -- the
+    // panel is still useful with encoder-only nav and Mk1b Day-1 GPS view.
+    esp_err_t terr = cst9217_init(I2C_NUM_0);
+    if (terr == ESP_OK) {
+        s_touch_present = true;
+        ESP_LOGI(TAG, "CST9217 touch ready (task_touch_fn will run on Core 0)");
+    } else {
+        s_touch_present = false;
+        ESP_LOGW(TAG, "CST9217 init failed: %s -- panel OK, touch disabled",
+                 esp_err_to_name(terr));
+    }
+
     return ESP_OK;
 }
 
@@ -95,4 +109,14 @@ void backlight_set_brightness(uint8_t pct)
 {
     if (!s_present || s_disp == NULL) return;
     (void)co5300_set_brightness(s_disp, pct);
+}
+
+co5300_handle_t boot_display_get_co5300(void)
+{
+    return s_present ? s_disp : NULL;
+}
+
+bool boot_display_touch_is_present(void)
+{
+    return s_touch_present;
 }

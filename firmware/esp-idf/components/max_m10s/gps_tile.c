@@ -91,6 +91,23 @@ static lv_obj_t *s_lbl_rmc      = NULL;
 static lv_obj_t *s_lbl_sub_hdr  = NULL;
 
 // ---------------------------------------------------------------------------
+// Photo view widget handles (Stage 22 §4.6 / spec Stage 18 §5.2b)
+// Fullscreen black overlay with huge white lat / lon rows and a smaller
+// time+date row above. Lives inside the same tile parent as the normal view;
+// visibility is toggled via lv_obj_add_flag / clear_flag LV_OBJ_FLAG_HIDDEN.
+// A NORMAL-view toggle button (bottom-left "PHOTO ◑") switches in;
+// a PHOTO-view tap-anywhere handler switches back out.
+// ---------------------------------------------------------------------------
+static gps_tile_view_t s_view          = GPS_TILE_VIEW_NORMAL;
+static lv_obj_t       *s_photo         = NULL;   // container (fullscreen, hidden by default)
+static lv_obj_t       *s_photo_time    = NULL;   // small: "14:32:07 UTC · 2026-02-14"
+static lv_obj_t       *s_photo_lat     = NULL;   // huge:  "46.05110° N"
+static lv_obj_t       *s_photo_lon     = NULL;   // huge:  "14.50510° E"
+static lv_obj_t       *s_photo_alt     = NULL;   // small: "ALT 302 m · Sats 8"
+static lv_obj_t       *s_photo_hint    = NULL;   // tiny:  "tap to exit"
+static lv_obj_t       *s_btn_photo     = NULL;   // tiny bottom-left button in normal view
+
+// ---------------------------------------------------------------------------
 // Helper: map sensor_status_t → LED colour and set it
 // ---------------------------------------------------------------------------
 static void update_led(sensor_status_t st)
@@ -133,6 +150,44 @@ static void cb_sync_btn(lv_event_t *e)
     // call pcf85063_sync_from_gps(), then call gps_tile_show_sync_result().
     g_gps_sync_requested = true;
     ESP_LOGI(TAG, "Atomic sync requested");
+}
+
+// ---------------------------------------------------------------------------
+// Callback: "PHOTO" button in normal view → switch to photo view.
+// Forwards to the command-surface setter so tile + future CLI use the same
+// path (Module_Blueprint.md §6.2).
+// ---------------------------------------------------------------------------
+static void cb_photo_btn(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gps_tile_cmd_view_set(GPS_TILE_VIEW_PHOTO);
+}
+
+// ---------------------------------------------------------------------------
+// Callback: tap anywhere on the photo container → back to normal.
+// ---------------------------------------------------------------------------
+static void cb_photo_container_tap(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gps_tile_cmd_view_set(GPS_TILE_VIEW_NORMAL);
+}
+
+// ---------------------------------------------------------------------------
+// Show / hide the normal-view widget set. Called by view_set().
+// ---------------------------------------------------------------------------
+static void set_normal_widgets_hidden(bool hide)
+{
+    lv_obj_t *widgets[] = {
+        s_led_status, s_lbl_header, s_sw_power, s_divider,
+        s_lbl_sats, s_lbl_time, s_lbl_date,
+        s_lbl_lat,  s_lbl_lon,  s_lbl_alt,
+        s_btn_sync, s_btn_photo,
+    };
+    for (size_t i = 0; i < sizeof widgets / sizeof widgets[0]; i++) {
+        if (widgets[i] == NULL) continue;
+        if (hide) lv_obj_add_flag  (widgets[i], LV_OBJ_FLAG_HIDDEN);
+        else      lv_obj_clear_flag(widgets[i], LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +284,66 @@ void gps_tile_init(lv_obj_t *parent)
 
     lv_obj_add_event_cb(s_btn_sync, cb_sync_btn, LV_EVENT_CLICKED, NULL);
 
-    ESP_LOGI(TAG, "%s tile init OK", max_m10s_get_chip_name());
+    // ── Photo-view entry button (tiny, bottom-left) ────────────────────────
+    s_btn_photo = lv_btn_create(parent);
+    lv_obj_set_size(s_btn_photo, 60, 22);
+    lv_obj_align(s_btn_photo, LV_ALIGN_BOTTOM_LEFT, 6, -46);
+    lv_obj_set_style_bg_color(s_btn_photo, theme_divider(), 0);
+    {
+        lv_obj_t *lbl = lv_label_create(s_btn_photo);
+        lv_label_set_text(lbl, "PHOTO");
+        lv_obj_set_style_text_font(lbl, UI_FONT_CHIP, 0);
+        lv_obj_center(lbl);
+    }
+    lv_obj_add_event_cb(s_btn_photo, cb_photo_btn, LV_EVENT_CLICKED, NULL);
+
+    // ── Photo view container (built hidden; toggled by cmd_view_set) ───────
+    s_photo = lv_obj_create(parent);
+    lv_obj_set_size(s_photo, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(s_photo, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(s_photo, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_photo, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_photo, 0, 0);
+    lv_obj_set_style_pad_all(s_photo, 0, 0);
+    lv_obj_clear_flag(s_photo, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
+    // Tap anywhere on the photo container returns to NORMAL view.
+    lv_obj_add_flag(s_photo, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_photo, cb_photo_container_tap, LV_EVENT_CLICKED, NULL);
+
+    s_photo_time = lv_label_create(s_photo);
+    lv_label_set_text(s_photo_time, "--:--:-- UTC · ----/--/--");
+    lv_obj_set_style_text_font(s_photo_time, UI_FONT_TITLE, 0);
+    lv_obj_set_style_text_color(s_photo_time, lv_color_white(), 0);
+    lv_obj_align(s_photo_time, LV_ALIGN_TOP_MID, 0, 40);
+
+    s_photo_lat = lv_label_create(s_photo);
+    lv_label_set_text(s_photo_lat, "-- . -----° -");
+    lv_obj_set_style_text_font(s_photo_lat, &lv_font_montserrat_30, 0);
+    lv_obj_set_style_text_color(s_photo_lat, lv_color_white(), 0);
+    lv_obj_align(s_photo_lat, LV_ALIGN_CENTER, 0, -16);
+
+    s_photo_lon = lv_label_create(s_photo);
+    lv_label_set_text(s_photo_lon, "-- . -----° -");
+    lv_obj_set_style_text_font(s_photo_lon, &lv_font_montserrat_30, 0);
+    lv_obj_set_style_text_color(s_photo_lon, lv_color_white(), 0);
+    lv_obj_align(s_photo_lon, LV_ALIGN_CENTER, 0, 28);
+
+    s_photo_alt = lv_label_create(s_photo);
+    lv_label_set_text(s_photo_alt, "ALT --- m · Sats --");
+    lv_obj_set_style_text_font(s_photo_alt, UI_FONT_LABEL, 0);
+    lv_obj_set_style_text_color(s_photo_alt, lv_color_white(), 0);
+    lv_obj_align(s_photo_alt, LV_ALIGN_BOTTOM_MID, 0, -50);
+
+    s_photo_hint = lv_label_create(s_photo);
+    lv_label_set_text(s_photo_hint, "tap to exit");
+    lv_obj_set_style_text_font(s_photo_hint, UI_FONT_CHIP, 0);
+    lv_obj_set_style_text_color(s_photo_hint,
+                                lv_color_make(0x80, 0x80, 0x80), 0);
+    lv_obj_align(s_photo_hint, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+    ESP_LOGI(TAG, "%s tile init OK (normal + photo views)",
+             max_m10s_get_chip_name());
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +487,49 @@ void gps_tile_update(void)
     // but the driver (Core 0) manages this flag — the NOTIF status is one-shot
     // by design in broker_gps_get_status() custom logic. No action needed here
     // beyond acknowledging it for display purposes. LED already reflects it.
+
+    // ── Photo view refresh (only when active) ────────────────────────────────
+    // Same broker snapshot `d` from the top of this function. Refresh 1 Hz is
+    // fine because the LVGL task ticks at 5 Hz and this file is < 1 ms of
+    // string formatting; no separate timer needed.
+    if (s_view == GPS_TILE_VIEW_PHOTO) {
+        if (time_valid) {
+            lv_label_set_text_fmt(s_photo_time,
+                                  "%02u:%02u:%02u UTC · %04u-%02u-%02u",
+                                  d.utc_hour, d.utc_minute, d.utc_second,
+                                  d.utc_year, d.utc_month, d.utc_day);
+        } else {
+            lv_label_set_text(s_photo_time, "--:--:-- UTC · ----/--/--");
+        }
+
+        if (pos_valid || stale_pos) {
+            double lat = d.latitude;
+            char   ns  = (lat >= 0.0) ? 'N' : 'S';
+            if (lat < 0.0) lat = -lat;
+            int lat_w = (int)lat;
+            int lat_d = (int)((lat - lat_w) * 100000);
+            lv_label_set_text_fmt(s_photo_lat,
+                                  "%d.%05d\xc2\xb0 %c", lat_w, lat_d, ns);
+
+            double lon = d.longitude;
+            char   ew  = (lon >= 0.0) ? 'E' : 'W';
+            if (lon < 0.0) lon = -lon;
+            int lon_w = (int)lon;
+            int lon_d = (int)((lon - lon_w) * 100000);
+            lv_label_set_text_fmt(s_photo_lon,
+                                  "%d.%05d\xc2\xb0 %c", lon_w, lon_d, ew);
+
+            int alt_w = (int)d.altitude_m;
+            lv_label_set_text_fmt(s_photo_alt,
+                                  "ALT %d m · Sats %u%s",
+                                  alt_w, d.sats_in_use,
+                                  stale_pos ? " · (last known)" : "");
+        } else {
+            lv_label_set_text(s_photo_lat, "no fix");
+            lv_label_set_text(s_photo_lon, "");
+            lv_label_set_text(s_photo_alt, "waiting for GPS");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +630,42 @@ void gps_subtile_update(void)
     } else {
         lv_label_set_text(s_lbl_rmc, "-- no signal --");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Command surface (Module_Blueprint.md pass-1 for gps_tile)
+// ---------------------------------------------------------------------------
+
+gps_tile_view_t gps_tile_cmd_view_get(void)
+{
+    return s_view;
+}
+
+void gps_tile_cmd_view_set(gps_tile_view_t v)
+{
+    if (v == s_view) return;
+    s_view = v;
+
+    // Requires lvgl_port_lock — CLI dispatcher takes it before calling this;
+    // in-tile callbacks fire inside the LVGL task which already holds the mutex.
+    if (v == GPS_TILE_VIEW_PHOTO) {
+        set_normal_widgets_hidden(true);
+        if (s_photo) lv_obj_clear_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
+        ESP_LOGI(TAG, "view → PHOTO");
+    } else {
+        if (s_photo) lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
+        set_normal_widgets_hidden(false);
+        ESP_LOGI(TAG, "view → NORMAL");
+    }
+    // Force a repaint pass on next update tick; LVGL invalidates automatically
+    // when hidden flags change so nothing else to do.
+}
+
+void gps_tile_cmd_view_toggle(void)
+{
+    gps_tile_cmd_view_set((s_view == GPS_TILE_VIEW_NORMAL)
+                              ? GPS_TILE_VIEW_PHOTO
+                              : GPS_TILE_VIEW_NORMAL);
 }
 
 const tile_desc_t gps_tile_desc = {

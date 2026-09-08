@@ -48,10 +48,11 @@ struct co5300_dev_s {
     uint8_t             last_brightness;
 };
 
-// Sized for the panel init writes and modest partial-refresh chunks. The
-// LVGL flush path will bump this when it lands; keep in sync with the biggest
-// single spi_device_polling_transmit the driver ever issues.
-#define CO5300_MAX_TRANSFER_BYTES  (4096 + 8)
+// Sized to fit one LVGL partial-refresh strip. 40 rows × 466 columns × 3 bytes
+// = 55 920 bytes; round up to 64 KB so LVGL can grow the strip a little without
+// bumping this again. The SPI DMA descriptor pool is sized off this at
+// spi_bus_initialize() time (Stage 22 §4.1b).
+#define CO5300_MAX_TRANSFER_BYTES  (64 * 1024)
 
 // -- Manual CS helpers ---------------------------------------------------------
 static inline void cs_low (co5300_handle_t h) { gpio_set_level(h->cfg.pin_cs, 0); }

@@ -46,6 +46,12 @@ static const char *TAG = "MAX_M10S";
 // Shared (defined in boot_hw_init.c once that file lands).
 extern SemaphoreHandle_t g_i2c_mutex;
 
+// UI-driven "resync PCF85063 from next GPS PPS" request flag. Set by
+// gps_tile.c's ATOMIC SYNC button, read (eventually) by task_gps_fn. Task is
+// held out today because the GPS module is offline on iv7.1 -- flag is present
+// so the tile links and stays UI-testable in force mode.
+volatile bool g_gps_sync_requested = false;
+
 // -- Module config ------------------------------------------------------------
 #define MAX_M10S_POLL_MS      200    // Poll UART at 5 Hz; GPS emits at 1 Hz
 #define NMEA_BUF_SIZE         128

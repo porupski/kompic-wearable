@@ -57,9 +57,10 @@ extern void task_blackbox_fn(void *arg);           // field_capture/field_captur
 // extern void task_power_btn_fn(void *arg);    // GPIO16 owned by field_capture in Phase 2
 // extern void task_fusion_fn(void *arg);        // depends on IMU + MAG + BARO stability
 // extern void task_gps_fn(void *arg);           // GPS module offline (broken connector)
-// extern void task_ui_refresh_fn(void *arg);    // display path down
-// extern void task_touch_fn(void *arg);         // display path down
-// extern void task_settings_saver_fn(void *arg);// ui_broker save queue not wired in Phase 2
+// extern void task_touch_fn(void *arg);         // Stage 22 §4.2 will wire this
+// task_ui_refresh_fn + task_settings_saver_fn are spawned from
+// lvgl_ui_display_start_tasks() -- called by main.c to avoid a boot_logic ↔
+// lvgl_ui component-dependency cycle.
 
 // --- Task descriptor table ----------------------------------------------------
 

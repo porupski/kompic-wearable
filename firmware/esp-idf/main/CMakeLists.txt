@@ -8,9 +8,7 @@ idf_component_register(
         app_logic
         nvs_cfg
         field_capture     # for firmware_version.h (KOMPIC_FW_VERSION)
+        lvgl_ui           # Stage 22 §4.1b: lvgl_ui_display_setup entry point
         driver
         nvs_flash
-    # esp_lvgl_port intentionally omitted until display returns.
-    # It stays in the graph transitively via lvgl_ui / driver *_tile.c files
-    # (dead code, compiles fine), but main.c does not call it directly.
 )

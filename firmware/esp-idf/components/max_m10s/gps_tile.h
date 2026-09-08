@@ -87,4 +87,37 @@ void gps_tile_show_sync_result(bool success);
  */
 extern const tile_desc_t gps_tile_desc;
 
+// ---------------------------------------------------------------------------
+// Command surface (Module_Blueprint.md pass-1 for gps)
+// ---------------------------------------------------------------------------
+//
+// The GPS tile has two visual modes that share the same tile slot: the
+// telemetry "normal" view (default) and the "photo" view (huge white lat/lon
+// on black, spec'd in Stage 18 §5.2b for on-trip screengrabs).  Both the CLI
+// verb `GPS_VIEW …` and the in-tile "PHOTO" button end up calling the same
+// setter so behaviour stays coherent between the two outlets.
+
+typedef enum {
+    GPS_TILE_VIEW_NORMAL = 0,  // Header + power switch + data rows + SYNC btn
+    GPS_TILE_VIEW_PHOTO  = 1,  // Fullscreen black + huge lat/lon rows
+} gps_tile_view_t;
+
+/**
+ * @brief Return the current GPS-tile view mode. GPS_TILE_VIEW_NORMAL until
+ *        set otherwise. Safe to call before gps_tile_init().
+ */
+gps_tile_view_t gps_tile_cmd_view_get(void);
+
+/**
+ * @brief Set the GPS-tile view mode. Must be called inside lvgl_port_lock()
+ *        (the setter reshuffles widget visibility). Called by both the CLI
+ *        dispatcher and the in-tile touch button.
+ */
+void gps_tile_cmd_view_set(gps_tile_view_t v);
+
+/**
+ * @brief NORMAL ↔ PHOTO toggle helper. Also lvgl_port_lock() required.
+ */
+void gps_tile_cmd_view_toggle(void);
+
 #endif // GPS_TILE_H

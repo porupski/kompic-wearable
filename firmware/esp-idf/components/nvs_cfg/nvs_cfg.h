@@ -23,7 +23,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define NVS_CFG_DRIVER_VERSION  "0.3.1"
+#define NVS_CFG_DRIVER_VERSION  "0.3.2"
 
 #include "esp_err.h"
 #include <stdbool.h>
@@ -102,6 +102,20 @@ bool nvs_cfg_sys_get_batt_test(void);
 
 /** @brief Set the battery-test flag. Persists immediately. */
 esp_err_t nvs_cfg_sys_set_batt_test(bool enabled);
+
+/**
+ * @brief Bench-only override that forces the LVGL side of the firmware up
+ *        even when boot_display_is_present() returns false. Intended for
+ *        headless iv7.1 development while the Mk1b screen is not on the
+ *        bench yet -- the CO5300 flush callback becomes a no-op, but the
+ *        LVGL state machine, tile updates, and CLI (TILE / LVGL_SCREENSHOT)
+ *        all exercise so bring-up can be verified without a panel.
+ *
+ * Default: false. Toggle via serial "LVGL_FORCE ON" / "LVGL_FORCE OFF".
+ * Reboot required for the change to take effect.
+ */
+bool      nvs_cfg_sys_get_lvgl_force_on(void);
+esp_err_t nvs_cfg_sys_set_lvgl_force_on(bool enabled);
 
 /**
  * @brief BLACKBOX telemetry logger flag.

@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "lvgl_ui.c"
+        "lvgl_ui_display.c"
         "ui_broker.c"
         "ui_status_bar.c"
         "ui_lock_screen.c"
