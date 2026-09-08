@@ -3,6 +3,7 @@ idf_component_register(
         "boot_power.c"
         "boot_tasks.c"
         "boot_hw_init.c"
+        "boot_display.c"
         "boot_pm.c"
     INCLUDE_DIRS "."
     REQUIRES
@@ -24,9 +25,13 @@ idf_component_register(
         pcf85063
         drv2605
         bq25619
+        # Display bring-up (Stage 21 §4.1a)
+        co5300
+        cst9217
         # Non-I2C peripherals
         encoder
         ws2812
+        rgb_policy
         flashlight
         sdcard
         mic_pdm

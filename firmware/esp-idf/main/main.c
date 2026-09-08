@@ -21,7 +21,7 @@
 #include "boot_power.h"
 #include "boot_pm.h"
 #include "boot_hw_init.h"
-// #include "boot_display.h"   // TODO: restore when display returns
+#include "boot_display.h"      // Stage 21 §4.1a: CO5300 bring-up with touch-probe skip
 #include "boot_tasks.h"
 #include "data_broker.h"
 #include "cross_driver.h"
@@ -95,14 +95,22 @@ void app_main(void)
     // driver-initiated locks (I2C/RMT/SDMMC) are visible.
     boot_pm_dump_locks();
 
-    // -- 6. Display + LVGL UI (deferred until display returns) ---------------
-    // TODO: restore when display returns.
-    //   boot_display_init();
-    //   boot_cst816d_configure();
-    //   lvgl_port_lock(portMAX_DELAY);
-    //   lvgl_ui_init(&ui_cfg);
-    //   lvgl_port_unlock();
-    //   QueueHandle_t settings_q = ui_broker_init();
+    // -- 6. Display bring-up (Stage 21 §4.1a) --------------------------------
+    // Probes CST9217 on I2C0; if the touch chip is absent (iv7.1 today) the
+    // panel init is skipped and the rest of boot continues unchanged. Return
+    // value inspected only for the boot log line.
+    {
+        esp_err_t disp_err = boot_display_init();
+        if (disp_err == ESP_OK) {
+            ESP_LOGI(TAG, "display ready");
+        } else if (disp_err == ESP_ERR_NOT_FOUND) {
+            ESP_LOGI(TAG, "display absent -- running headless");
+        } else {
+            ESP_LOGW(TAG, "display init returned %s", esp_err_to_name(disp_err));
+        }
+    }
+    // TODO (Stage 21 §4.1b): LVGL port + tile registry, gated on
+    // boot_display_is_present().
 
     // -- 7. Kick tasks --------------------------------------------------------
     boot_tasks_start(NULL);

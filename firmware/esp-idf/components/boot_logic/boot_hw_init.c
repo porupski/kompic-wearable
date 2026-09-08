@@ -37,8 +37,9 @@ static const char *TAG = "BOOT_HW";
 SemaphoreHandle_t g_i2c_mutex  = NULL;
 SemaphoreHandle_t g_i2c2_mutex = NULL;
 
-// Phase-1 backlight stub kept for lvgl_ui dead-code references.
-void backlight_set_brightness(uint8_t pct) { (void)pct; }
+// backlight_set_brightness() now lives in boot_display.c and forwards to the
+// real CO5300 WRDISBV register when the panel is present. No-op otherwise.
+// lvgl_ui / settings-screen callers see the same API.
 
 // -- I2C bus install helper ---------------------------------------------------
 static esp_err_t install_i2c_bus(i2c_port_t port, int sda, int scl)
@@ -84,7 +85,7 @@ static void bringup_bus0(void)
             broker_env_set_hw_status(true);
             ESP_LOGI(TAG, "  BME688  0x76 OK");
         } else ESP_LOGW(TAG, "  BME688 init failed");
-    }
+    } else ESP_LOGW(TAG, "  BME688  0x76 NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_0, 0x6B)) {  // LSM6DSV16X
         if (lsm6dsv16x_init(I2C_NUM_0) == ESP_OK) {
@@ -101,28 +102,28 @@ static void bringup_bus0(void)
             broker_steps_set_enabled(true);
             ESP_LOGI(TAG, "  LSM6DSV 0x6B OK  (pedo+tap-Z+act-sleep armed)");
         } else ESP_LOGW(TAG, "  LSM6DSV init failed");
-    }
+    } else ESP_LOGW(TAG, "  LSM6DSV 0x6B NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_0, 0x1C)) {  // LIS3MDLTR
         if (lis3mdl_init(I2C_NUM_0) == ESP_OK) {
             broker_mag_set_hw_status(true);
             ESP_LOGI(TAG, "  LIS3MDL 0x1C OK");
         } else ESP_LOGW(TAG, "  LIS3MDL init failed");
-    }
+    } else ESP_LOGW(TAG, "  LIS3MDL 0x1C NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_0, 0x10)) {  // VEML6030
         if (veml6030_init(I2C_NUM_0) == ESP_OK) {
             broker_light_set_hw_status(true);
             ESP_LOGI(TAG, "  VEML6030 0x10 OK");
         } else ESP_LOGW(TAG, "  VEML6030 init failed");
-    }
+    } else ESP_LOGW(TAG, "  VEML6030 0x10 NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_0, 0x57)) {  // MAX30101
         if (max30101_init(I2C_NUM_0) == ESP_OK) {
             broker_hr_set_hw_status(true);
             ESP_LOGI(TAG, "  MAX30101 0x57 OK");
         } else ESP_LOGW(TAG, "  MAX30101 init failed");
-    }
+    } else ESP_LOGW(TAG, "  MAX30101 0x57 NAK (absent or bus fault)");
 
     // TMP117 at 0x48 or 0x49 (ADDR strap dependent)
     uint8_t tmp_addr = i2c_probe(I2C_NUM_0, 0x48) ? 0x48
@@ -132,14 +133,14 @@ static void bringup_bus0(void)
             broker_skin_set_hw_status(true);
             ESP_LOGI(TAG, "  TMP117  0x%02X OK", tmp_addr);
         } else ESP_LOGW(TAG, "  TMP117 init failed");
-    }
+    } else ESP_LOGW(TAG, "  TMP117  0x48/0x49 NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_0, 0x51)) {  // PCF85063A RTC
         if (pcf85063_init(I2C_NUM_0) == ESP_OK) {
             broker_rtc_set_hw_status(true);
             ESP_LOGI(TAG, "  PCF85063 0x51 OK");
         } else ESP_LOGW(TAG, "  PCF85063 init failed");
-    }
+    } else ESP_LOGW(TAG, "  PCF85063 0x51 NAK (absent or bus fault)");
 }
 
 // -- Bus 1 (I2C_NUM_1): DRV2605 + BQ25619 on GPIO4/5 -------------------------
@@ -157,14 +158,14 @@ static void bringup_bus1(void)
         // auto-cal exactly once, holding g_i2c2_mutex, so we skip it here.
         broker_haptic_set_hw_status(true);
         ESP_LOGI(TAG, "  DRV2605 0x5A ACK (init deferred to haptic_init)");
-    }
+    } else ESP_LOGW(TAG, "  DRV2605 0x5A NAK (absent or bus fault)");
 
     if (i2c_probe(I2C_NUM_1, 0x6A)) {  // BQ25619
         if (bq25619_init(I2C_NUM_1) == ESP_OK) {
             broker_battery_set_hw_status(true);
             ESP_LOGI(TAG, "  BQ25619 0x6A OK");
         } else ESP_LOGW(TAG, "  BQ25619 init failed");
-    }
+    } else ESP_LOGW(TAG, "  BQ25619 0x6A NAK (absent or bus fault)");
 }
 
 // -- Public entry point -------------------------------------------------------
