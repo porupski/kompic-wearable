@@ -191,6 +191,13 @@ static void rtc_cli_dump_status(void) {
     printf("  bq_v (fake!) = %.3f V   pct = %u  charging = %d  pg = %d  fault = 0x%02X\n",
            bat.voltage, (unsigned)bat.percentage,
            bat.charging ? 1 : 0, bat.power_good ? 1 : 0, bat.fault);
+    // Display probe result -- proves boot_display_init ran even when the boot
+    // log dropped its BOOT_DISP lines (persistent USB Serial JTAG dropout).
+    {
+        extern bool boot_display_is_present(void);
+        printf("  display      = %s (Stage 21 §4.1a probe)\n",
+               boot_display_is_present() ? "PRESENT (CO5300 up)" : "absent (headless)");
+    }
     printf("  NVS: print_boot=%d  batt_test=%d  blackbox=%d  bb_cadence=%u s  rec_audio=%d\n",
            nvs_cfg_sys_get_print_on_boot() ? 1 : 0,
            nvs_cfg_sys_get_batt_test()     ? 1 : 0,
