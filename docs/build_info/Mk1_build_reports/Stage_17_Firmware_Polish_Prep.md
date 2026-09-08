@@ -3,7 +3,7 @@
 **Date:** 2026-08-26
 **Board:** iv7.1 (Mk1 bench prototype). Mk1b PCB is in fabrication — screen work waits for it.
 **Firmware baseline:** `iv7.1.f0.4.14` → this stage targets `0.4.15+`.
-**Status:** OPEN.
+**Status:** CLOSED 2026-08-27 at fw `0.4.20`. Data-collection unblock landed; boot/shutdown/LED polish done; §3.4 (wrist gesture) and §3.5 (mode->tile spec) rolled to Stage 18.
 
 ---
 
@@ -169,13 +169,132 @@ Ivan flashed `0.4.15`, encoder-scrolled to `ppgbcg`, clicked to record.
 
 **Archive workflow rule** (memory only) — codified: on stage-doc close, snapshot via `python docs/build_info/reference_files/make_archive.py <kebab-tag>` (e.g. `stage-17-ppgbcg`). Script already exists and excludes the heavy regeneratable stuff (build/, managed_components/, .git, datasheets/). Result goes to `hardware/Reflow_info/reference_files/archives/`. Rule lives in [[stage-log-workflow]] step 6.
 
-### 4.4 Runtime LOGLEVEL knob (§3.2) — not started this batch.
+### 4.4 Second bench-flash regressions (2026-08-26, fw 0.4.17)
 
-### 4.5 `rgb_policy` skeleton (§3.3) — not started this batch.
+- Recording writes clean CSV to `/sd/data/ppgbcg/` (auto-mkdir works). Notebook loads the two 60 s recordings cleanly.
+- **Long-press-to-shutdown still races the click path.** User reports: long press + release still starts a recording ("goes thru the thing"), and the shutdown fires "randomly" after the mode began.
 
-### 4.6 Wrist-raise gesture (§3.4) — not started this batch.
+### 4.5 Third fix batch landed (0.4.18)
 
-### 4.7 Mode → tile mapping spec (§3.5) — not started this batch.
+**Button hard gate** (`fc_common.c::button_poll`) — added an early return gated on `g_shutdown_hold_active`. Once the shutdown watcher commits (past 1 s), every button event is dropped and the state machine is force-reset to `BTN_IDLE`. The held-duration swallow from the previous batch stays as second-line defense. Fixes: the double-click branch (`BTN_PRESSED_2`) had no held-duration check, so a click-then-long-press second stroke could still emit `event=2`.
+
+**Ship-mode restart on USB** (`fc_shutdown.c::watcher_ship_mode`) — on USB power the `bq25619_enter_ship_mode()` call returns because VDD does not drop. The old path just logged "ship mode returned" and let the mode carry on; the user saw the LED countdown + LONG_BUZZ but the device stayed running with a phantom queued shutdown. Now the USB return path runs `esp_restart()` after a 150 ms buffer flush so we land in a clean STANDBY.
+
+**Runtime LOGLEVEL knob** (§3.2 landed).
+- New CLI: `LOGLEVEL [OFF|ERROR|WARN|INFO|DEBUG|VERBOSE|AUTO]` in `fc_cli.c`. Persists via new `nvs_cfg_sys_{get,set}_log_level()` (namespace `K_SYS_LOG_LEVEL = "log_level"`, u8; sentinel `0xFF = auto`).
+- Boot policy in `main.c`: if the stored value is 0..5, apply it. If `0xFF` (auto), pick `INFO` when `usb_serial_jtag_is_connected()`, else `WARN` (battery-only). Prints the resulting level + reason via `ESP_LOGW`.
+- `LOGLEVEL AUTO` clears NVS to the sentinel and drops the current session to `INFO`.
+
+**`rgb_policy` skeleton** (§3.3 landed).
+- New component `components/rgb_policy/` — 50 ms `esp_timer` tick, no own task. Public API: `rgb_policy_init()`, `rgb_policy_pause()`, `rgb_policy_resume()`, `rgb_policy_preview_start(r,g,b)`.
+- Ladder (high → low): battery alert (red blink), charging (blue pulse) / charged (dim green), 5 s preview window (mode palette colour), wrist-raise (dim white), everything else = **OFF**. Yields to `s_paused` and `g_shutdown_hold_active`.
+- **Standby LED behaviour changed intentionally.** The old `field_capture.c` STANDBY block painted mode-specific animations (compass gradient, ECG yellow/purple, temp fire) plus a solid-then-pulse in mode colour. That block is gone. Encoder-scroll now triggers `rgb_policy_preview_start(mi->r, mi->g, mi->b)` — 5 s of the palette colour, then the LED goes dark unless a higher-priority state (alert/charging/wrist-up) fires. Matches Ivan's directive from the previous session.
+- Mode dispatch (`field_capture.c`) wraps every `btn == 1` branch in `rgb_policy_pause()` / `rgb_policy_resume()`. Submenu entry and mode returns resume immediately; `ST_FL_ON` keeps the policy paused until the flashlight exit click.
+- Wrist-down/wrist-raise gate reads `g_imu_gesture` directly (still stubbed to `IMU_GESTURE_NONE` until §3.4). Current effective behaviour: outside preview / battery / alert, LED is off — matches "off if no action or arm not up".
+
+**Firmware version** → `0.4.18`.
+
+### 4.6 Fourth bench-flash regressions (2026-08-27, fw 0.4.18)
+
+- Long-press swallow works — pressing past 1 s no longer starts a mode.
+- Boot buzz fires (LRA visibly moves twice).
+- BUT DRV `auto-cal FAIL in 50 ms` still logs (STATUS=0xEC). Cold boot didn't converge; playback still works.
+- RGB behaviour is now too aggressive: LED goes dark after 5 s of preview and stays dark until the next encoder rotation. Ivan wanted "off when wrist not up, but pulsing when wrist up (or unknown, since gesture is a stub)".
+- Shutdown flow "shuts off and reboots in a second" — the `esp_restart()` on USB is surprising and looks like a bug. On USB power the ship command has no effect, so the reboot is the only visible action.
+- Note deferred to Mk1b: `bq_v (fake!) = 3.184 V pct = 0` — BQ25619 telemetry is stubbed since the TS network is not populated on iv7.1. Real values come with Mk1b.
+
+### 4.7 Fifth fix batch landed (0.4.19)
+
+**DRV auto-cal retry** (`drv2605.c::drv2605_init`) — added a one-shot retry: on first `DIAG=FAIL`, wait 100 ms, rewrite `MODE=AUTOCAL`, fire `GO=1` again, poll a second time. Playback path is unchanged so a double-fail still returns OK (with a `FAIL (proceeding)` log). Cold-boot bench observation: second attempt often converges.
+
+**Shutdown UX on USB** (`fc_shutdown.c::watcher_ship_mode`) — reverted the previous `esp_restart()` on USB. New behaviour: fire the ship command as before; if the delay returns (USB present so VDD stayed up), set `s_recording_early_end = true` to abort any live recording, drop the red LED, and log a clear "USB is powering VDD ... unplug and re-hold" warning. Device stays running in STANDBY. On battery this line never runs because BATFET already killed VDD.
+
+**RGB idle pulse instead of off** (`rgb_policy.c`) — the ladder had defaulted to OFF for any `g_imu_gesture` value that was not `WRIST_RAISE`. Since §3.4 has not landed, every idle sample fell to OFF. Flipped the polarity: OFF is only for explicit `IMU_GESTURE_WRIST_DOWN`. Everything else (including the current stub `IMU_GESTURE_NONE`) runs a slow mode-colour "heartbeat" pulse (3 s period, 15 %..100 % triangle envelope). When §3.4 lands, WRIST_DOWN starts firing and the pulse cuts to OFF.
+
+**Persistent mode colour** (`rgb_policy.c/.h`) — new `rgb_policy_set_mode_color(r,g,b)`. `preview_start` now also updates the persistent colour, so the idle pulse afterwards matches. `field_capture_init` seeds this from `MODE_INFO[s_mode]` right after `nvs_load()`, so the LED breathes in the correct colour from boot without needing an encoder rotation first.
+
+**Log-level policy reference** (`docs/build_info/reference_files/LOG_LEVEL_POLICY.md`, new) — the per-component classification of ERROR/WARN/INFO/DEBUG/VERBOSE Ivan asked for. Documents the boot-time auto-picker, the CLI knob, and the mapping every source file should follow. Also lists the migration audit that reclassifies per-tick status prints from `INFO` to `DEBUG`.
+
+**Firmware version** → `0.4.19`.
+
+### 4.8 Deferred to Mk1b
+
+- **BQ25619 telemetry stub.** `bq_v (fake!) = 3.184 V`, `pct = 0` on the STATUS dump. The iv7.1 board does not populate the BQ TS network, so `bq25619_read()` returns cached defaults. Fix once Mk1b arrives: run the real TS resistor and read `REG_VBAT` / `REG_ICHG` per datasheet.
+
+### 4.9 Fifth bench-flash regressions (2026-08-27, fw 0.4.19)
+
+- LED was **flashing blue harshly** in the menu. Root cause: `rgb_policy` was auto-reacting to `broker_battery.charging=1` (USB plugged in on the bench = charging bit set). Blue 1 Hz pulse hid the mode-select colour.
+- Ivan's rule: "unless I say it is on USB, it is not". Firmware must not automatically switch to a "charging" LED state.
+- Shutdown flow on USB: the new `s_recording_early_end + warn + LED off` behaviour worked as designed. Ivan confirmed after unplug + re-plug that the device stays on menu correctly.
+
+### 4.10 Sixth fix batch landed (0.4.20) -- RGB simplification
+
+**Full rgb_policy rewrite.** The ladder-with-priorities approach fought the actual UX. Replaced with a linear post-activity timeline:
+
+| Elapsed since last activity | LED                        |
+|----------------------------:|:---------------------------|
+|   0 -  5 s                  | Solid mode colour          |
+|   5 - 15 s                  | Full-amplitude pulse       |
+|  15 - 25 s                  | Pulse fading linearly to 0 |
+|  25 s+                      | Off                        |
+
+- Activity is `rgb_policy_preview_start(r,g,b)` (encoder scroll) or the new `rgb_policy_notify()` (future notif hook).
+- Pulse period stays at 3 s. Envelope floors at 15 %% so the LED never fully snaps off between beats.
+- **Removed**: automatic charging pulse, battery-alert blink, wrist-off gate. If those come back later, they layer on top of the timeline.
+- `rgb_policy` no longer depends on `data_broker` -- CMake `REQUIRES` trimmed.
+- `field_capture.c` no longer calls `rgb_policy_resume()` after submenu ENTER because that behaviour was tied to the ladder; pause/resume around blocking mode dispatch stays as it was.
+
+**Firmware version** -> `0.4.20`.
+
+### 4.11 Wrist-raise gesture (§3.4) -- deferred (bench feedback: "instead of dealing with this zone just yet").
+
+### 4.12 Mode -> tile mapping spec (§3.5) -- not started.
+
+---
+
+## 6. Wrap
+
+**Closed 2026-08-27 at fw `0.4.20`.** Six flash cycles across the session
+(`0.4.14 -> 0.4.15 -> 0.4.16 -> 0.4.17 -> 0.4.18 -> 0.4.19 -> 0.4.20`).
+
+**What shipped:**
+- `FCM_PPG_BCG` combined raw recording at 200 Hz with Stage-15 `pc_sync_*`
+  CSV headers. Ivan collected two 60 s bench recordings.
+- Kompic-side analysis toolkit: `kompic_analysis.py`, `kompic_plots.py`,
+  `analyze_recordings_kompic.ipynb`. Notebook loads the bench CSVs cleanly.
+- Boot polish: DRV last on the list; 2 s cold-boot BEMF settle; DRV auto-cal
+  retry; boot-OK STRONG_CLICK x2 buzz.
+- Shutdown UX: `SHDN_COMMIT_MS = 1000` gates clicks past 1 s hold, 3.7 s
+  LRA warm-up burst, 4 s FIRE, release safety net after 4 s. On USB the
+  device stays running (aborts any live recording, drops the red LED,
+  logs "unplug USB and re-hold to actually ship"), no more surprise
+  reboots.
+- Button state: hard gate on `g_shutdown_hold_active` swallows every
+  event when the watcher owns the press.
+- `csv_open()` auto-mkdirs the mode folder. Documented as a general rule
+  in memory `feedback_new_module_folders.md`.
+- Runtime `LOGLEVEL` CLI, NVS-persisted, boot auto-picker (INFO on USB,
+  WARN on battery-only).
+- `rgb_policy` component: linear post-activity timeline (5 s solid ->
+  10 s full pulse -> 10 s fade -> off). Reactivates on encoder scroll
+  (`rgb_policy_preview_start`) or `rgb_policy_notify`. No wrist gate, no
+  auto charging, no battery alert -- all removed per bench feedback.
+- Docs: `LOG_LEVEL_POLICY.md` reference for the classification policy
+  every source file follows.
+
+**What rolled forward to Stage 18:**
+- §3.4 wrist-raise gesture from LSM 6D -> `g_imu_gesture`.
+- §3.5 mode -> LVGL tile mapping spec (Mk1b prep).
+- Log-level audit pass: reclassify per-tick `ESP_LOGI` to `DEBUG` per the
+  policy reference.
+- BQ25619 real telemetry (Mk1b hardware dependency).
+- PCF85063 I2C mutex timeouts spotted during `TEMP_DUMP` -- root-cause
+  when Stage 18 opens.
+
+**Archive command** (run from repo root):
+```
+python docs/build_info/reference_files/make_archive.py stage-17-ppgbcg
+```
 
 ---
 
