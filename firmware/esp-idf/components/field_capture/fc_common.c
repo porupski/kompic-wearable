@@ -27,6 +27,7 @@
 #include "data_broker.h"
 #include "ws2812.h"
 #include "sdcard.h"
+#include "haptic.h"
 
 static const char *TAG = "FC_COMMON";
 
@@ -211,11 +212,29 @@ void rtc_iso_now(char *out, size_t n) {
 int button_poll(void) {
     uint32_t now = millis_u32();
     bool low = (gpio_get_level(PIN_BUTTON) == 0);
+
+    // Stage 17 hard gate (2026-08-26 bench fix): once the shutdown watcher
+    // has committed (held past SHDN_COMMIT_MS = 1000 ms), suppress every
+    // button event until the watcher clears. Also reset our own state so
+    // we do not emerge stuck in BTN_PRESSED / BTN_WAIT_DBL / BTN_PRESSED_2
+    // when the watcher resets. The old held-duration swallow below is now
+    // second-line defense; this gate is the belt.
+    if (g_shutdown_hold_active) {
+        s_btn_state    = BTN_IDLE;
+        s_btn_prev_low = low;
+        return 0;
+    }
+
     int event = 0;
     if (low != s_btn_prev_low && (now - s_btn_last_change) >= BTN_DEBOUNCE_MS) {
         s_btn_last_change = now;
         s_btn_prev_low    = low;
         if (low) {
+            // Stage 20: press-edge haptic ack. Restores the "we heard you"
+            // cue the pre-Stage-17 code got for free from the shutdown
+            // watcher's immediate LED-red on any press. Fires regardless of
+            // eventual single / double / long-press classification.
+            haptic_play(DRV_STRONG_CLICK);
             if (s_btn_state == BTN_WAIT_DBL) {
                 s_btn_state = BTN_PRESSED_2;
             } else {

@@ -40,4 +40,5 @@ idf_component_register(
         max30101
         tmp117
         qvar_ecg
+        rgb_policy
 )

@@ -141,11 +141,11 @@ void run_bcg(void) {
             last_status_ms = now;
             uint32_t elapsed = (now - session_start) / 1000;
             if (bpm_last > 0.0f) {
-                ESP_LOGI(TAG, "[BCG] t=%us  BPM=%3.0f  beats=%u  rows=%u",
+                ESP_LOGD(TAG, "[BCG] t=%us  BPM=%3.0f  beats=%u  rows=%u",
                          (unsigned)elapsed, (double)bpm_last,
                          (unsigned)total_beats, (unsigned)rows_written);
             } else {
-                ESP_LOGI(TAG, "[BCG] t=%us  BPM=---  beats=%u  rows=%u",
+                ESP_LOGD(TAG, "[BCG] t=%us  BPM=---  beats=%u  rows=%u",
                          (unsigned)elapsed,
                          (unsigned)total_beats, (unsigned)rows_written);
             }
@@ -219,7 +219,7 @@ void run_steps_mode(void) {
             uint32_t delta = have_prev ? (sd.step_count - prev_steps) : 0;
             have_prev = true;
             prev_steps = sd.step_count;
-            ESP_LOGI(TAG, "STEPS t=%lus count=%lu +%lu",
+            ESP_LOGD(TAG, "STEPS t=%lus count=%lu +%lu",
                      (unsigned long)((now - start_ms) / 1000),
                      (unsigned long)sd.step_count, (unsigned long)delta);
             if (f) {
@@ -500,7 +500,7 @@ void run_tap_dbg_mode(void) {
 
         if ((now - last_heartbeat_ms) >= 500) {
             last_heartbeat_ms = now;
-            ESP_LOGI(TAG, "[TAP-HB ] %s  pitch=%+6.1f roll=%+6.1f  "
+            ESP_LOGD(TAG, "[TAP-HB ] %s  pitch=%+6.1f roll=%+6.1f  "
                           "mag=%.2f base=%.2f hp=%+.2f  peaks x=%.2f y=%.2f z=%.2f  "
                           "host=%u  chip(s/d)=%u/%u",
                      in_zone ? "IN " : "OUT",

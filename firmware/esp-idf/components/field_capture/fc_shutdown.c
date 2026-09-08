@@ -22,11 +22,11 @@
 #include "ws2812.h"
 #include "haptic.h"
 #include "bq25619.h"
+#include "rgb_policy.h"
 
 static const char *TAG = "FC_SHDN";
 
 // ── Watcher globals (extern-decl'd in fc_internal.h) ────────────────────────
-static volatile bool s_ship_mode_latched = false;
 volatile bool g_shutdown_hold_active           = false;
 volatile bool g_recording_active               = false;
 volatile bool g_watcher_press_reset_pending    = false;
@@ -37,10 +37,14 @@ volatile bool g_batt_test_active               = false;
 // The 300 ms red LED gives immediate visual confirmation before BATFET drops;
 // if USB is attached, BATFET drops but the app keeps running -- unplug USB
 // to finish shutdown.
+//
+// Stage 20: previously guarded by a per-boot s_ship_mode_latched flag so
+// the sequence ran at most once per power cycle. That silently swallowed
+// every 4 s hold past the first when the first fire was a USB no-op (BQ
+// ship command returns because VDD stays up). Removed -- every call now
+// runs the full sequence so USB-plugged holds always give the same
+// visible LED + warn log.
 void watcher_ship_mode(void) {
-    if (s_ship_mode_latched) return;   // idempotent
-    s_ship_mode_latched = true;
-
     ESP_LOGW(TAG, "PRIORITY SHIP MODE -- long-hold intercepted");
 
     // Instant red LED so the operator sees it registered even if the
@@ -63,16 +67,25 @@ void watcher_ship_mode(void) {
     } else {
         ESP_LOGE(TAG, "BQ not alive -- power stays on");
     }
-    ESP_LOGW(TAG, "ship mode returned (USB present?) -- device stays running");
+    // Stage 17/18 (2026-08-27): on USB power the BATFET drop does not kill
+    // VDD. Cancel any live recording so the device returns to a clean
+    // STANDBY, drop the red LED, and log a NEUTRAL warning. This function
+    // is called from both the user 4 s hold AND the 15 min uptime-cap fire,
+    // so the message must not tell the user to "re-hold" -- the uptime cap
+    // was autonomous.
+    s_recording_early_end = true;
+    ESP_LOGW(TAG, "ship mode declined -- USB is powering VDD. "
+                  "Recording aborted. Unplug USB to actually ship.");
+    ws2812_set_color(0, 0, 0);
 }
 
-// Hold-to-shutdown ladder (Stage 17 update):
-//   0 -    1000 ms   : still a click. button_poll() treats it as short-click
-//                       on release; shutdown watcher does NOT commit yet.
-//   1000 - 2000 ms   : LED ramps 0 -> full red (visual confirmation), watcher
-//                       has now committed (g_shutdown_hold_active = true).
-//                       Clicks are already suppressed by button_poll() thanks
-//                       to BTN_LONG_PRESS_MS.
+// Hold-to-shutdown ladder (Stage 17 timing, Stage 20 LED-ramp start):
+//   0 -     200 ms   : nothing visible. Definitely a click.
+//    200 - 1000 ms   : LED begins ramping dim red (~5..25 % of WS_MAX).
+//                       Watcher does NOT commit yet -- release still fires
+//                       a click via button_poll (BTN_LONG_PRESS_MS unmet).
+//   1000 - 2000 ms   : commit -- g_shutdown_hold_active = true.
+//                       button_poll now swallows clicks; LED continues ramp.
 //   2000 - 3700 ms   : DRV click every 500 ms (haptic countdown warning).
 //   3700 - 3950 ms   : sustained warm-up buzz -- 3 STRONG_CLICKs 80 ms apart
 //                       so the LRA is definitely awake at ship time.
@@ -81,7 +94,8 @@ void watcher_ship_mode(void) {
 //                       providing power the ship is a no-op; if not, BATFET
 //                       drops within a few ms.
 //   sustained release before 4000 ms: reset state, no fire, LED released back
-//                       to field_capture.
+//                       to rgb_policy.
+#define SHDN_VISUAL_MS     200
 #define SHDN_COMMIT_MS    1000    // button_poll swallows click past this
 #define SHDN_WARN_MS      2000
 #define SHDN_BUZZ_WARN_MS 3700    // Stage 17: DRV warm-up burst begins
@@ -115,6 +129,7 @@ void task_shutdown_watcher_fn(void *arg) {
     bool     warn_started    = false;
     bool     warm_up_fired   = false;   // Stage 17: SHDN_BUZZ_WARN_MS one-shot
     uint32_t high_since_ms   = 0;   // release-debounce timer
+    bool     visual_owned    = false;   // Stage 20: pre-commit LED ownership
 
     uint32_t uptime_cap_deadline = SHDN_MAX_UPTIME_MS;
 
@@ -158,10 +173,10 @@ void task_shutdown_watcher_fn(void *arg) {
             warn_started    = false;
             warm_up_fired   = false;
             high_since_ms   = 0;
+            visual_owned    = false;   // Stage 20: pre-commit LED not yet claimed
             // Stage 17: do NOT set g_shutdown_hold_active until the press
             // crosses SHDN_COMMIT_MS. Sub-1s presses stay in "just a click"
             // territory and let field_capture handle them normally.
-            ws2812_set_color(0, 0, 0);
         } else if (!low && hold_active) {
             // -- Possible release. Debounce: only ACT on release if the pin
             //    has been high for SHDN_RELEASE_MS. This eats brief bounces
@@ -189,6 +204,7 @@ void task_shutdown_watcher_fn(void *arg) {
                     hold_active            = false;
                     warn_started           = false;
                     high_since_ms          = 0;
+                    if (visual_owned) { rgb_policy_resume(); visual_owned = false; }
                 }
             } else {
                 // Confirmed release -- either abort or safety-net ship.
@@ -196,6 +212,7 @@ void task_shutdown_watcher_fn(void *arg) {
                 hold_active   = false;
                 high_since_ms = 0;
                 g_shutdown_hold_active = false;
+                if (visual_owned) { rgb_policy_resume(); visual_owned = false; }
                 if (held >= SHDN_FIRE_MS) {
                     // Stage 17: safety net -- if the FIRE branch didn't run
                     // while the button was still held (e.g. task scheduling
@@ -220,16 +237,28 @@ void task_shutdown_watcher_fn(void *arg) {
             high_since_ms = 0;
             uint32_t held = now - press_start;
 
+            // Stage 20: claim the LED at SHDN_VISUAL_MS -- pauses rgb_policy
+            // so the shutdown watcher's paints stick, but does NOT set
+            // g_shutdown_hold_active. Clicks on release below SHDN_COMMIT_MS
+            // still emit via button_poll.
+            if (!visual_owned && held >= SHDN_VISUAL_MS) {
+                visual_owned = true;
+                rgb_policy_pause();
+            }
+
             // Stage 17: commit at 1000 ms. Until then the press is still
             // ambiguous (could be a slow click) so we don't set the global
-            // hold flag nor light the LED.
+            // hold flag. LED painting is decoupled -- see visual_owned above.
             if (!g_shutdown_hold_active && held >= SHDN_COMMIT_MS) {
                 g_shutdown_hold_active = true;
                 ESP_LOGI(TAG, "shutdown commit at %u ms -- clicks now suppressed",
                          (unsigned)held);
             }
 
-            if (g_shutdown_hold_active) {
+            if (visual_owned) {
+                // Linear intensity from 0 (at press) to WS_MAX (at fire).
+                // At SHDN_VISUAL_MS the LED is barely lit (~5 %); at
+                // SHDN_COMMIT_MS it hits 25 %; at fire, full red.
                 uint32_t intensity = (held * WS_MAX) / SHDN_FIRE_MS;
                 if (intensity > WS_MAX) intensity = WS_MAX;
                 ws2812_set_color((uint8_t)intensity, 0, 0);
@@ -269,6 +298,7 @@ void task_shutdown_watcher_fn(void *arg) {
                 hold_active            = false;
                 warn_started           = false;
                 warm_up_fired          = false;
+                if (visual_owned) { rgb_policy_resume(); visual_owned = false; }
             }
         }
 

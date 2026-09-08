@@ -93,26 +93,37 @@ esp_err_t drv2605_init(i2c_port_t port)
     ret = write_reg(port, DRV2605_REG_CONTROL1, 0x9C);
     if (ret != ESP_OK) { ESP_LOGE(TAG, "CTRL1 failed"); return ret; }
 
-    // 7. GO=1 to kick off auto-cal.
-    ret = write_reg(port, DRV2605_REG_GO, 0x01);
-    if (ret != ESP_OK) { ESP_LOGE(TAG, "GO failed"); return ret; }
+    // Auto-cal loop (Stage 17 2026-08-27): if DIAG_RESULT reports FAIL,
+    // retry once. Cold-boot sometimes fails BEMF convergence in ~50 ms; a
+    // second attempt right after usually passes. Playback works either
+    // way -- log the outcome but do not gate on it.
+    bool     cal_ok = false;
+    uint8_t  st     = 0xFF;
+    uint32_t cal_ms = 0;
+    for (int attempt = 0; attempt < 2 && !cal_ok; attempt++) {
+        if (attempt > 0) {
+            ESP_LOGW(TAG, "auto-cal FAIL (STATUS=0x%02X) -- retrying", st);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            (void)write_reg(port, DRV2605_REG_MODE, DRV2605_MODE_AUTOCAL);
+        }
+        ret = write_reg(port, DRV2605_REG_GO, 0x01);
+        if (ret != ESP_OK) { ESP_LOGE(TAG, "GO failed"); return ret; }
 
-    // 8. Poll GO up to 1500 ms (sketch window).
-    uint8_t go = 1;
-    int64_t t0 = esp_timer_get_time();
-    while (go && (esp_timer_get_time() - t0) < 1500000LL) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (read_reg(port, DRV2605_REG_GO, &go) != ESP_OK) { go = 1; break; }
-        go &= 0x01;
+        uint8_t go = 1;
+        int64_t t0 = esp_timer_get_time();
+        while (go && (esp_timer_get_time() - t0) < 1500000LL) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            if (read_reg(port, DRV2605_REG_GO, &go) != ESP_OK) { go = 1; break; }
+            go &= 0x01;
+        }
+
+        st = 0xFF;
+        read_reg(port, DRV2605_REG_STATUS, &st);
+        cal_ok = (go == 0) && !(st & 0x08);
+        cal_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000LL);
     }
-
-    // 9. STATUS bit 3 = DIAG_RESULT (0 = cal PASS, 1 = FAIL).
-    uint8_t st = 0xFF;
-    read_reg(port, DRV2605_REG_STATUS, &st);
-    bool cal_ok = (go == 0) && !(st & 0x08);
-    uint32_t cal_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000LL);
     ESP_LOGI(TAG, "DRV2605 auto-cal %s in %u ms (STATUS=0x%02X)",
-             cal_ok ? "PASS" : "FAIL", (unsigned)cal_ms, st);
+             cal_ok ? "PASS" : "FAIL (proceeding)", (unsigned)cal_ms, st);
 
     // 10. Back to internal-trigger mode.
     ret = write_reg(port, DRV2605_REG_MODE, DRV2605_MODE_INTTRIG);

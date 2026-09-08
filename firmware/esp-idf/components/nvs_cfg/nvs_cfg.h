@@ -73,6 +73,17 @@ bool nvs_cfg_sys_get_print_on_boot(void);
 esp_err_t nvs_cfg_sys_set_print_on_boot(bool enabled);
 
 /**
+ * @brief Read persisted log level. Return values map to ESP_LOG_* (0=NONE,
+ *        1=ERROR, 2=WARN, 3=INFO, 4=DEBUG, 5=VERBOSE). Sentinel 0xFF means
+ *        "auto" -- main.c picks a default (warn on battery-only boot, info
+ *        when the USB-CDC endpoint is connected). Stage 17 §3.2.
+ */
+uint8_t   nvs_cfg_sys_get_log_level(void);
+
+/** @brief Persist a log level (see get_log_level for encoding). */
+esp_err_t nvs_cfg_sys_set_log_level(uint8_t level);
+
+/**
  * @brief True if battery-test mode should be entered on next boot.
  *
  * When true:

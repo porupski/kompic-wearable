@@ -325,7 +325,7 @@ void task_blackbox_fn(void *arg)
         }
 
         if ((idx % 6) == 0) {
-            ESP_LOGI(TAG, "BLACKBOX #%lu  %s  mode=%s  heap=%luKB  idle=%u%%  sens=0x%02lX",
+            ESP_LOGD(TAG, "BLACKBOX #%lu  %s  mode=%s  heap=%luKB  idle=%u%%  sens=0x%02lX",
                      (unsigned long)idx, iso, mode_name,
                      (unsigned long)heap_free_kb, (unsigned)idle_pct,
                      (unsigned long)sensors_on);
@@ -348,6 +348,13 @@ void run_battery_test_mode(void) {
     ESP_LOGW(TAG, "BATTERY TEST MODE active. 15-min uptime cap suppressed. "
                   "Sample cadence: 10 s. Sensors parked. To exit: reboot with "
                   "USB attached and run BATT_TEST OFF.");
+
+    // Stage 18 §9: explicitly park every modal broker. Older code relied on
+    // "sensors default parked" from boot, but the 0.4.23 always-on IMU
+    // change (added for wrist gesture) broke that assumption. For a battery
+    // drain test we want only RTC + battery live; IMU polling wastes 50 Hz
+    // of wake time we cannot afford here.
+    park_all_modal_sensors();
 
     ensure_sd();
     if (!s_sd_ready) {
@@ -476,14 +483,20 @@ void run_battery_test_mode(void) {
             }
         }
 
-        ESP_LOGI(TAG, "BATT_TEST #%lu  %s  soc=%.1fC  vbat=%lumV%s  heap=%luKB  cpu=%luMHz  idle=%u%%  sens=0x%02lX",
-                 (unsigned long)sample_idx, iso, t_soc,
+        // Stage 18: per-sample line stays at INFO because it is the operator's
+        // primary live-monitoring surface during a drain test. vbat leads so
+        // the user sees at a glance whether the pack is still climbing (charge)
+        // or falling (discharge). Cadence is 10 s -- not chatter.
+        ESP_LOGI(TAG, "BATT_TEST #%lu  vbat=%lumV%s  soc=%.1fC  heap=%luKB  cpu=%luMHz  idle=%u%%  sens=0x%02lX  %s",
+                 (unsigned long)sample_idx,
                  (unsigned long)vbat_adc_mv,
                  bd.charging ? " CHG" : "",
+                 (double)t_soc,
                  (unsigned long)heap_free_kb,
                  (unsigned long)cpu_mhz,
                  (unsigned)idle_pct,
-                 (unsigned long)sensors_on);
+                 (unsigned long)sensors_on,
+                 iso);
 
         vTaskDelay(pdMS_TO_TICKS(LED_BLIP_MS));
         ws2812_set_color(0, 0, 0);

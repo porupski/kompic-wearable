@@ -219,11 +219,16 @@ void task_rtc_fn(void *arg)
 
         pcf85063_time_t t = {0};
 
-        if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        // Stage 18: 300 ms timeout (up from 50 ms) so a long TEMP_DUMP or
+        // MULTI_LED sweep on bus 0 does not routinely lock the RTC task
+        // out. Miss log is DEBUG per LOG_LEVEL_POLICY.md -- contention is
+        // expected under heavy I/O and the task self-heals on the next
+        // vTaskDelayUntil tick.
+        if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(300)) == pdTRUE) {
             pcf85063_get_time(I2C_NUM_0, &t);
             xSemaphoreGive(g_i2c_mutex);
         } else {
-            ESP_LOGW(TAG, "I2C mutex timeout");
+            ESP_LOGD(TAG, "I2C mutex timeout (bus 0 contended -- retry next tick)");
             vTaskDelayUntil(&last, period);
             continue;
         }

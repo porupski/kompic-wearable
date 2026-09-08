@@ -35,6 +35,7 @@ static const char *TAG = "NVS_CFG";
 #define K_SYS_LAST_FW   "last_fw"     // str; MAJOR.MINOR.PATCH of last-seen fw
 #define K_SYS_PC_SYNC_OFF "pc_sync_off_us"  // i64; signed ECG offset µs
 #define K_SYS_PC_SYNC_UPT "pc_sync_upt_us"  // i64; esp_timer at write (staleness)
+#define K_SYS_LOG_LEVEL   "log_level"       // u8; ESP_LOG_* value 0..5, 0xFF = auto (Stage 17 §3.2)
 
 // ── RTC ────────────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,30 @@ esp_err_t nvs_cfg_sys_set_print_on_boot(bool enabled)
     esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     err = nvs_set_u8(h, K_SYS_PRINT, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+// -- log level ---------------------------------------------------------------
+// Stored value: ESP_LOG_NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5.
+// Sentinel 0xFF = "auto" (main.c picks a default based on USB-CDC presence).
+uint8_t nvs_cfg_sys_get_log_level(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return 0xFF;
+    uint8_t v = 0xFF;
+    nvs_get_u8(h, K_SYS_LOG_LEVEL, &v);
+    nvs_close(h);
+    return v;
+}
+
+esp_err_t nvs_cfg_sys_set_log_level(uint8_t level)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_SYS_LOG_LEVEL, level);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

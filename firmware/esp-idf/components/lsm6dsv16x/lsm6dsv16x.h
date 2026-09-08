@@ -350,6 +350,17 @@ uint8_t   lsm6dsv16x_tap_poll_src(void);                       // 0 = no event
 uint32_t  lsm6dsv16x_tap_z_single_count(void);
 uint32_t  lsm6dsv16x_tap_z_double_count(void);
 
+// -- Wrist gesture (Stage 18 §3.4) -------------------------------------------
+// task_imu_fn LPFs accel_z and publishes IMU_GESTURE_WRIST_RAISE /
+// IMU_GESTURE_WRIST_DOWN into g_imu_gesture (see data_broker.h). Accessors
+// below let the CLI GESTURE dump surface the filter state for tuning.
+// Bench convention: chip Z-axis up = WRIST_RAISE; upside down = WRIST_DOWN.
+// The final watch enclosure may need an axis swap; adjust the WRIST_*_ON_G
+// thresholds in lsm6dsv16x.c after bench validation.
+float     lsm6dsv16x_gesture_az_lpf_g(void);
+uint32_t  lsm6dsv16x_gesture_change_count(void);
+uint32_t  lsm6dsv16x_gesture_last_change_ms(void);
+
 // MLC (Machine Learning Core) output register. Returns 0 until a .ucf model
 // is loaded. Wired up here so the pipeline is testable end-to-end before a
 // classifier is available.

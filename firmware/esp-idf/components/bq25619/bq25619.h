@@ -60,7 +60,13 @@ const char *bq25619_get_chip_desc(void);  // returns "Li-ion charger + PMID boos
 #define BQ25619_REG_VBAT_ADC       0x0B  // [DSV] battery voltage ADC readback
 
 // -- Bit positions (subset; expand in .c as datasheet review advances) ---------
-#define BQ25619_MISC_BATFET_DIS    (1 << 5)   // [DSV] ship-mode entry bit
+// REG_MISC (0x07) bits -- values match the Arduino reference sketch
+// firmware/arduino/12_lsm_full (BQ_BATFET_* group). Ship-mode write pattern:
+// OR (BATFET_DIS | BATFET_RST_WVBUS), AND ~(BATFET_DLY | BATFET_RST_EN).
+#define BQ25619_MISC_BATFET_DIS        (1 << 5)   // ship-mode entry bit
+#define BQ25619_MISC_BATFET_RST_WVBUS  (1 << 4)   // auto-reset BATFET on VBUS removal
+#define BQ25619_MISC_BATFET_DLY        (1 << 3)   // 1 = ~10 s delayed disconnect (default)
+#define BQ25619_MISC_BATFET_RST_EN     (1 << 2)   // 1 = BATFET auto-reset on VBUS insert
 #define BQ25619_POC_BOOST_EN       (1 << 5)   // [DSV] enable PMID boost
 #define BQ25619_POC_CHG_CONFIG     (1 << 4)   // [DSV] enable charging
 #define BQ25619_STATUS_CHRG_MASK   (0x03 << 3)

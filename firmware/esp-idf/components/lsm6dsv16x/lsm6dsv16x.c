@@ -230,6 +230,64 @@ esp_err_t lsm6dsv16x_install_int1_isr(TaskHandle_t notify_task)
 // ---------------------------------------------------------------------------
 // Task (Blueprint 4 §3 -- read-before-write)
 // ---------------------------------------------------------------------------
+// -- Stage 18 §3.4 wrist-gesture state ---------------------------------------
+// Low-pass-filtered chip-Z acceleration (in g). accel_z is the dominant signal
+// for a wrist-worn device face-up / face-down and is already computed by
+// lsm6dsv16x_read into broker_imu_data_t.accel_z (m/s^2). This filter runs at
+// the 50 Hz task tick; alpha 0.2 -> ~200 ms time constant, quick enough for a
+// wrist raise (typical ~300-500 ms motion) and slow enough to reject a single
+// tap or wobble.
+static float    s_az_lpf_g          = 0.0f;
+static bool     s_az_lpf_seeded     = false;
+static uint32_t s_gesture_changes   = 0;   // counter for GESTURE CLI dump
+static uint32_t s_gesture_last_ms   = 0;   // ms uptime of last change
+
+// Hysteresis bands (in g). Signs picked so the physical action of raising
+// the wrist to look at the display maps to WRIST_RAISE. Bench polarity
+// check 2026-08-27: screen-up-on-table on the iv7.1 prototype reads
+// az_lpf ~ -0.9 g, screen-down reads +0.9 g -- so WRIST_RAISE triggers
+// on the NEGATIVE Z. Mk1b's enclosure orientation may want these flipped
+// again; retune with the GESTURE live log after first bring-up.
+#define WRIST_RAISE_ON_G   (-0.55f)   // az_lpf <= this  -> raise
+#define WRIST_DOWN_ON_G    (+0.35f)   // az_lpf >= this  -> down
+
+static void gesture_update(float az_g)
+{
+    if (!s_az_lpf_seeded) {
+        s_az_lpf_g      = az_g;
+        s_az_lpf_seeded = true;
+        return;
+    }
+    // Alpha 0.2 IIR LPF.
+    s_az_lpf_g = 0.8f * s_az_lpf_g + 0.2f * az_g;
+
+    uint8_t prev = g_imu_gesture;
+    uint8_t next = prev;
+    if (s_az_lpf_g <= WRIST_RAISE_ON_G) {
+        next = (uint8_t)IMU_GESTURE_WRIST_RAISE;
+    } else if (s_az_lpf_g >= WRIST_DOWN_ON_G) {
+        next = (uint8_t)IMU_GESTURE_WRIST_DOWN;
+    }
+    if (next != prev) {
+        g_imu_gesture     = next;
+        s_gesture_changes++;
+        s_gesture_last_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+        // Stage 18 §7.6: live event log. Rate is naturally throttled by the
+        // hysteresis bands + LPF -- a flip fires 1 line, not spam. Ivan
+        // flips the board and watches the console; no CLI polling needed.
+        static const char *NAMES[] = {"NONE", "WRIST_RAISE", "WRIST_DOWN", "SHAKE"};
+        const char *pn = (prev < 4) ? NAMES[prev] : "?";
+        const char *nn = (next < 4) ? NAMES[next] : "?";
+        ESP_LOGI(TAG, "[GESTURE] %s -> %s  (az_lpf=%+.2f g)",
+                 pn, nn, (double)s_az_lpf_g);
+    }
+}
+
+// Public accessors used by fc_cli.c's GESTURE dump.
+float    lsm6dsv16x_gesture_az_lpf_g(void)   { return s_az_lpf_g; }
+uint32_t lsm6dsv16x_gesture_change_count(void){ return s_gesture_changes; }
+uint32_t lsm6dsv16x_gesture_last_change_ms(void){ return s_gesture_last_ms; }
+
 void task_imu_fn(void *arg)
 {
     (void)arg;
@@ -274,6 +332,11 @@ void task_imu_fn(void *arg)
         bd.pitch_deg = s_pitch_deg;
 
         broker_imu_write(&bd);
+
+        // Stage 18 §3.4 wrist gesture: LPF chip-Z, publish to g_imu_gesture.
+        // Consumers today: fc_cli GESTURE dump; future: rgb_policy wrist-off
+        // gate + display wake on Mk1b.
+        gesture_update(bd.accel_z / 9.81f);
 
         // ─── Advanced-feature polling (Blueprint 4 §3 read-before-write) ──────
         //   Runs every tick at the base 50 Hz poll rate. Tap-Z is polled every

@@ -60,6 +60,7 @@
 #include "usb_msc.h"
 #include "haptic.h"
 #include "nvs_cfg.h"
+#include "rgb_policy.h"
 
 static const char *TAG = "FIELD";
 
@@ -96,6 +97,16 @@ void field_capture_init(void) {
     nvs_load();
     s_last_activity_ms = millis_u32();
     ensure_sd();
+
+    // Seed rgb_policy with the loaded mode's palette colour so the idle
+    // pulse breathes in the right colour before the user touches the
+    // encoder. Without this the LED breathes soft grey until first
+    // encoder rotation.
+    {
+        const mode_info_t *mi = &MODE_INFO[s_mode];
+        rgb_policy_set_mode_color(mi->r, mi->g, mi->b);
+    }
+
     ESP_LOGI(TAG, "field_capture_init OK (mode=%s boot_seq=%lu)",
              MODE_INFO[s_mode].name, (unsigned long)s_boot_seq);
 }
@@ -160,10 +171,22 @@ void task_field_capture_fn(void *arg) {
                 s_last_activity_ms = millis_u32();
                 ESP_LOGI(TAG, "mode -> %s (%s)", MODE_INFO[s_mode].name,
                          s_in_submenu ? "LSM sub" : "top");
+                // Stage 17 §3.3: 5 s preview window in the mode's palette
+                // colour. rgb_policy overlays it on the idle LED background.
+                {
+                    const mode_info_t *mi = &MODE_INFO[s_mode];
+                    rgb_policy_preview_start(mi->r, mi->g, mi->b);
+                }
             }
             if (btn == 1) {
+                // Stage 17 §3.3: hand the RGB to the mode until it returns.
+                // Every branch below either enters ST_FL_ON (which resumes on
+                // exit via its own path), never returns (USB_MSC), or is a
+                // blocking mode function that owns the LED for its duration.
+                rgb_policy_pause();
                 if (!s_in_submenu && s_mode == FCM_LSM) {
-                    // Enter the LSM submenu. Land on the first submenu entry.
+                    // Submenu entry does not touch the LED. Resume the policy
+                    // so the preview window on the new sub-mode still shows.
                     s_in_submenu = true;
                     s_mode = FC_LSM_SUBMENU[0];
                     nvs_save_mode();
@@ -171,6 +194,11 @@ void task_field_capture_fn(void *arg) {
                     s_last_activity_ms = millis_u32();
                     ESP_LOGI(TAG, "LSM submenu ENTER (mode -> %s)",
                              MODE_INFO[s_mode].name);
+                    {
+                        const mode_info_t *mi = &MODE_INFO[s_mode];
+                        rgb_policy_preview_start(mi->r, mi->g, mi->b);
+                    }
+                    rgb_policy_resume();
                 } else if (s_mode == FCM_FLASHLIGHT) {
                     flashlight_set_brightness(fl_pct_from_level(s_fl_level));
                     s_state = ST_FL_ON;
@@ -222,24 +250,18 @@ void task_field_capture_fn(void *arg) {
                     s_state = ST_STANDBY;
                 }
                 s_last_activity_ms = millis_u32();
-            }
-            // LED animation. Skip entirely while the shutdown watcher is
-            // running its hold-countdown -- watcher owns the LED then.
-            if (!g_shutdown_hold_active) {
-                if (s_in_submenu) {
-                    rgb_lsm_submenu_indicator(s_mode);
-                } else if (s_mode == FCM_COMPASS) {
-                    rgb_compass_alt_red_blue();
-                } else if (s_mode == FCM_ECG) {
-                    rgb_qvar_alt_yellow_purple();
-                } else if (s_mode == FCM_TEMP) {
-                    rgb_temp_warm_cycle();
-                } else {
-                    uint32_t solid_end = s_last_activity_ms + SOLID_ON_ACTIVITY_MS;
-                    if (millis_u32() < solid_end) rgb_set_max(s_mode);
-                    else                          rgb_pulse(s_mode, solid_end, PULSE_STANDBY_MS);
+                // Stage 17 §3.3: mode returned. Hand the RGB back to policy
+                // unless we entered ST_FL_ON, which owns the LED continuously
+                // until the user clicks out (that path calls resume itself).
+                if (s_state != ST_FL_ON) {
+                    rgb_policy_resume();
                 }
             }
+            // Stage 17 §3.3: STANDBY LED is owned by rgb_policy (5 s preview
+            // on mode select, otherwise off unless charging/alert/wrist-up).
+            // The mode-specific standby animations (compass gradient, ECG
+            // yellow/purple, temp fire strobe) intentionally go away here --
+            // they surface via the 5 s preview instead.
             break;
         }
 
@@ -256,7 +278,9 @@ void task_field_capture_fn(void *arg) {
                 flashlight_off();
                 s_state = ST_STANDBY;
                 s_last_activity_ms = millis_u32();
+                rgb_policy_resume();   // hand LED back to policy
             }
+            // Flashlight mode owns the RGB (bright white) while active.
             rgb_set_max(FCM_FLASHLIGHT);
             break;
         }

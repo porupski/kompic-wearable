@@ -3,11 +3,15 @@
  * @brief TI BQ25619 driver implementation.
  *
  * See bq25619.h for design notes. This file:
- *   - Wraps the I2C register I/O on bus 2 under g_i2c_mutex.
+ *   - Wraps the I2C register I/O on bus 1 (I2C_NUM_1) under g_i2c2_mutex --
+ *     the SAME mutex the DRV2605 driver takes. Stage 20 fix: was
+ *     g_i2c_mutex (bus 0) which protected the wrong physical bus. See
+ *     Stage_20_Button_Responsiveness.md.
  *   - Decodes REG_STATUS / REG_FAULT into the broker payload.
  *   - Provides a voltage-LUT SoC mapper + a self-learning observation hook
  *     (stub today; structurally ready for NVS-persisted curve fitting).
- *   - Implements ship-mode entry via REG_MISC.BATFET_DIS.
+ *   - Implements ship-mode entry via REG_MISC.BATFET_DIS with BATFET_DLY
+ *     cleared so BATFET disconnects immediately (default ~10 s delay).
  *
  * Most register addresses + bit positions are tagged [DSV] (datasheet-verify)
  * pending a bench session with the BQ25619 datasheet in hand. Conservative
@@ -25,7 +29,7 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
-extern SemaphoreHandle_t g_i2c_mutex;
+extern SemaphoreHandle_t g_i2c2_mutex;
 
 static const char *TAG = "BQ25619";
 
@@ -36,7 +40,7 @@ const char *bq25619_get_chip_name(void) { return "BQ25619"; }
 const char *bq25619_get_chip_desc(void) { return "Li-ion charger + PMID boost"; }
 
 // =============================================================================
-// I2C primitives (caller holds g_i2c_mutex)
+// I2C primitives (caller holds g_i2c2_mutex -- shared with DRV2605 on bus 1)
 // =============================================================================
 
 esp_err_t bq25619_read_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t *val)
@@ -174,7 +178,7 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
     const uint8_t TIMER_WD_MASK     = (0x3 << 4);
     const uint8_t MISC_BATFET_DIS   = (1 << 5);
 
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
+    if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
         ESP_LOGE(TAG, "I2C mutex timeout during init");
         return ESP_ERR_TIMEOUT;
     }
@@ -211,7 +215,7 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
     }
 
 out:
-    xSemaphoreGive(g_i2c_mutex);
+    xSemaphoreGive(g_i2c2_mutex);
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "REG_PART read failed: %s", esp_err_to_name(ret));
@@ -235,7 +239,7 @@ void bq25619_deinit(void)
 
 esp_err_t bq25619_set_boost(i2c_port_t i2c_num, bool enable)
 {
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
+    if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 
@@ -246,7 +250,7 @@ esp_err_t bq25619_set_boost(i2c_port_t i2c_num, bool enable)
         else        poc &= (uint8_t)~BQ25619_POC_BOOST_EN;
         ret = bq25619_write_reg(i2c_num, BQ25619_REG_POC, poc);
     }
-    xSemaphoreGive(g_i2c_mutex);
+    xSemaphoreGive(g_i2c2_mutex);
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "PMID boost %s", enable ? "ENABLED" : "DISABLED");
@@ -272,7 +276,7 @@ esp_err_t bq25619_enter_ship_mode(i2c_port_t i2c_num)
     };
     bool got = false;
     for (size_t i = 0; i < sizeof(attempts) / sizeof(attempts[0]); i++) {
-        if (xSemaphoreTake(g_i2c_mutex, attempts[i]) == pdTRUE) {
+        if (xSemaphoreTake(g_i2c2_mutex, attempts[i]) == pdTRUE) {
             got = true;
             break;
         }
@@ -284,19 +288,31 @@ esp_err_t bq25619_enter_ship_mode(i2c_port_t i2c_num)
         return ESP_ERR_TIMEOUT;
     }
 
+    // Match the Arduino reference (firmware/arduino/12_lsm_full/hw.ino:226-232):
+    // OR  (BATFET_DIS | BATFET_RST_WVBUS)
+    // AND ~(BATFET_DLY | BATFET_RST_EN)
+    //
+    // Stage 20 fix: previously only OR'd BATFET_DIS, leaving BATFET_DLY at
+    // its default (delayed ~10 s). That was Ivan's "LONG_BUZZ fires at 4 s
+    // then 9 s dead time" bench report. Clearing BATFET_DLY makes the
+    // disconnect immediate.
     uint8_t misc = 0;
     esp_err_t ret = bq25619_read_reg(i2c_num, BQ25619_REG_MISC, &misc);
     if (ret == ESP_OK) {
-        misc |= BQ25619_MISC_BATFET_DIS;
-        ret = bq25619_write_reg(i2c_num, BQ25619_REG_MISC, misc);
+        uint8_t misc_new = misc;
+        misc_new |=  (uint8_t)(BQ25619_MISC_BATFET_DIS | BQ25619_MISC_BATFET_RST_WVBUS);
+        misc_new &= (uint8_t)~(BQ25619_MISC_BATFET_DLY | BQ25619_MISC_BATFET_RST_EN);
+        ESP_LOGW(TAG, "ship-mode REG_MISC 0x%02X -> 0x%02X", misc, misc_new);
+        ret = bq25619_write_reg(i2c_num, BQ25619_REG_MISC, misc_new);
     }
-    xSemaphoreGive(g_i2c_mutex);
+    xSemaphoreGive(g_i2c2_mutex);
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ship-mode write failed: %s", esp_err_to_name(ret));
     }
-    // From here, the BQ disconnects the battery within ~10 s (BATFET delay,
-    // datasheet-default). USB-C insert or QON long-press wakes the device.
+    // On battery: BATFET disconnects immediately (BATFET_DLY cleared).
+    // On USB: BATFET stays gated by VBUS presence; RST_WVBUS re-enables it
+    // on a full unplug/replug cycle so charging can resume next time.
     return ret;
 }
 
@@ -321,7 +337,7 @@ void task_battery_fn(void *arg)
         uint8_t  status = 0, fault = 0, poc = 0;
         uint16_t vbat_mv = 0;
 
-        if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
+        if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
             ESP_LOGW(TAG, "I2C mutex timeout (poll)");
             vTaskDelayUntil(&last, period);
             continue;
@@ -330,7 +346,7 @@ void task_battery_fn(void *arg)
         bq25619_read_reg(I2C_NUM_1, BQ25619_REG_FAULT,    &fault);
         bq25619_read_reg(I2C_NUM_1, BQ25619_REG_POC,      &poc);
         bq25619_read_vbat_mv(I2C_NUM_1, &vbat_mv);
-        xSemaphoreGive(g_i2c_mutex);
+        xSemaphoreGive(g_i2c2_mutex);
 
         uint8_t chrg = (status & BQ25619_STATUS_CHRG_MASK) >> BQ25619_STATUS_CHRG_SHIFT;
         bool    pg   = (status & BQ25619_STATUS_PG_GOOD) != 0;

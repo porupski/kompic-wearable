@@ -32,6 +32,7 @@
 #include "haptic.h"
 #include "pcf85063.h"
 #include "nvs_cfg.h"
+#include "lsm6dsv16x.h"
 
 static const char *TAG = "FC_CLI";
 
@@ -127,6 +128,8 @@ static void rtc_cli_print_help(void) {
     printf("    SET_TIME YYYY-MM-DDTHH:MM:SS     write UTC + persist to NVS + PCF RAM_byte\n");
     printf("    RTC_DUMP                         hex dump of all 18 PCF85063A registers\n");
     printf("    NVS_PRINT [ON|OFF]               toggle boot-time NVS printout (no arg = dump)\n");
+    printf("    LOGLEVEL [OFF|E|W|I|D|V|AUTO]    runtime esp_log level (no arg = show current)\n");
+    printf("    GESTURE                          dump wrist-gesture state + LPF value\n");
     printf("    BATT_TEST [ON|OFF]               enter battery-test mode on next boot (no arg = state)\n");
     printf("    BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)\n");
     printf("    BLACKBOX_CADENCE <s>             sample cadence in seconds (default 10, range 1..3600)\n");
@@ -640,6 +643,66 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         } else {
             printf("[BATT] usage: BATT_TEST [ON|OFF]  (no arg = show state)\n");
         }
+        return;
+    }
+    if (startswith_ci(line, "GESTURE")) {
+        const char *NAMES[] = {"NONE", "WRIST_RAISE", "WRIST_DOWN", "SHAKE"};
+        uint8_t g = g_imu_gesture;
+        const char *n = (g < 4) ? NAMES[g] : "unknown";
+        uint32_t last_ms  = lsm6dsv16x_gesture_last_change_ms();
+        uint32_t now_ms   = millis_u32();
+        uint32_t age_ms   = last_ms ? (now_ms - last_ms) : 0;
+        printf("[GESTURE] current=%s (%u)  az_lpf=%.3f g  changes=%lu  "
+               "last_change_age=%lu ms\n",
+               n, (unsigned)g,
+               (double)lsm6dsv16x_gesture_az_lpf_g(),
+               (unsigned long)lsm6dsv16x_gesture_change_count(),
+               (unsigned long)age_ms);
+        return;
+    }
+    if (startswith_ci(line, "LOGLEVEL")) {
+        const char *arg = line + 8;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        // Encoding matches ESP_LOG_* / nvs_cfg_sys_*_log_level().
+        static const char *NAMES[] = {"NONE", "ERROR", "WARN", "INFO",
+                                       "DEBUG", "VERBOSE"};
+
+        if (*arg == 0) {
+            uint8_t stored = nvs_cfg_sys_get_log_level();
+            const char *n = (stored <= 5) ? NAMES[stored]
+                            : (stored == 0xFF ? "AUTO" : "unknown");
+            printf("[LOG] stored=%s effective ESP_LOG level = %d\n",
+                   n, (int)esp_log_get_default_level());
+            return;
+        }
+
+        int lv = -1;
+        if      (startswith_ci(arg, "OFF")     || startswith_ci(arg, "NONE"))    lv = ESP_LOG_NONE;
+        else if (startswith_ci(arg, "ERROR")   || startswith_ci(arg, "E"))       lv = ESP_LOG_ERROR;
+        else if (startswith_ci(arg, "WARN")    || startswith_ci(arg, "W"))       lv = ESP_LOG_WARN;
+        else if (startswith_ci(arg, "INFO")    || startswith_ci(arg, "I"))       lv = ESP_LOG_INFO;
+        else if (startswith_ci(arg, "DEBUG")   || startswith_ci(arg, "D"))       lv = ESP_LOG_DEBUG;
+        else if (startswith_ci(arg, "VERBOSE") || startswith_ci(arg, "V"))       lv = ESP_LOG_VERBOSE;
+        else if (startswith_ci(arg, "AUTO")) {
+            // Reset persisted value to the sentinel; next boot picks the
+            // USB-vs-battery default. Current session goes to INFO for
+            // parity with the fresh-boot default.
+            (void)nvs_cfg_sys_set_log_level(0xFF);
+            esp_log_level_set("*", ESP_LOG_INFO);
+            printf("[LOG] AUTO -- next boot decides; this session at INFO\n");
+            return;
+        }
+
+        if (lv < 0) {
+            printf("[LOG] usage: LOGLEVEL [OFF|ERROR|WARN|INFO|DEBUG|VERBOSE|AUTO]\n");
+            return;
+        }
+
+        esp_log_level_set("*", (esp_log_level_t)lv);
+        esp_err_t r = nvs_cfg_sys_set_log_level((uint8_t)lv);
+        printf("[LOG] level -> %s (%d)  persisted=%s\n",
+               NAMES[lv], lv, esp_err_to_name(r));
         return;
     }
     if (startswith_ci(line, "NVS_PRINT")) {

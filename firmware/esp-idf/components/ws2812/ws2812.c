@@ -30,6 +30,7 @@
 #include "esp_pm.h"                 // Stage 11 Item D: PM lock around RMT tx
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <math.h>
 #include <string.h>
 
@@ -45,6 +46,16 @@ const char *ws2812_get_chip_desc(void) { return "Status LED (1 px)"; }
 static rmt_channel_handle_t s_rmt_channel = NULL;
 static rmt_encoder_handle_t s_rmt_encoder = NULL;
 static esp_timer_handle_t   s_anim_timer  = NULL;
+
+// Stage 18 §7.5: serialise ws2812_push against multi-caller races. rgb_policy
+// runs on the esp_timer task (Core 0) and mode code runs on the field_capture
+// task (Core 1). Both call ws2812_set_color/set_state, which reach ws2812_push
+// beneath. Without a lock, one caller's rmt_enable/transmit/wait/disable
+// sequence gets tangled with the other -- observed as a burst of
+// `rmt_tx_enable(768): channel not in init state` errors on mode entry.
+// Mutex is created in ws2812_init() alongside the RMT channel; guarded so a
+// pre-init ws2812_set_color from stray code path is a no-op.
+static SemaphoreHandle_t    s_tx_mutex    = NULL;
 
 // Stage 11 Item D: PM lock. Acquired around every rmt_transmit so DFS can't
 // drop APB mid-frame (which would stretch or crush the WS2812B bit timing).
@@ -97,6 +108,9 @@ static esp_err_t install_encoder(void)
 static void ws2812_push(uint8_t r, uint8_t g, uint8_t b)
 {
     if (!s_rmt_channel || !s_rmt_encoder) return;
+    if (s_tx_mutex) {
+        if (xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    }
 
     // GRB on the wire.
     uint8_t frame[3] = { g, r, b };
@@ -125,6 +139,7 @@ static void ws2812_push(uint8_t r, uint8_t g, uint8_t b)
     (void)rmt_tx_wait_all_done(s_rmt_channel, pdMS_TO_TICKS(20));
     (void)rmt_disable(s_rmt_channel);
     if (s_pm_lock) esp_pm_lock_release(s_pm_lock);
+    if (s_tx_mutex) xSemaphoreGive(s_tx_mutex);
 }
 
 void ws2812_set_color(uint8_t r, uint8_t g, uint8_t b)
@@ -201,6 +216,13 @@ esp_err_t ws2812_init(void)
 {
     ESP_LOGI(TAG, "Init RMT TX on GPIO%d @ %u Hz, %d pixel",
              WS2812_GPIO, WS2812_RMT_HZ, WS2812_PIXEL_COUNT);
+
+    if (s_tx_mutex == NULL) {
+        s_tx_mutex = xSemaphoreCreateMutex();
+        if (!s_tx_mutex) {
+            ESP_LOGW(TAG, "TX mutex create failed (multi-caller races possible)");
+        }
+    }
 
 #ifdef CONFIG_PM_ENABLE
     // Stage 11 Item D: PM lock created lazily. Failure is non-fatal -- we

@@ -245,7 +245,7 @@ void run_ppg_bcg_mode(void)
         if ((now_ms - last_status_ms) >= STATUS_LOG_MS) {
             last_status_ms = now_ms;
             uint32_t elapsed_s = (uint32_t)((now_us - session_start_us) / 1000000LL);
-            ESP_LOGI(TAG,
+            ESP_LOGD(TAG,
                      "[PPG_BCG] t=%us bcg_bpm=%.0f ppg_bpm=%u "
                      "bcg_beats=%u ppg_beats=%u rows=%u",
                      (unsigned)elapsed_s, (double)bcg_bpm_last,
