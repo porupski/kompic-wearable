@@ -110,6 +110,7 @@ static void tick_cb(void *arg)
 
 esp_err_t rgb_policy_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", RGB_POLICY_DRIVER_VERSION);
     if (s_timer) return ESP_OK;
 
     const esp_timer_create_args_t args = {

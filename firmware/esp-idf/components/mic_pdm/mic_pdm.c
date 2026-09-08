@@ -78,6 +78,7 @@ static inline void give(void) { if (s_lock) xSemaphoreGive(s_lock); }
 
 esp_err_t mic_pdm_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", MIC_PDM_DRIVER_VERSION);
     esp_err_t r = take(1000);
     if (r != ESP_OK) return r;
 

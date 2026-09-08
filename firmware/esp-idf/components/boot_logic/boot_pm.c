@@ -4,6 +4,7 @@
  */
 
 #include "boot_pm.h"
+#include "boot_hw_init.h"       // BOOT_LOGIC_DRIVER_VERSION
 
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -12,6 +13,7 @@ static const char *TAG = "BOOT_PM";
 
 esp_err_t boot_pm_init(void)
 {
+    ESP_LOGI(TAG, "boot_logic v%s", BOOT_LOGIC_DRIVER_VERSION);
 #ifdef CONFIG_PM_ENABLE
     // 240/40 MHz DFS window with automatic light-sleep. The 40 MHz floor
     // still leaves the peripherals workable (APB is derived elsewhere on S3

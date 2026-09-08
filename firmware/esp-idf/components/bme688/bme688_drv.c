@@ -114,6 +114,7 @@ static void bme_delay_us(uint32_t period_us, void *intf_ptr)
 
 esp_err_t bme688_drv_init(int i2c_port)
 {
+    ESP_LOGI(TAG, "driver v%s", BME688_DRIVER_VERSION);
     (void)i2c_port;   // I2C_NUM_0 hardcoded inside callbacks (legacy pattern)
 
     s_dev.intf      = BME68X_I2C_INTF;

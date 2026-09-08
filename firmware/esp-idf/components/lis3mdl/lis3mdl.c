@@ -66,6 +66,7 @@ static esp_err_t read_burst(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t l
 // =============================================================================
 esp_err_t lis3mdl_init(i2c_port_t i2c_num)
 {
+    ESP_LOGI(TAG, "driver v%s", LIS3MDL_DRIVER_VERSION);
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }

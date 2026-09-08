@@ -62,6 +62,7 @@ static esp_err_t read_reg(i2c_port_t port, uint8_t reg, uint8_t *out)
 
 esp_err_t drv2605_init(i2c_port_t port)
 {
+    ESP_LOGI(TAG, "driver v%s", DRV2605_DRIVER_VERSION);
     esp_err_t ret;
 
     // Sketch-verbatim sequence from 7_demo_field_capture:

@@ -38,6 +38,12 @@ static const char *TAG = "MAIN";
 
 void app_main(void)
 {
+    // -- 0. Provenance banner ------------------------------------------------
+    // Prints hw + fw at the top of every boot so any log capture is
+    // self-identifying. Individual drivers print their <NAME>_DRIVER_VERSION
+    // as the first line of their _init() for the same reason.
+    ESP_LOGI(TAG, "KOMPIC hw=%s fw=%s", KOMPIC_HW_VERSION, KOMPIC_FW_VERSION);
+
     // -- 1. Power primitives --------------------------------------------------
     boot_power_init();
 

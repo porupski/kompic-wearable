@@ -163,6 +163,7 @@ void bq25619_soc_get_observed_extremes(uint16_t *min_mv, uint16_t *max_mv)
 
 esp_err_t bq25619_init(i2c_port_t i2c_num)
 {
+    ESP_LOGI(TAG, "driver v%s", BQ25619_DRIVER_VERSION);
     int64_t t0 = esp_timer_get_time();
 
     // Register bit positions used only in init (documented inline, so we don't

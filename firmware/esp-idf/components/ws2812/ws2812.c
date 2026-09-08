@@ -214,6 +214,7 @@ ws2812_state_t ws2812_get_state(void)
 
 esp_err_t ws2812_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", WS2812_DRIVER_VERSION);
     ESP_LOGI(TAG, "Init RMT TX on GPIO%d @ %u Hz, %d pixel",
              WS2812_GPIO, WS2812_RMT_HZ, WS2812_PIXEL_COUNT);
 

@@ -233,6 +233,12 @@ void task_blackbox_fn(void *arg);
 // ── Shutdown watcher (fc_shutdown.c) ────────────────────────────────────────
 void watcher_ship_mode(void);
 
+// Postpone the 15-minute autonomous uptime cap by one full window. Call from
+// any confirmed user-input event -- button press edge, encoder detent, CLI
+// command, etc. -- so the device does not autonomously ship while the user
+// is actively touching it. Safe to call from any task (single volatile flag).
+void shutdown_watcher_kick(void);
+
 // ── Sync (fc_sync.c) ────────────────────────────────────────────────────────
 void    fc_sync_init(void);
 bool    fc_sync_is_active(void);

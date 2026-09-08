@@ -235,6 +235,11 @@ int button_poll(void) {
             // watcher's immediate LED-red on any press. Fires regardless of
             // eventual single / double / long-press classification.
             haptic_play(DRV_STRONG_CLICK);
+            // Ivan 2026-09-08: any confirmed press postpones the 15-min
+            // autonomous uptime cap. The cap is damage-control for the idle
+            // case, not a hard session limit -- the user just proved they
+            // are here.
+            shutdown_watcher_kick();
             if (s_btn_state == BTN_WAIT_DBL) {
                 s_btn_state = BTN_PRESSED_2;
             } else {
@@ -284,6 +289,9 @@ int encoder_delta(void) {
                 if (s_enc.latched_dir != 0) emit = s_enc.latched_dir;
                 s_enc.latched_dir  = 0;
                 s_enc.in_motion    = false;
+                // Ivan 2026-09-08: encoder detent counts as user input --
+                // postpone the 15-min uptime cap on any confirmed rotation.
+                if (emit != 0) shutdown_watcher_kick();
             }
         }
     } else {

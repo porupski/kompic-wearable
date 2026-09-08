@@ -77,6 +77,7 @@ static bool usb_msc_button_click_cb(void) {
 
 // ── Public init ──────────────────────────────────────────────────────────────
 void field_capture_init(void) {
+    ESP_LOGI(TAG, "driver v%s", FIELD_CAPTURE_DRIVER_VERSION);
     static bool inited = false;
     if (inited) return;
     inited = true;

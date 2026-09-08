@@ -82,6 +82,7 @@ QueueHandle_t app_nvs_settings_queue_create(void)
 
 esp_err_t app_nvs_init(app_calibration_t *cal)
 {
+    ESP_LOGI(TAG, "driver v%s", APP_LOGIC_DRIVER_VERSION);
     if (!cal) return ESP_ERR_INVALID_ARG;
 
     // Initialise NVS flash; handle corruption or version mismatch gracefully.

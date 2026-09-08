@@ -61,6 +61,7 @@ static esp_err_t write_reg16(i2c_port_t port, uint8_t reg, uint16_t val)
 
 esp_err_t tmp117_init(i2c_port_t port)
 {
+    ESP_LOGI(TAG, "driver v%s", TMP117_DRIVER_VERSION);
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }

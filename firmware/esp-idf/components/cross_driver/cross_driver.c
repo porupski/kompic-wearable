@@ -56,6 +56,7 @@ static const char *const s_event_names[XD_EVENT_COUNT] = {
 
 void cross_driver_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", CROSS_DRIVER_DRIVER_VERSION);
     memset(s_slots, 0, sizeof(s_slots));
     ESP_LOGI(TAG, "Cross-driver framework init OK (%d event slots)", XD_EVENT_COUNT);
 }

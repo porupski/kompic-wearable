@@ -81,6 +81,7 @@ static uint8_t day_of_week(uint16_t y, uint8_t m, uint8_t d)
 
 esp_err_t pcf85063_init(i2c_port_t i2c_num)
 {
+    ESP_LOGI(TAG, "driver v%s", PCF85063_DRIVER_VERSION);
     uint8_t test = 0;
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);

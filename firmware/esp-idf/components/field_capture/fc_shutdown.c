@@ -32,6 +32,17 @@ volatile bool g_recording_active               = false;
 volatile bool g_watcher_press_reset_pending    = false;
 volatile bool g_batt_test_active               = false;
 
+// Activity kick: any input handler (button, encoder, CLI) sets this flag; the
+// watcher loop clears it and re-arms uptime_cap_deadline. Rationale (Ivan,
+// 2026-09-08): the 15-min uptime cap should not fire while the user is
+// actively touching the device -- it is a damage-control fallback for the
+// idle case, not a hard session limit.
+static volatile bool s_activity_kick_pending = false;
+
+void shutdown_watcher_kick(void) {
+    s_activity_kick_pending = true;
+}
+
 // Best-effort "shut down NOW". Does NOT try to flush open files -- if a
 // recording is in progress and the user wants it out, that is their call.
 // The 300 ms red LED gives immediate visual confirmation before BATFET drops;
@@ -142,17 +153,41 @@ void task_shutdown_watcher_fn(void *arg) {
         bool     low = (gpio_get_level(PIN_BUTTON) == 0);
 
         // ── Damage-control uptime cap ────────────────────────────────────
+        // Reset the deadline while a recording or battery test is running, or
+        // when any input handler kicked us via shutdown_watcher_kick().
         if (g_recording_active || g_batt_test_active) {
             uptime_cap_deadline = now + SHDN_MAX_UPTIME_MS;
         }
+        if (s_activity_kick_pending) {
+            s_activity_kick_pending = false;
+            uptime_cap_deadline     = now + SHDN_MAX_UPTIME_MS;
+        }
         if (!g_recording_active && !g_batt_test_active && now >= uptime_cap_deadline) {
-            ESP_LOGW(TAG, "shutdown FIRE (uptime cap reached, now=%u ms)", (unsigned)now);
-            g_shutdown_hold_active = true;
-            ws2812_set_color(WS_MAX, 0, 0);
-            haptic_play_forced(DRV_LONG_BUZZ);
-            watcher_ship_mode();
-            g_shutdown_hold_active = false;
-            uptime_cap_deadline    = now + SHDN_MAX_UPTIME_MS;
+            // Ivan 2026-09-08: while USB is plugged, do NOT drop BATFET on the
+            // uptime cap -- the operator wants charging to continue until the
+            // cable comes out. Abort any live recording anyway (matches the
+            // "device is idle for 15 min" damage-control intent), log the
+            // event, and re-arm the deadline so the check keeps polling. When
+            // the cable is unplugged, the next fire proceeds as before.
+            broker_battery_data_t bd = {0};
+            broker_battery_read(&bd);
+            const bool usb_powered = bd.enabled && bd.power_good;
+
+            if (usb_powered) {
+                ESP_LOGW(TAG, "uptime cap reached (now=%u ms) -- USB present, "
+                              "skipping BATFET disable. Charging continues.",
+                         (unsigned)now);
+                s_recording_early_end = true;  // still abort any live session
+                uptime_cap_deadline   = now + SHDN_MAX_UPTIME_MS;
+            } else {
+                ESP_LOGW(TAG, "shutdown FIRE (uptime cap reached, now=%u ms)", (unsigned)now);
+                g_shutdown_hold_active = true;
+                ws2812_set_color(WS_MAX, 0, 0);
+                haptic_play_forced(DRV_LONG_BUZZ);
+                watcher_ship_mode();
+                g_shutdown_hold_active = false;
+                uptime_cap_deadline    = now + SHDN_MAX_UPTIME_MS;
+            }
         }
 
         // ── Press-reset request (from MLC_COLLECT after its 2 s stop) ────

@@ -44,6 +44,7 @@ static uint8_t s_current_pct  = 0;
 
 esp_err_t flashlight_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", FLASHLIGHT_DRIVER_VERSION);
     if (s_initialised) return ESP_OK;
 
     ESP_LOGI(TAG, "Init LEDC timer %d channel %d on GPIO%d @ %d Hz, %d-bit",

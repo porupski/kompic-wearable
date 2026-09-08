@@ -19,6 +19,7 @@
  */
 
 #include "boot_power.h"
+#include "boot_hw_init.h"       // BOOT_LOGIC_DRIVER_VERSION
 #include "bq25619.h"
 #include "data_broker.h"
 #include "haptic.h"
@@ -47,6 +48,7 @@ volatile bool g_shutdown_latched      = false;
 // ---------------------------------------------------------------------------
 void boot_power_init(void)
 {
+    ESP_LOGI(TAG, "boot_logic v%s", BOOT_LOGIC_DRIVER_VERSION);
     // 1. DRV_EN strap LOW -- DRV2605 stays out of shutdown.
     //    GPIO0 has an internal pull-up at boot for ROM strapping; we drive it
     //    LOW immediately after boot so the haptic IC is enabled by the time

@@ -96,6 +96,7 @@ static esp_err_t read_reg(i2c_port_t port, uint8_t reg, uint8_t *out)
 
 esp_err_t max30101_init(i2c_port_t port)
 {
+    ESP_LOGI(TAG, "driver v%s", MAX30101_DRIVER_VERSION);
     uint8_t part_id = 0;
     esp_err_t ret = read_reg(port, MAX30101_REG_PART_ID, &part_id);
     if (ret != ESP_OK) {

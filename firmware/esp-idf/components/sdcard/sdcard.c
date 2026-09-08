@@ -120,6 +120,7 @@ static int next_session_suffix(const char *name)
 
 esp_err_t sdcard_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", SDCARD_DRIVER_VERSION);
     if (s_lock) return ESP_OK;
     s_lock = xSemaphoreCreateRecursiveMutex();
     if (!s_lock) {

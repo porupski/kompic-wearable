@@ -150,6 +150,7 @@ esp_err_t veml6030_set_range(i2c_port_t i2c_num, veml6030_gain_t gain, veml6030_
 // =============================================================================
 esp_err_t veml6030_init(i2c_port_t i2c_num)
 {
+    ESP_LOGI(TAG, "driver v%s", VEML6030_DRIVER_VERSION);
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     // Power down first (ALS_SD = 1) -- Vishay recommends this before any

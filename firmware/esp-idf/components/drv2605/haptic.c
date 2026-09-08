@@ -124,6 +124,7 @@ static void nvs_save_ui_effect(uint8_t eff)
 
 esp_err_t haptic_init(void)
 {
+    ESP_LOGI(TAG, "driver v%s", DRV2605_DRIVER_VERSION);
     s_haptic_queue = xQueueCreate(HAPTIC_QUEUE_DEPTH, sizeof(haptic_cmd_t));
     if (!s_haptic_queue) {
         ESP_LOGE(TAG, "Queue create FAILED");

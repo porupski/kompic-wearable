@@ -101,6 +101,7 @@ static esp_err_t read_regs(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t le
 // ---------------------------------------------------------------------------
 esp_err_t lsm6dsv16x_init(i2c_port_t i2c_num)
 {
+    ESP_LOGI(TAG, "driver v%s", LSM6DSV16X_DRIVER_VERSION);
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }

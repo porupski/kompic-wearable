@@ -170,6 +170,7 @@ static void bringup_bus1(void)
 // -- Public entry point -------------------------------------------------------
 void boot_hw_init(const app_calibration_t *cal)
 {
+    ESP_LOGI(TAG, "boot_logic v%s", BOOT_LOGIC_DRIVER_VERSION);
     (void)cal;  // reserved for driver seeding (mag hard-iron, height ref)
 
     // -- I2C bus mutexes ------------------------------------------------------

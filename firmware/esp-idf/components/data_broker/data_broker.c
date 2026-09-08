@@ -90,6 +90,7 @@ static inline void unlock(void) {
 // --- Init -------------------------------------------------------------------
 
 void broker_init(void) {
+    ESP_LOGI(TAG, "driver v%s", DATA_BROKER_DRIVER_VERSION);
     memset(&s, 0, sizeof(s));
     s.mutex = xSemaphoreCreateMutex();
     configASSERT(s.mutex);
