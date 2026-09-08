@@ -13,6 +13,7 @@ hardware/Kompic_Mk1/ignore/
 docs/build_info/reference_files
 docs/build_info/datasheets
 docs/build_info/aux_scripts/other
+docs/build_info/aux_scripts/sync_ecg/__pycache__
 
 # ---------- 3D Models (ignore heavy mesh/CAD exports, keep sources) ----------
 models/**/*.stl
