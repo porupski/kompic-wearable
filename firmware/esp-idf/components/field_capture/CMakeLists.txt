@@ -14,7 +14,8 @@ idf_component_register(
     REQUIRES
         driver
         esp_driver_tsens   # temperature_sensor.h for ESP32-S3 SoC temp in FCM_TEMP
-        esp_adc            # Stage 11 TEMPORARY: Vbat divider on GPIO9 in BATT_TEST
+        # esp_adc removed Stage 26 §26.6 -- Vbat divider retired on Mk1b;
+        # BQ25619 REG_VBAT is the source now.
         freertos
         esp_timer
         nvs_flash
@@ -33,12 +34,12 @@ idf_component_register(
         nvs_cfg
         usb_msc
         bq25619
+        max17048
         bme688
         lsm6dsv16x
         lis3mdl
         veml6030
         max30101
         tmp117
-        qvar_ecg
         rgb_policy
 )

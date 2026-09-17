@@ -139,6 +139,7 @@ void lvgl_ui_init(const ui_settings_t *cfg)
     g_ui_theme         = cfg->theme;
     g_blue_light_on    = cfg->blue_light_on;
     g_saved_brightness = cfg->brightness;
+    g_auto_brightness  = cfg->auto_brightness;
     s_last_theme       = cfg->theme;
 
     // -- Build screens --------------------------------------------------------

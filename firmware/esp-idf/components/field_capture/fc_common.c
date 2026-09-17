@@ -28,6 +28,8 @@
 #include "ws2812.h"
 #include "sdcard.h"
 #include "haptic.h"
+#include "encoder.h"          // encoder_note_detent (Stage 24 side quest)
+#include "pcf85063_cmd.h"     // pcf85063_cmd_iso_now / filename_stamp
 
 static const char *TAG = "FC_COMMON";
 
@@ -195,17 +197,28 @@ void ensure_sd(void) {
     try_mkdir("/sd/data/mlc_train");
     ESP_LOGI(TAG, "SD mounted (%ld MiB free)", (long)sdcard_get_free_mib());
 }
-void rtc_iso_now(char *out, size_t n) {
-    if (broker_rtc_hw_alive()) {
-        broker_rtc_data_t r; broker_rtc_read(&r);
-        if (r.valid) {
-            snprintf(out, n, "%04u-%02u-%02uT%02u:%02u:%02u",
-                     (unsigned)r.year,  (unsigned)r.month, (unsigned)r.day,
-                     (unsigned)r.hour,  (unsigned)r.minute,(unsigned)r.second);
-            return;
-        }
+// Kept as a thin wrapper for backward compat -- delegates to the pcf85063
+// command surface (Stage 23 §5.4). Existing callers continue to work.
+void rtc_iso_now(char *out, size_t n) { pcf85063_cmd_iso_now(out, n); }
+
+// Datetime-first filename builder. Writes
+//   /sd/data/<dir>/kompic_YYYY-MM-DD_HH-MM-SS_<suffix>.csv  when RTC is valid
+//   /sd/data/<dir>/<suffix>_boot<NNNN>.csv                  when RTC not yet
+//                                                           synced (rare --
+//                                                           RTC is battery
+//                                                           backed).
+// Fallback path is intentionally distinct so the two schemes don't collide.
+// See [[feedback_datetime_filenames]].
+void fc_dated_path(const char *dir, const char *suffix,
+                   char *out, size_t n) {
+    if (!dir || !suffix || !out || n == 0) return;
+    char stamp[24];
+    if (pcf85063_cmd_filename_stamp(stamp, sizeof(stamp)) == ESP_OK) {
+        snprintf(out, n, "/sd/data/%s/kompic_%s_%s.csv", dir, stamp, suffix);
+    } else {
+        snprintf(out, n, "/sd/data/%s/%s_boot%04lu.csv",
+                 dir, suffix, (unsigned long)s_boot_seq);
     }
-    snprintf(out, n, "oscstop");
 }
 
 // ── Button polling / debounce / single-double click ─────────────────────────
@@ -230,6 +243,30 @@ int button_poll(void) {
         s_btn_last_change = now;
         s_btn_prev_low    = low;
         if (low) {
+            // Stage 28 §2.2: display-sleep wake gate moved to the PRESS edge.
+            // Old release-edge gate waited for the full single-click classify
+            // (BTN_DOUBLE_GAP_MS ~250 ms after finger-up) before waking, and
+            // by then the shutdown-watcher hold state or a stray consumer
+            // could eat the event. Waking on press is what a user expects
+            // when pushing a button on a dead screen.
+            extern bool      boot_display_is_asleep(void);
+            extern esp_err_t boot_display_wake(void);
+            bool was_asleep = boot_display_is_asleep();
+            ESP_LOGI(TAG, "[BTN] press-edge, asleep=%d", (int)was_asleep);
+            if (was_asleep) {
+                ESP_LOGI(TAG, "[DISP] reason=btn-press wake");
+                (void)boot_display_wake();
+                // Swallow the entire click sequence for this press so the
+                // wake tap doesn't propagate as a single-click event 250 ms
+                // later (would toggle recording / submenu on the tile that
+                // was showing at sleep time).
+                s_btn_state          = BTN_IDLE;
+                s_btn_press_start_ms = now;
+                s_last_activity_ms   = now;
+                shutdown_watcher_kick();
+                haptic_play(DRV_STRONG_CLICK);
+                return 0;
+            }
             // Stage 20: press-edge haptic ack. Restores the "we heard you"
             // cue the pre-Stage-17 code got for free from the shutdown
             // watcher's immediate LED-red on any press. Fires regardless of
@@ -268,6 +305,10 @@ int button_poll(void) {
         s_btn_state = BTN_IDLE;
         event = 1;
     }
+
+    if (event != 0) {
+        s_last_activity_ms = now;
+    }
     return event;
 }
 
@@ -291,7 +332,13 @@ int encoder_delta(void) {
                 s_enc.in_motion    = false;
                 // Ivan 2026-09-08: encoder detent counts as user input --
                 // postpone the 15-min uptime cap on any confirmed rotation.
-                if (emit != 0) shutdown_watcher_kick();
+                if (emit != 0) {
+                    shutdown_watcher_kick();
+                    // Stage 24 side quest: feed the encoder driver counters so
+                    // the ENC cmd surface + tile see the same events this
+                    // polled path emits (PCNT driver stays dormant).
+                    encoder_note_detent(emit);
+                }
             }
         }
     } else {

@@ -104,20 +104,35 @@ static inline lv_color_t theme_row_bg(void) {
 #define UI_SWITCH_H          26    // lv_switch height (px)
 #define UI_BTN_H             30    // Standard action button height (px)
 #define UI_ROW_H             34    // Switch-row container height (px)
-#define UI_TILE_PAD_H        10    // Horizontal inner padding per tile (px)
-#define UI_TILE_PAD_V         8    // Vertical inner padding per tile (px)
+// Safe-area padding to keep tile widgets away from the AMOLED's arced
+// corners. Batch G (Stage 25): bumped from 10/8 to 25/25 after Ivan
+// reported the sys tile switch getting hidden behind the corner arc.
+// Tiles that hardcode their own alignment (system_tile, some sensor tiles)
+// still need per-tile audits -- Batch H work.
+#define UI_TILE_PAD_H        25    // Horizontal inner padding per tile (px)
+#define UI_TILE_PAD_V        25    // Vertical inner padding per tile (px)
 #define UI_DIVIDER_H          1    // Divider line height (px)
 #define UI_DIVIDER_W        210    // Divider line width (px)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  FONT CONSTANTS
-//  All tiles use these unless locally overridden.
-//  Requires CONFIG_LV_FONT_MONTSERRAT_xx=y in sdkconfig.
+//  Stage 29 §4.1: app-wide font switched from LVGL's built-in Montserrat to
+//  Space Grotesk Medium. .c files live in ./fonts/ and are generated from
+//  reference_files/Space_Grotesk/static/SpaceGrotesk-Medium.ttf via
+//  `lv_font_conv --bpp 4 --format lvgl` (see Stage 29 §4.1 for the exact
+//  invocation). Body sizes carry ASCII 0x20-0x7E + degree sign (0xB0);
+//  the 96 px face is digits + colon only.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#define UI_FONT_TITLE        (&lv_font_montserrat_16)  // Tile header / section title
-#define UI_FONT_LABEL        (&lv_font_montserrat_14)  // Field labels
-#define UI_FONT_VALUE        (&lv_font_montserrat_12)  // Data values
-#define UI_FONT_CHIP         (&lv_font_montserrat_10)  // Chip name / small annotation
+LV_FONT_DECLARE(space_grotesk_medium_16);
+LV_FONT_DECLARE(space_grotesk_medium_20);
+LV_FONT_DECLARE(space_grotesk_medium_28);
+LV_FONT_DECLARE(space_grotesk_medium_96);
+
+#define UI_FONT_TITLE        (&space_grotesk_medium_28)  // Tile header / section title
+#define UI_FONT_LABEL        (&space_grotesk_medium_20)  // Field labels
+#define UI_FONT_VALUE        (&space_grotesk_medium_20)  // Data values
+#define UI_FONT_CHIP         (&space_grotesk_medium_16)  // Chip name / small annotation
+#define UI_FONT_TIME_XL      (&space_grotesk_medium_96)  // Main-screen clock only (2x Stage 28.1)
 
 #endif // UI_THEME_COLORS_H

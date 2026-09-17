@@ -143,3 +143,8 @@ ui_screen_state_t ui_navigation_current(void)
 {
     return s_current;
 }
+
+bool ui_navigation_is_on_main(void)
+{
+    return s_current == UI_SCREEN_MAIN;
+}

@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "veml6030.c" "light_tile.c"
+    SRCS "veml6030_cmd.c" "veml6030.c" "light_tile.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver

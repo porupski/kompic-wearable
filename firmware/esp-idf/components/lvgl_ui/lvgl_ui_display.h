@@ -1,14 +1,15 @@
 /**
  * @file lvgl_ui_display.h
- * @brief LVGL port + display bring-up. Stage 22 §4.1b.
+ * @brief LVGL port + display bring-up. Stage 22 §4.1b, rewritten Stage 30.2.
  *
  * Split from lvgl_ui.c so main.c can call one entry point without importing
  * esp_lvgl_port headers. Handles:
  *
  *   - lvgl_port_init() -- LVGL timer + task + global mutex (Core -1, prio 4).
- *   - Draw-buffer allocation in internal SRAM (partial refresh, 40-row strip).
- *   - lv_display_create() + LV_COLOR_FORMAT_RGB888 + flush callback that wraps
- *     co5300_set_window() + co5300_write_pixels().
+ *   - lvgl_port_add_disp() -- takes the esp_lcd io + panel handles from
+ *     boot_display and lets Espressif's port own the draw-buffer alloc,
+ *     flush handoff, and cache sync (DMA-overlap via double-buffered strip
+ *     in internal SRAM).
  *
  * The whole path is gated: on iv7.1 default boot (no panel) nothing runs. When
  * boot_display_is_present() returns true, or when the NVS lvgl_force_on flag
@@ -16,8 +17,8 @@
  *
  * The `force_no_panel` mode brings LVGL up in memory-only form so tile
  * transitions, event handlers, and the GPS photo view can be exercised on
- * iv7.1 without a real CO5300 -- the flush callback becomes a no-op that just
- * calls lv_display_flush_ready() to keep LVGL's frame counter moving.
+ * iv7.1 without a real CO5300 -- no lv_display is created; only the port
+ * task runs so screen state can be smoke-tested via CLI.
  */
 
 #ifndef LVGL_UI_DISPLAY_H
@@ -25,7 +26,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define LVGL_UI_DISPLAY_DRIVER_VERSION  "0.1.0"
+#define LVGL_UI_DISPLAY_DRIVER_VERSION  "0.2.5"
 
 #include "esp_err.h"
 #include <stdbool.h>
@@ -39,8 +40,9 @@ extern "C" {
  * @brief Bring up the LVGL port and register a display against CO5300 (or a
  *        no-op flush callback in force mode).
  *
- * Must be called AFTER boot_display_init() has returned, so the CO5300 handle
- * (via boot_display_get_co5300()) is either valid or explicitly NULL.
+ * Must be called AFTER boot_display_init() has returned, so the panel + io
+ * handles (via boot_display_get_panel_io / _get_panel) are either valid or
+ * explicitly NULL.
  *
  * @param force_no_panel If true, LVGL comes up regardless of panel presence
  *                       and the flush callback is a no-op. Used by

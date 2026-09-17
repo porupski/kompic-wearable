@@ -28,6 +28,7 @@
 #include "boot_display.h"       // backlight_set_brightness()
 #include "haptic.h"             // haptic_play(), HAPTIC_EFFECT_CLICK
 #include "veml6030.h"           // veml6030_get_chip_name(), veml6030_get_chip_desc()
+#include "veml6030_cmd.h"       // cmd surface -- tile callbacks route here
 #include "esp_log.h"
 #include <stdio.h>
 
@@ -97,7 +98,10 @@ static void apply_theme_buttons(ui_theme_t theme)
     }
 }
 
-static void save_settings(void)
+// Theme dark/light isn't part of the light command surface -- it's a UI
+// concern that'll migrate to a future ui_settings_cmd. Keep the local
+// snapshot helper for the theme callbacks only.
+static void save_theme_only(void)
 {
     ui_settings_t cfg = {
         .theme           = g_ui_theme,
@@ -116,30 +120,25 @@ static void cb_power(lv_event_t *e)
 {
     if (s_syncing_power) return;
     bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    broker_light_set_enabled(on);
+    veml6030_cmd_enable_set(on);
     haptic_play(HAPTIC_EFFECT_CLICK);
-    ESP_LOGI(TAG, "Light sensor %s", on ? "ON" : "OFF");
 }
 
 static void cb_auto_br(lv_event_t *e)
 {
     if (s_syncing_auto_br) return;
     bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    g_auto_brightness = on;
+    veml6030_cmd_auto_brightness_set(on);
     apply_auto_br_state(on);
     haptic_play(HAPTIC_EFFECT_CLICK);
-    save_settings();
-    ESP_LOGI(TAG, "Auto-brightness %s", on ? "ON" : "OFF");
 }
 
 static void cb_slider(lv_event_t *e)
 {
     if (g_auto_brightness) return;
     int val = lv_slider_get_value(lv_event_get_target(e));
-    g_saved_brightness = (uint8_t)val;
-    backlight_set_brightness((uint8_t)val);
+    veml6030_cmd_brightness_set((uint8_t)val);
     if (s_lbl_br_pct) lv_label_set_text_fmt(s_lbl_br_pct, "%d%%", val);
-    save_settings();
 }
 
 static void cb_theme_dark(lv_event_t *e)
@@ -148,7 +147,7 @@ static void cb_theme_dark(lv_event_t *e)
     g_ui_theme = UI_THEME_DARK;
     apply_theme_buttons(UI_THEME_DARK);
     haptic_play(HAPTIC_EFFECT_CLICK);
-    save_settings();
+    save_theme_only();
 }
 
 static void cb_theme_light(lv_event_t *e)
@@ -157,17 +156,16 @@ static void cb_theme_light(lv_event_t *e)
     g_ui_theme = UI_THEME_LIGHT;
     apply_theme_buttons(UI_THEME_LIGHT);
     haptic_play(HAPTIC_EFFECT_CLICK);
-    save_settings();
+    save_theme_only();
 }
 
 static void cb_bluelight(lv_event_t *e)
 {
     if (s_syncing_bluelight) return;
     bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    g_blue_light_on = on;
+    veml6030_cmd_blue_light_set(on);
     apply_bluelight(on);
     haptic_play(HAPTIC_EFFECT_CLICK);
-    save_settings();
 }
 
 // ---------------------------------------------------------------------------

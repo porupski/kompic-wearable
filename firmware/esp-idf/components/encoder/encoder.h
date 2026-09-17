@@ -100,4 +100,23 @@ uint32_t encoder_get_ccw_count(void);
 /** @brief Number of glitch / debounce-suppressed events since boot. */
 uint32_t encoder_get_glitch_count(void);
 
+// ── Polled-path notify hook ─────────────────────────────────────────────────
+// The iv7.1 hardware runs the polled detent-rest state machine in
+// `fc_common.c::encoder_delta()` instead of the PCNT driver above (which is
+// dormant per boot_hw_init.c). This hook lets the live path feed the same
+// counters so `encoder_cmd_*` reports a consistent state regardless of
+// which path is emitting events.
+//
+// `dir` is +1 for CW, -1 for CCW.
+void encoder_note_detent(int dir);
+
+/** @brief Wall time of the most recent detent event (esp_timer_get_time / 1000). */
+uint32_t encoder_get_last_event_ms(void);
+
+/**
+ * @brief Rotation speed estimate in detents-per-second, decayed over ~1 s.
+ *        Simple exponentially-averaged inter-event rate; 0 when idle.
+ */
+float encoder_get_rate_dps(void);
+
 #endif // ENCODER_H

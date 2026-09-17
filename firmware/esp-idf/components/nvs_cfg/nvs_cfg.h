@@ -23,7 +23,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define NVS_CFG_DRIVER_VERSION  "0.3.2"
+#define NVS_CFG_DRIVER_VERSION  "0.3.4"
 
 #include "esp_err.h"
 #include <stdbool.h>
@@ -153,6 +153,20 @@ esp_err_t nvs_cfg_sys_set_bb_cadence_s(uint16_t s);
 bool nvs_cfg_sys_get_rec_audio(void);
 esp_err_t nvs_cfg_sys_set_rec_audio(bool enabled);
 
+/**
+ * @brief Auto-shutdown deadline in minutes. 0 = disabled (device stays on
+ *        until a manual ship-mode gesture). Default 120 (2 h). Range 0..1440.
+ *
+ * Read once at boot by task_shutdown_watcher_fn; changes require a reboot
+ * to take effect (matches BLACKBOX/BATT_TEST semantics). Any confirmed user
+ * activity (button, encoder, touch, CLI) postpones the deadline via
+ * shutdown_watcher_kick() during a session.
+ *
+ * Live-tunable via serial "AUTOSHDN <minutes> | OFF" -- no arg = show state.
+ */
+uint16_t nvs_cfg_sys_get_auto_shdn_min(void);
+esp_err_t nvs_cfg_sys_set_auto_shdn_min(uint16_t minutes);
+
 // -- Firmware version bookkeeping ---------------------------------------------
 
 #define NVS_CFG_FW_STR_MAX  16   // "MAJOR.MINOR.PATCH" + NUL, generous
@@ -189,11 +203,17 @@ esp_err_t nvs_cfg_sys_set_pc_sync(int64_t offset_us, int64_t write_uptime_us);
 
 /**
  * @brief Pretty-print every NVS record this component owns, plus the
- *        PCF85063A RAM_byte for redundancy. No-op if
- *        nvs_cfg_sys_get_print_on_boot() is false. Uses printf() so it
- *        renders on both UART0 and USB-Serial-JTAG.
+ *        PCF85063A RAM_byte for redundancy. Always prints regardless of
+ *        the print_on_boot flag -- used by the on-demand CLI verb "NVS".
+ *        Uses printf() so it renders on both UART0 and USB-Serial-JTAG.
  *
  * @param i2c_num  I2C port for the PCF85063 read (usually I2C_NUM_0)
+ */
+void nvs_cfg_dump(int i2c_num);
+
+/**
+ * @brief Boot-time wrapper around nvs_cfg_dump(). Gated by the print_on_boot
+ *        flag -- no-op when disabled.
  */
 void nvs_cfg_boot_print(int i2c_num);
 

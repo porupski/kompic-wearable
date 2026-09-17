@@ -3757,6 +3757,19 @@
 		)
 		(uuid "606b40cc-127b-429d-bb36-2037af0bcaee")
 	)
+	(text "BUG:  pin 7 V_io should be FLOATING"
+		(exclude_from_sim no)
+		(at 62.23 185.928 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "6a9a0968-556a-4584-999d-50f59344b746")
+	)
 	(text "Electrode1 = Case Bump Electrode\nElectrode2 = Crown Wheel Electrode\n\nKeep TVS diodes close to pogo terminals."
 		(exclude_from_sim no)
 		(at 51.054 93.218 0)
@@ -3778,6 +3791,19 @@
 			)
 		)
 		(uuid "6bbcdf6a-8b2e-4f59-ad0e-96a5c62bae97")
+	)
+	(text "BUG:  pin 15 V_SET should be FLOATING"
+		(exclude_from_sim no)
+		(at 167.386 148.59 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "715b3e6f-cca8-4f0d-b5aa-930aa96e59c8")
 	)
 	(text "Address 0x51"
 		(exclude_from_sim no)
@@ -3821,6 +3847,19 @@
 			)
 		)
 		(uuid "9ba6006a-b7c6-4a76-86ab-153df0863a51")
+	)
+	(text "BUG: pins 17 SCL and 16 SDA SHOULD BE FLOATING"
+		(exclude_from_sim no)
+		(at 140.716 134.366 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "b8b719eb-8dfa-481c-a49a-2f15a41b2245")
 	)
 	(text "Resolved: 3v3 on VDDIO, only VDD gets 1v8"
 		(exclude_from_sim no)

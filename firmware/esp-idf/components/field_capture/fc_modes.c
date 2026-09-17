@@ -30,7 +30,9 @@
 #include "data_broker.h"
 #include "ws2812.h"
 #include "haptic.h"
-#include "qvar_ecg.h"
+// qvar_ecg.h include removed 2026-09-10: dead stub component deleted per
+// feedback_no_ecg_on_kompic. This file's QVAR/FCM_ECG path uses inline
+// register defines below, not the deleted header's symbols.
 
 static const char *TAG = "FC_MODES";
 
@@ -507,11 +509,11 @@ void run_temp_session(void) {
 
             float t_lsm  = read_lsm_die_temp();
             float t_max  = read_max_die_temp();
-            float t_soc  = esp_ts_read_c();
+            float t_esp  = esp_ts_read_c();
 
             (void)im;   // broker imu_data.temperature is also available; direct read is fresher.
-            printf("[TEMP] skin(TMP117)=%.2fC  air(BME688)=%.2fC  imu(LSM)=%.1fC  ppg(MAX)=%.1fC  soc(ESP32)=%.1fC\n",
-                   s.skin_temp_c, e.temperature_c, t_lsm, t_max, t_soc);
+            printf("[TEMP] skin(TMP117)=%.2fC  air(BME688)=%.2fC  imu(LSM)=%.1fC  ppg(MAX)=%.1fC  esp(ESP32)=%.1fC\n",
+                   s.skin_temp_c, e.temperature_c, t_lsm, t_max, t_esp);
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

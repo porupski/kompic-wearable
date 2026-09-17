@@ -105,6 +105,28 @@ void task_field_capture_fn(void *arg);
  */
 uint32_t field_capture_get_boot_seq(void);
 
+/**
+ * @brief Bump the "last activity" timestamp used by the 15 s display auto-
+ *        sleep timer. Call from any input source that isn't already polled
+ *        by field_capture's main loop (e.g. the LVGL touch reader). Safe
+ *        cross-core -- writes an aligned uint32_t.
+ */
+void field_capture_kick_activity(void);
+
+/**
+ * @brief Universal "back" gesture -- one call, three behaviours based on
+ *        current state (evaluated on the next main-loop tick):
+ *          - panel asleep      -> wake it
+ *          - awake + in submenu -> exit submenu (up one level)
+ *          - awake + top-level -> sleep the panel (lock)
+ *        Callable from any core. Bumps an atomic counter that the main
+ *        loop consumes; no direct display / mode side effect happens on
+ *        the caller's thread. The `reason` string is a short identifier
+ *        (e.g. "touch-double", "btn-double") logged when the request is
+ *        served.
+ */
+void field_capture_back_gesture(const char *reason);
+
 #ifdef __cplusplus
 }
 #endif

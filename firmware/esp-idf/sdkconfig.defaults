@@ -19,6 +19,38 @@
 # NO exposed BOOT button, so if the app hangs while TinyUSB is active,
 # recovery requires a hardware reset via the BQ25619 QON pin (ship-mode
 # gesture) or full power removal.
+# Keep USB-JTAG/Serial alive through light sleep so idf_monitor stays connected.
+# Without this, the board enters light sleep, USB PHY powers down, monitor drops.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+
 CONFIG_TINYUSB_MSC_ENABLED=y
 CONFIG_TINYUSB_MSC_BUFSIZE=4096
 CONFIG_TINYUSB_TASK_PRIORITY=5
+
+# ─── LVGL: snapshot API (Stage 23 §1.3 LVGL_SCREENSHOT) ─────────────────────
+# Enables lv_snapshot_take() so the LVGL_SCREENSHOT CLI verb can dump the
+# active screen as PNG to SD. Bench visual verification pre-Mk1b.
+CONFIG_LV_USE_SNAPSHOT=y
+
+# ─── LVGL malloc: route through libc (Stage 25 Batch F) ─────────────────────
+# Sys tile on Mk1b Batch E flashed with task_wdt on IDLE0: LVGL 9's
+# lv_draw_layer_alloc_buf tried to allocate a full-screen composite (~603 KB
+# @ RGB888) and the 64 KB LV_MEM_SIZE TLSF pool couldn't hold it. Switching
+# LVGL to libc malloc means sdkconfig's CONFIG_SPIRAM_USE_MALLOC routes
+# large allocations (>= CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL = 16 KB) to
+# PSRAM automatically. Small widget-tree allocs stay in internal SRAM.
+# The disabled BUILTIN option also drops the LV_MEM_SIZE_KILOBYTES / _ADR
+# knobs (they're depends-on BUILTIN in Kconfig).
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set  (choice-flip)
+CONFIG_LV_USE_CLIB_MALLOC=y
+
+# ─── LVGL color depth (Stage 28 §4.3 -- back to 16) ─────────────────────────
+# Batch 28.2 flipped 16 -> 32 hoping to help font AA crispness. Bench
+# result (2026-09-13): text still fuzzy, so 32-bit wasn't the fix.
+# Reverted to 16 to match the old smartwatch project (WS-Touch-LCD-1.69)
+# which renders crisp text with LV_COLOR_DEPTH_16 -- a known-good
+# baseline. Real AA/color culprit tracked separately (RGB byte-order:
+# LVGL 9 emits [B,G,R] in memory but the CO5300 wire order is [R,G,B]
+# under COLMOD 0x77 -- MADCTL BGR bit toggle will A/B this in a
+# follow-up batch).
+CONFIG_LV_COLOR_DEPTH_16=y

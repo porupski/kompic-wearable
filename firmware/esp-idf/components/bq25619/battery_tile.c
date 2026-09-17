@@ -31,7 +31,7 @@ static lv_obj_t *s_led_status  = NULL;
 static lv_obj_t *s_lbl_header  = NULL;
 static lv_obj_t *s_divider     = NULL;
 static lv_obj_t *s_lbl_vbat    = NULL;  // "Vbat:   3.85 V"
-static lv_obj_t *s_lbl_soc     = NULL;  // "SoC:    62 %"
+static lv_obj_t *s_lbl_soc     = NULL;  // "Fuel:    62 %"
 static lv_obj_t *s_lbl_chrg    = NULL;  // "State:  Fast charge"
 static lv_obj_t *s_lbl_pg      = NULL;  // "Power:  USB OK"
 static lv_obj_t *s_lbl_fault   = NULL;  // "Fault:  0x00"
@@ -100,7 +100,7 @@ void battery_tile_init(lv_obj_t *parent)
     struct row { lv_obj_t **w; const char *initial; };
     struct row rows[] = {
         { &s_lbl_vbat,  "Vbat:   --.-- V"     },
-        { &s_lbl_soc,   "SoC:    --- %"       },
+        { &s_lbl_soc,   "Fuel:    --- %"       },
         { &s_lbl_chrg,  "State:  ---"         },
         { &s_lbl_pg,    "Power:  ---"         },
         { &s_lbl_fault, "Fault:  0x--"        },
@@ -126,7 +126,7 @@ void battery_tile_update(void)
 
     if (d.last_update_ms == 0) {
         lv_label_set_text(s_lbl_vbat,  "Vbat:   --.-- V");
-        lv_label_set_text(s_lbl_soc,   "SoC:    --- %");
+        lv_label_set_text(s_lbl_soc,   "Fuel:    --- %");
         lv_label_set_text(s_lbl_chrg,  "State:  ---");
         lv_label_set_text(s_lbl_pg,    "Power:  ---");
         lv_label_set_text(s_lbl_fault, "Fault:  0x--");
@@ -135,7 +135,7 @@ void battery_tile_update(void)
     }
 
     lv_label_set_text_fmt(s_lbl_vbat,  "Vbat:   %.2f V", (double)d.voltage);
-    lv_label_set_text_fmt(s_lbl_soc,   "SoC:    %u %%", (unsigned)d.percentage);
+    lv_label_set_text_fmt(s_lbl_soc,   "Fuel:    %u %%", (unsigned)d.percentage);
 
     const char *cs = (d.charge_state < 4) ? k_chrg[d.charge_state] : "???";
     lv_label_set_text_fmt(s_lbl_chrg,  "State:  %s", cs);

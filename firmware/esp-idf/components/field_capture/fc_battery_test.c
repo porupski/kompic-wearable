@@ -5,8 +5,8 @@
  * Split out of field_capture.c in the Stage 12 refactor.
  *
  * Owns three related things kept together because they share the same helper
- * plumbing (esp_ts, vbat_adc, idle_pct):
- *   - Shared telemetry helpers (esp_ts / vbat_adc / idle_pct)
+ * plumbing (esp_ts, fuel snapshot, idle_pct):
+ *   - Shared telemetry helpers (esp_ts / read_fuel_snapshot / idle_pct)
  *   - run_battery_test_mode() -- takes over the main task on NVS-flagged boot
  *   - task_blackbox_fn -- background CSV logger, boots regardless
  *
@@ -27,83 +27,32 @@
 #include "soc/rtc.h"
 #include "freertos/task.h"
 
-#include "esp_adc/adc_oneshot.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
 #include "driver/temperature_sensor.h"
 
 #include "data_broker.h"
 #include "ws2812.h"
 #include "sdcard.h"
 #include "nvs_cfg.h"
+#include "max17048.h"
 
 static const char *TAG = "FC_BATT";
 
-// ── Vbat ADC — 5k1-5k1 divider on GPIO18 (ADC2_CH7). Prototype override:
-//    borrows the GPS UART RX pin because this unit will not have M10S fitted.
-//    ADC2 shares the RF-cal path with Wi-Fi; safe here because Kompic is
-//    BLE-only. If Wi-Fi is ever enabled, oneshot reads will start returning
-//    ESP_ERR_TIMEOUT and this must move again. ─────────────────────────────
-static adc_oneshot_unit_handle_t s_vbat_adc  = NULL;
-static adc_cali_handle_t         s_vbat_cali = NULL;
-static bool                      s_vbat_init_tried = false;
-
-void vbat_adc_ensure_init(void)
+// ── MAX17048 fuel gauge cell readout (I2C bus 2, shared mutex) ──────────────
+// Vbat is now VCELL from the MAX17048 fuel gauge. Both the retired GPIO18
+// divider (iv7.1 prototype) and the fake BQ25619 REG_VBAT (no ADC on iv8.0
+// silicon, per [[project_bq_no_vbat_adc]]) are gone. On no-cell / no-ACK we
+// log zeros so a missing gauge is visible in the CSV instead of masked.
+static void read_fuel_snapshot(uint16_t *vcell_mv, uint16_t *soc_pct100)
 {
-    if (s_vbat_init_tried) return;
-    s_vbat_init_tried = true;
-
-    adc_oneshot_unit_init_cfg_t unit_cfg = {
-        .unit_id  = ADC_UNIT_2,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
-    if (adc_oneshot_new_unit(&unit_cfg, &s_vbat_adc) != ESP_OK) {
-        ESP_LOGW(TAG, "Vbat ADC: unit init failed");
-        s_vbat_adc = NULL;
-        return;
-    }
-    adc_oneshot_chan_cfg_t chan_cfg = {
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-        .atten    = ADC_ATTEN_DB_12,
-    };
-    adc_oneshot_config_channel(s_vbat_adc, ADC_CHANNEL_7, &chan_cfg);
-
-    adc_cali_curve_fitting_config_t cali_cfg = {
-        .unit_id  = ADC_UNIT_2,
-        .chan     = ADC_CHANNEL_7,
-        .atten    = ADC_ATTEN_DB_12,
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-    };
-    if (adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_vbat_cali) != ESP_OK) {
-        ESP_LOGW(TAG, "Vbat ADC: curve-fit cali unavailable, using raw counts");
-        s_vbat_cali = NULL;
-    }
-    ESP_LOGI(TAG, "Vbat ADC armed on GPIO18 (ADC2_CH7), 5k1-5k1 divider");
+    *vcell_mv   = 0;
+    *soc_pct100 = 0;
+    if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    (void)max17048_read_vcell_mv(I2C_NUM_1, vcell_mv);
+    (void)max17048_read_soc_pct100(I2C_NUM_1, soc_pct100);
+    xSemaphoreGive(g_i2c2_mutex);
 }
 
-uint32_t vbat_adc_read_mv(void)
-{
-    if (!s_vbat_adc) return 0;
-    int raw_acc = 0;
-    int ok_n    = 0;
-    for (int i = 0; i < 8; i++) {
-        int raw;
-        if (adc_oneshot_read(s_vbat_adc, ADC_CHANNEL_7, &raw) == ESP_OK) {
-            raw_acc += raw;
-            ok_n++;
-        }
-    }
-    if (ok_n == 0) return 0;
-    int raw_avg = raw_acc / ok_n;
-    int mv_at_pin = 0;
-    if (s_vbat_cali &&
-        adc_cali_raw_to_voltage(s_vbat_cali, raw_avg, &mv_at_pin) == ESP_OK) {
-        return (uint32_t)(mv_at_pin * 2);
-    }
-    return (uint32_t)((raw_avg * 3300 / 4095) * 2);
-}
-
-// ── ESP32-S3 SoC junction temperature ───────────────────────────────────────
+// ── ESP32-S3 junction temperature (not to be confused with fuel-gauge SOC!) ─
 static temperature_sensor_handle_t s_esp_ts = NULL;
 static bool                        s_esp_ts_tried = false;
 
@@ -190,13 +139,10 @@ void task_blackbox_fn(void *arg)
     try_mkdir("/sd/data/blackbox");
 
     esp_ts_ensure_init();
-    vbat_adc_ensure_init();
     idle_pct_state_t idle_st = { 0 };
 
-    char bb_path[80];
-    snprintf(bb_path, sizeof(bb_path),
-             "/sd/data/blackbox/bb_%04lu.csv",
-             (unsigned long)s_boot_seq);
+    char bb_path[96];
+    fc_dated_path("blackbox", "blackbox", bb_path, sizeof(bb_path));
     {
         FILE *f = fopen(bb_path, "w");
         if (!f) {
@@ -213,11 +159,12 @@ void task_blackbox_fn(void *arg)
         fprintf(f, "#   0=DISABLED 1=OFFLINE 2=ACQUIRING 3=STALE 4=ONLINE 5=NOTIF\n");
         fprintf(f, "# fcm_mode is the current top-level FCM enum name; fcm_state = STANDBY/FL_ON/RECORDING/ALARM.\n");
         fprintf(f, "# idle_pct: %% of wall-time both cores spent in Idle since previous row.\n");
-        fprintf(f, "# batt_mv is the BQ25619 threshold register -- IGNORE; use vbat_adc_mv.\n");
+        fprintf(f, "# bq_v/bq_pct are broker-fake placeholders; real cell state = vcell_mv + fuel_pct (MAX17048).\n");
+        fprintf(f, "# esp_c is the ESP32-S3 die junction temperature -- do NOT confuse with fuel-gauge SOC.\n");
         fprintf(f, "t_ms,iso_utc,uptime_min,boot_seq,");
         fprintf(f, "fcm_mode,fcm_state,");
         fprintf(f, "heap_free_kb,min_heap_kb,cpu_mhz,idle_pct,sensors_on,sensors_stat,");
-        fprintf(f, "bq_v,bq_pct,bq_chg,bq_pg,bq_fault,vbat_adc_mv,soc_temp_c,");
+        fprintf(f, "bq_v,bq_pct,bq_chg,bq_pg,bq_fault,vcell_mv,fuel_pct,esp_c,");
         fprintf(f, "imu_ax,imu_ay,imu_az,imu_gx,imu_gy,imu_gz,imu_temp,");
         fprintf(f, "mag_x,mag_y,mag_z,");
         fprintf(f, "env_t,env_h,env_p,env_gas,env_alt,");
@@ -282,8 +229,9 @@ void task_blackbox_fn(void *arg)
         broker_hr_data_t      hr;  broker_hr_read(&hr);
         broker_skin_data_t    sk;  broker_skin_read(&sk);
 
-        float t_soc = esp_ts_read_c();
-        uint32_t vbat_adc_mv = vbat_adc_read_mv();
+        float t_esp = esp_ts_read_c();
+        uint16_t vcell_mv = 0, fuel_pct100 = 0;
+        read_fuel_snapshot(&vcell_mv, &fuel_pct100);
 
         const char *mode_name = MODE_INFO[s_mode].name;
         const char *state_name = (s_state < (int)(sizeof(st_names)/sizeof(*st_names)))
@@ -299,12 +247,14 @@ void task_blackbox_fn(void *arg)
                     (unsigned long)heap_free_kb, (unsigned long)min_heap_kb,
                     (unsigned long)cpu_mhz, (unsigned)idle_pct,
                     (unsigned long)sensors_on, (unsigned long)stat);
-            fprintf(f, "%.3f,%u,%u,%u,0x%02X,%lu,%.2f,",
+            fprintf(f, "%.3f,%u,%u,%u,0x%02X,%u,%u.%02u,%.2f,",
                     bat.voltage, (unsigned)bat.percentage,
                     (unsigned)(bat.charging ? 1 : 0),
                     (unsigned)(bat.power_good ? 1 : 0),
                     (unsigned)bat.fault,
-                    (unsigned long)vbat_adc_mv, t_soc);
+                    (unsigned)vcell_mv,
+                    (unsigned)(fuel_pct100 / 100U), (unsigned)(fuel_pct100 % 100U),
+                    t_esp);
             fprintf(f, "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.1f,",
                     im.accel_x, im.accel_y, im.accel_z,
                     im.gyro_x, im.gyro_y, im.gyro_z, im.temperature);
@@ -365,7 +315,6 @@ void run_battery_test_mode(void) {
     }
 
     esp_ts_ensure_init();
-    vbat_adc_ensure_init();
     idle_pct_state_t idle_st = { 0 };
 
     esp_pm_lock_handle_t vbus_lock = NULL;
@@ -378,12 +327,10 @@ void run_battery_test_mode(void) {
     }
 #endif
 
-    char batt_path[80];
+    char batt_path[96];
     bool batt_path_ok = false;
     if (s_sd_ready) {
-        snprintf(batt_path, sizeof(batt_path),
-                 "/sd/data/battery/batt_%04lu.csv",
-                 (unsigned long)s_boot_seq);
+        fc_dated_path("battery", "batt", batt_path, sizeof(batt_path));
         FILE *f = fopen(batt_path, "w");
         if (f) {
             char now[32]; rtc_iso_now(now, sizeof(now));
@@ -392,12 +339,13 @@ void run_battery_test_mode(void) {
                     KOMPIC_HW_VERSION, KOMPIC_FW_VERSION, KOMPIC_HW_VERSION,
                     (unsigned long)s_boot_seq, now);
             fprintf(f, "# sample every 10 s until BQ25619 UVLO cutoff\n");
+            fprintf(f, "# vcell_mv + fuel_pct come from the MAX17048 fuel gauge on I2C bus 2 (address 0x36).\n");
             fprintf(f, "# batt_mv is a BQ25619 threshold register (not a real ADC), ignore it.\n");
-            fprintf(f, "# vbat_adc_mv is a temporary 5k1-5k1 divider on GPIO9 (screen D2 pad) -- ~+/-1%% accuracy.\n");
+            fprintf(f, "# esp_c is the ESP32-S3 die junction temperature -- do NOT confuse with fuel-gauge SOC.\n");
             fprintf(f, "# cpu_mhz is snapshot at sample time (DFS makes it vary; sample is during work window -> usually 240).\n");
             fprintf(f, "# sensors_on: bitmap IMU|MAG|ENV|LIGHT|HR|SKIN|BAT|RTC (LSB=IMU). All 0 during batt_test except BAT+RTC which are always-on.\n");
             fprintf(f, "# idle_pct: %% of wall-time both cores spent in Idle since previous row. High = PM light-sleep engaging.\n");
-            fprintf(f, "t_ms,iso_utc,soc_temp_c,batt_mv,batt_pct,charging,vbat_adc_mv,heap_free_kb,cpu_mhz,sensors_on,idle_pct\n");
+            fprintf(f, "t_ms,iso_utc,esp_c,batt_mv,batt_pct,charging,vcell_mv,fuel_pct,heap_free_kb,cpu_mhz,sensors_on,idle_pct\n");
             fclose(f);
             batt_path_ok = true;
             ESP_LOGI(TAG, "BATT_TEST: logging to %s (open-append-close per row, SD unmounted between samples)", batt_path);
@@ -422,10 +370,12 @@ void run_battery_test_mode(void) {
 
         ws2812_set_color(0, WS_MAX, WS_MAX);
 
-        float t_soc = esp_ts_read_c();
+        float t_esp = esp_ts_read_c();
         uint8_t idle_pct = idle_pct_sample(&idle_st);
 
         broker_battery_data_t bd; broker_battery_read(&bd);
+        uint16_t vcell_mv = 0, fuel_pct100 = 0;
+        read_fuel_snapshot(&vcell_mv, &fuel_pct100);
 
 #ifdef CONFIG_PM_ENABLE
         if (vbus_lock) {
@@ -457,17 +407,16 @@ void run_battery_test_mode(void) {
         if (broker_battery_get_enabled()) sensors_on |= (1 << 6);
         if (broker_rtc_get_enabled())     sensors_on |= (1 << 7);
 
-        uint32_t vbat_adc_mv = vbat_adc_read_mv();
-
         if (batt_path_ok) {
             if (sdcard_mount() == ESP_OK) {
                 FILE *f = fopen(batt_path, "a");
                 if (f) {
-                    fprintf(f, "%lu,%s,%.2f,%.0f,%u,%u,%lu,%lu,%lu,0x%02lX,%u\n",
-                            (unsigned long)now, iso, t_soc,
+                    fprintf(f, "%lu,%s,%.2f,%.0f,%u,%u,%u,%u.%02u,%lu,%lu,0x%02lX,%u\n",
+                            (unsigned long)now, iso, t_esp,
                             bd.voltage * 1000.0f, (unsigned)bd.percentage,
                             (unsigned)(bd.charging ? 1 : 0),
-                            (unsigned long)vbat_adc_mv,
+                            (unsigned)vcell_mv,
+                            (unsigned)(fuel_pct100 / 100U), (unsigned)(fuel_pct100 % 100U),
                             (unsigned long)heap_free_kb,
                             (unsigned long)cpu_mhz,
                             (unsigned long)sensors_on,
@@ -484,14 +433,17 @@ void run_battery_test_mode(void) {
         }
 
         // Stage 18: per-sample line stays at INFO because it is the operator's
-        // primary live-monitoring surface during a drain test. vbat leads so
+        // primary live-monitoring surface during a drain test. vcell leads so
         // the user sees at a glance whether the pack is still climbing (charge)
         // or falling (discharge). Cadence is 10 s -- not chatter.
-        ESP_LOGI(TAG, "BATT_TEST #%lu  vbat=%lumV%s  soc=%.1fC  heap=%luKB  cpu=%luMHz  idle=%u%%  sens=0x%02lX  %s",
+        // Note: `esp=` is ESP32-S3 junction temp; `fuel=` is MAX17048 SOC%.
+        // Deliberately no `soc` label anywhere here -- see [[feedback_status_terse]].
+        ESP_LOGI(TAG, "BATT_TEST #%lu  vcell=%umV%s  fuel=%u.%02u%%  esp=%.1fC  heap=%luKB  cpu=%luMHz  idle=%u%%  sens=0x%02lX  %s",
                  (unsigned long)sample_idx,
-                 (unsigned long)vbat_adc_mv,
+                 (unsigned)vcell_mv,
                  bd.charging ? " CHG" : "",
-                 (double)t_soc,
+                 (unsigned)(fuel_pct100 / 100U), (unsigned)(fuel_pct100 % 100U),
+                 (double)t_esp,
                  (unsigned long)heap_free_kb,
                  (unsigned long)cpu_mhz,
                  (unsigned)idle_pct,

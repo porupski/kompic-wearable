@@ -184,4 +184,13 @@ void bq25619_soc_observe(uint16_t vbat_mv, bool is_charging);
 /** @brief Read the running observed min/max vbat (mV). For diagnostics. */
 void bq25619_soc_get_observed_extremes(uint16_t *min_mv, uint16_t *max_mv);
 
+/**
+ * @brief Decode REG_FAULT NTC_FAULT bits [2:0] into a string tag.
+ *        BQ25619 has NO numeric TS ADC -- TS pin drives a JEITA state
+ *        machine that reports one of: Normal / Warm / Cool / Cold / Hot.
+ *        Pure function; caller passes the raw REG_FAULT byte.
+ *        Returns a static const string (never NULL).
+ */
+const char *bq25619_ntc_status_str(uint8_t fault_reg);
+
 #endif // BQ25619_H

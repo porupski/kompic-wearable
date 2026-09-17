@@ -11,8 +11,9 @@
  *   fc_modes.c         -- Compass, ECG (inline QVAR), TEMP, mode-signature
  *                         LED animations (rgb_compass_alt_red_blue etc.)
  *   fc_modes_lsm.c     -- BCG, Steps, MLC_COLLECT, TAP_DBG
- *   fc_battery_test.c  -- batt_test mode + BLACKBOX task + esp_ts / vbat_adc /
- *                         idle_pct shared telemetry helpers
+ *   fc_battery_test.c  -- batt_test mode + BLACKBOX task + esp_ts /
+ *                         fuel-gauge snapshot / idle_pct shared telemetry
+ *                         helpers
  *   fc_shutdown.c      -- watcher_ship_mode + task_shutdown_watcher_fn +
  *                         g_shutdown_hold_active / g_recording_active / etc.
  *   fc_cli.c           -- every rtc_cli_* + task_rtc_cli_fn
@@ -69,6 +70,37 @@ uint32_t field_capture_get_boot_seq(void) {
     return s_boot_seq;
 }
 
+void field_capture_kick_activity(void) {
+    s_last_activity_ms = millis_u32();
+    // Also postpone the auto-shutdown uptime cap. Any surface that kicks
+    // activity (touch press-edge, external caller) then covers both the
+    // display-idle timer and the auto-shdn deadline in one call.
+    shutdown_watcher_kick();
+}
+
+// ── Cross-core back-gesture signal (Stage 28 §4.4) ──────────────────────────
+// Any thread can request a "back" event by bumping s_back_req_count. The main
+// loop polls the delta each tick, evaluates current state, and dispatches to
+// wake / submenu-exit / sleep. Reason string stashed in a small ring so we
+// can log which source fired even if two requests land in the same tick.
+#define BACK_REASON_RING_LEN 4
+static volatile uint32_t s_back_req_count            = 0;
+static uint32_t          s_back_req_seen             = 0;
+static const char       *s_back_reasons[BACK_REASON_RING_LEN] = {0};
+static volatile uint32_t s_back_reason_wr            = 0;
+
+void field_capture_back_gesture(const char *reason) {
+    uint32_t idx = __atomic_fetch_add(&s_back_reason_wr, 1, __ATOMIC_RELAXED);
+    s_back_reasons[idx % BACK_REASON_RING_LEN] = reason ? reason : "?";
+    __atomic_fetch_add(&s_back_req_count, 1, __ATOMIC_RELAXED);
+}
+
+static const char *back_reason_take(void) {
+    uint32_t wr = __atomic_load_n(&s_back_reason_wr, __ATOMIC_RELAXED);
+    if (wr == 0) return "?";
+    return s_back_reasons[(wr - 1) % BACK_REASON_RING_LEN];
+}
+
 // Callback for usb_msc_run_until_exit -- returns true on a single click.
 // Runs from the usb_msc loop tick (~50 ms), not from the main state machine.
 static bool usb_msc_button_click_cb(void) {
@@ -96,6 +128,14 @@ void field_capture_init(void) {
     s_btn_prev_low = (gpio_get_level(PIN_BUTTON) == 0);
 
     nvs_load();
+
+    // --- TEMP HARDCODE 2026-09-16: encoder dead, force FLASHLIGHT boot ---
+    // Does NOT call nvs_save_mode(), so the persisted mode in NVS is
+    // untouched -- delete this block once the encoder is fixed and the
+    // device will resume remembering mode normally.
+    s_mode = FCM_FLASHLIGHT;
+    s_in_submenu = false;
+    // --- END TEMP HARDCODE ---
     s_last_activity_ms = millis_u32();
     ensure_sd();
 
@@ -130,32 +170,93 @@ void task_field_capture_fn(void *arg) {
         int btn = button_poll();
         int enc = encoder_delta();
 
-        // ── Stage 10 "go back" gesture: LSM tap-double OR button double ──
-        // Only acts while ST_STANDBY -- if a recording is live we don't
-        // want a stray gesture to abort the session. Tap counter is polled
-        // + deduped on strict increase; button double-click is btn==2. Both
-        // do the same thing so the user has a fallback while tap thresholds
-        // are being tuned.
-        uint32_t tap_dbl = lsm6dsv16x_tap_z_double_count();
-        bool exit_submenu = false;
-        const char *exit_reason = NULL;
-        if (tap_dbl != s_last_tap_dbl_count) {
-            s_last_tap_dbl_count = tap_dbl;
-            exit_submenu = true;
-            exit_reason  = "tap-double";
+        // ── Display auto-sleep: 30 s of no button / encoder / mode-change
+        //    activity puts the panel into DISPOFF+SLPIN. Button single-click
+        //    wakes (button_poll consumes the click). No-op when the panel is
+        //    absent or already asleep. Bumped 15 s -> 30 s per Ivan
+        //    2026-09-15 (Stage 30 §4.2h) -- 15 s was too aggressive during
+        //    on-panel diagnostic reads.
+        {
+            extern bool      boot_display_is_present(void);
+            extern bool      boot_display_is_asleep(void);
+            extern esp_err_t boot_display_sleep(void);
+            const uint32_t DISP_IDLE_MS = 30000;
+            uint32_t now_ms = millis_u32();
+            if (boot_display_is_present() && !boot_display_is_asleep() &&
+                s_state == ST_STANDBY &&
+                (now_ms - s_last_activity_ms) >= DISP_IDLE_MS) {
+                ESP_LOGI(TAG, "[DISP] reason=idle-timeout (%u ms idle)",
+                         (unsigned)DISP_IDLE_MS);
+                (void)boot_display_sleep();
+            }
         }
-        if (btn == 2 && s_state == ST_STANDBY && s_in_submenu) {
-            exit_submenu = true;
-            exit_reason  = "button-double (tap backup)";
-            btn = 0;  // consume so the ST_STANDBY switch doesn't also see it
-        }
-        if (exit_submenu && s_state == ST_STANDBY && s_in_submenu) {
-            s_in_submenu = false;
-            s_mode = FCM_LSM;
-            nvs_save_mode();
-            haptic_play(DRV_MEDIUM_CLICK);
-            s_last_activity_ms = millis_u32();
-            ESP_LOGI(TAG, "LSM submenu EXIT (%s)", exit_reason);
+
+        // ── Universal back-gesture dispatch (Stage 28 §4.4) ──────────────
+        // btn double-click, LSM tap-double, and CST9217 touch double-tap all
+        // funnel through field_capture_back_gesture() into a single atomic
+        // request counter. Semantics: asleep -> wake; in-submenu -> up one
+        // level; top-level -> lock (sleep). Ivan's spec 2026-09-13:
+        // "double tap should exit the menu, go up a level, and if highest
+        // level, then lock. double tap locks the screen anytime anywhere."
+        {
+            // btn==2 while ST_STANDBY: fold into the back-gesture queue.
+            if (btn == 2 && s_state == ST_STANDBY) {
+                field_capture_back_gesture("btn-double");
+                btn = 0;   // swallow so no downstream mode action fires
+            }
+            // LSM tap-double: dedupe on strict increase, same queue.
+            uint32_t tap_dbl = lsm6dsv16x_tap_z_double_count();
+            if (tap_dbl != s_last_tap_dbl_count) {
+                s_last_tap_dbl_count = tap_dbl;
+                if (s_state == ST_STANDBY) {
+                    field_capture_back_gesture("lsm-tap-double");
+                }
+            }
+
+            // Drain the shared back counter -- one dispatch per bump.
+            uint32_t req_now = __atomic_load_n(&s_back_req_count,
+                                               __ATOMIC_RELAXED);
+            while (req_now != s_back_req_seen) {
+                s_back_req_seen++;
+                const char *reason = back_reason_take();
+                extern bool      boot_display_is_present(void);
+                extern bool      boot_display_is_asleep(void);
+                extern esp_err_t boot_display_wake(void);
+                extern esp_err_t boot_display_sleep(void);
+                extern bool      ui_navigation_is_on_main(void);
+                if (boot_display_is_present() && boot_display_is_asleep()) {
+                    ESP_LOGI(TAG, "[DISP] back-gesture reason=%s -> wake",
+                             reason);
+                    (void)boot_display_wake();
+                    s_last_activity_ms = millis_u32();
+                } else if (s_state == ST_STANDBY && s_in_submenu) {
+                    ESP_LOGI(TAG, "[BACK] reason=%s -> submenu exit",
+                             reason);
+                    s_in_submenu = false;
+                    s_mode = FCM_LSM;
+                    nvs_save_mode();
+                    haptic_play(DRV_MEDIUM_CLICK);
+                    s_last_activity_ms = millis_u32();
+                } else if (s_state == ST_STANDBY &&
+                           boot_display_is_present() &&
+                           ui_navigation_is_on_main()) {
+                    // Stage 28 §4.5: lock branch now narrows to main-screen
+                    // only. Ivan's bench 2026-09-13: accidental double taps
+                    // while browsing Settings tiles kept sleeping the
+                    // panel. On non-main screens the back gesture is a
+                    // no-op (swipe-down is the intended nav-back path).
+                    ESP_LOGI(TAG, "[DISP] back-gesture reason=%s -> sleep",
+                             reason);
+                    (void)boot_display_sleep();
+                } else if (s_state == ST_STANDBY &&
+                           boot_display_is_present()) {
+                    ESP_LOGI(TAG, "[BACK] reason=%s -> ignored (not on main)",
+                             reason);
+                } else {
+                    ESP_LOGI(TAG, "[BACK] reason=%s -> ignored (state=%d)",
+                             reason, (int)s_state);
+                }
+            }
         }
 
         switch (s_state) {

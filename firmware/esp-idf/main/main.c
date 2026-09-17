@@ -67,14 +67,12 @@ void app_main(void)
     boot_hw_init(&cal);
 
     // -- 5a. Eager telemetry init (Stage 17) ---------------------------------
-    // vbat_adc_ensure_init() and esp_ts_ensure_init() used to lazy-init on
-    // first STATUS call, which surfaced their log lines mid-CLI output long
-    // after boot. Firing them here places their log lines in the right slot
-    // and shaves ~2 ms off the first STATUS invocation.
+    // esp_ts_ensure_init() used to lazy-init on first STATUS call, which
+    // surfaced its log lines mid-CLI output long after boot. Firing it here
+    // places its log lines in the right slot and shaves ~2 ms off the first
+    // STATUS invocation.
     {
-        extern void vbat_adc_ensure_init(void);
         extern void esp_ts_ensure_init(void);
-        vbat_adc_ensure_init();
         esp_ts_ensure_init();
     }
 

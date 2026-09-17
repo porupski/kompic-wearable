@@ -192,12 +192,19 @@ void system_tile_init(lv_obj_t *parent)
     }
 
     // ── Internal temperature sensor ───────────────────────────────────────
+    // main.c calls esp_ts_ensure_init() during boot for the STATUS verb, which
+    // installs the singleton temp sensor. When this tile later tries the same
+    // install, esp-idf returns ESP_ERR_INVALID_STATE ("Already installed").
+    // That's benign: STATUS still prints esp_temp because the earlier install
+    // succeeded. We just don't get our own handle for the tile's live readout.
+    // Log at INFO level instead of WARN so the boot log doesn't look scary.
     temperature_sensor_config_t tcfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
     esp_err_t terr = temperature_sensor_install(&tcfg, &s_tsens);
     if (terr == ESP_OK) {
         temperature_sensor_enable(s_tsens);
     } else {
-        ESP_LOGW(TAG, "Internal temp sensor init failed: %s", esp_err_to_name(terr));
+        ESP_LOGI(TAG, "Internal temp sensor: %s (already owned by esp_ts_ensure_init, tile shows N/A)",
+                 esp_err_to_name(terr));
         s_tsens = NULL;
         lv_label_set_text(s_val_temp, "N/A");
     }

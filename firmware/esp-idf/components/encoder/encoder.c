@@ -234,3 +234,40 @@ int32_t  encoder_get_total_detents(void) { return s_total_detents; }
 uint32_t encoder_get_cw_count(void)      { return s_cw_count;      }
 uint32_t encoder_get_ccw_count(void)     { return s_ccw_count;     }
 uint32_t encoder_get_glitch_count(void)  { return s_glitch_count;  }
+
+// ── Polled-path notify hook + rate estimate ────────────────────────────────
+
+static uint32_t s_last_event_ms  = 0;
+// EMA of inter-event ms; large default keeps the initial "rate" at ~0.
+static float    s_ema_gap_ms     = 1000.0f;
+
+void encoder_note_detent(int dir)
+{
+    if (dir == 0) return;
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+    if (s_last_event_ms != 0) {
+        uint32_t gap = now_ms - s_last_event_ms;
+        if (gap > 0) {
+            // Alpha 0.4: recent samples dominate but a single fast turn
+            // doesn't spike to unrealistic dps values.
+            s_ema_gap_ms = 0.6f * s_ema_gap_ms + 0.4f * (float)gap;
+        }
+    }
+    s_last_event_ms = now_ms;
+
+    if (dir > 0) { s_cw_count++;  s_total_detents++; }
+    else         { s_ccw_count++; s_total_detents--; }
+}
+
+uint32_t encoder_get_last_event_ms(void) { return s_last_event_ms; }
+
+float encoder_get_rate_dps(void)
+{
+    if (s_last_event_ms == 0) return 0.0f;
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+    // Idle decay: if no event in > 1 s, report 0. Prevents stale rates from
+    // hanging around forever after the user stops turning.
+    if ((now_ms - s_last_event_ms) > 1000U) return 0.0f;
+    if (s_ema_gap_ms < 1.0f) s_ema_gap_ms = 1.0f;   // guard div-by-zero
+    return 1000.0f / s_ema_gap_ms;
+}

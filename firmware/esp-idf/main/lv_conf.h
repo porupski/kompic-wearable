@@ -43,9 +43,19 @@
 /*====================
    MEMORY SETTINGS
  *====================*/
-// LVGL internal heap — widget trees, styles, animations.
-// Frame buffers are allocated separately in PSRAM (MALLOC_CAP_SPIRAM).
-#define LV_MEM_SIZE         (64 * 1024U)
+// NOTE: sdkconfig has CONFIG_LV_CONF_SKIP=y, so THIS FILE IS IGNORED at
+// build time -- the LVGL managed component uses Kconfig entries only.
+// Real settings live in sdkconfig / sdkconfig.defaults:
+//   CONFIG_LV_USE_CLIB_MALLOC=y   -- routes lv_malloc through libc, which
+//                                    esp-idf spills to PSRAM for allocs
+//                                    >= CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
+//                                    (16 KB). Batch F fix for the sys tile
+//                                    task_wdt from Batch E.
+//   CONFIG_LV_MEM_SIZE_KILOBYTES  -- disabled: only applies to BUILTIN.
+// The defines below are kept as documentation of the intent; if
+// CONFIG_LV_CONF_SKIP is ever turned off, they become live values.
+#define LV_USE_STDLIB_MALLOC    LV_STDLIB_CLIB
+#define LV_MEM_SIZE             (256 * 1024U)
 
 /*====================
    HAL SETTINGS
@@ -115,6 +125,7 @@
  *====================*/
 #define LV_USE_USER_DATA        1
 #define LV_ENABLE_GLOBAL_CUSTOM 0
+#define LV_USE_SNAPSHOT         1   // Stage 23 §1.3 -- LVGL_SCREENSHOT verb
 
 /*====================
    LOG SETTINGS

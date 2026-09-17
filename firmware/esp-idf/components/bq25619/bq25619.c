@@ -22,6 +22,7 @@
 
 #include "bq25619.h"
 #include "data_broker.h"
+#include "max17048.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -157,6 +158,23 @@ void bq25619_soc_get_observed_extremes(uint16_t *min_mv, uint16_t *max_mv)
     if (max_mv) *max_mv = s_vbat_max_mv;
 }
 
+// BQ25619 REG_FAULT (0x09) NTC_FAULT bits [2:0] -- JEITA state machine output.
+// This is the only TS readout the chip exposes: no numeric °C, just a zone.
+// Datasheet-conventional (BQ256xx family): 000=Normal 010=Warm 011=Cool
+//   101=Cold 110=Hot. If bench shows a value that doesn't fit, the [DSV]
+//   tag stays valid until confirmed.
+const char *bq25619_ntc_status_str(uint8_t fault_reg)
+{
+    switch (fault_reg & 0x07) {
+        case 0x0: return "Normal";
+        case 0x2: return "Warm";
+        case 0x3: return "Cool";
+        case 0x5: return "Cold";
+        case 0x6: return "Hot";
+        default:  return "?";
+    }
+}
+
 // =============================================================================
 // Init
 // =============================================================================
@@ -168,7 +186,9 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
 
     // Register bit positions used only in init (documented inline, so we don't
     // pollute the header with rarely-used masks):
-    //   REG_IINDPM (0x00) bit 6 = TS_IGNORE  -- ignore thermistor safety cutoff
+    //   REG_IINDPM (0x00) bit 6 = TS_IGNORE  -- clearing keeps the JEITA
+    //                    thermistor safety active (default) so the BQ pauses
+    //                    charging outside the safe temperature window.
     //   REG_TIMER  (0x05) bits 5:4 = WATCHDOG (00 = disable) -- otherwise the
     //                    ~40 s charge watchdog trips and halts charging.
     //   REG_MISC   (0x07) bit 5 = BATFET_DIS -- previous ship-mode invocation
@@ -188,11 +208,16 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
     esp_err_t ret = bq25619_read_reg(i2c_num, BQ25619_REG_PART, &part);
     if (ret != ESP_OK) goto out;
 
-    // 1. TS_IGNORE -- iv7.1 does not present a thermistor to the TS pin
-    //    within the BQ's expected window, so leave the safety cutoff off.
+    // 1. TS_IGNORE -- cleared (default). TS pin thermistor is populated on
+    //    Mk1b (5k1 + 33k||10k NTC) and the sealed enclosure means we can't
+    //    tune JEITA now anyway; leaving TS active lets the BQ pause charging
+    //    if the pack sees an out-of-window temperature. If bench charging
+    //    stops mid-run, first suspect is JEITA vs this divider -- read the
+    //    fault bits with `BQ` and re-set IGNORE here as a temporary
+    //    workaround until the JEITA registers are tuned.
     uint8_t iindpm = 0;
     if (bq25619_read_reg(i2c_num, BQ25619_REG_IINDPM, &iindpm) == ESP_OK) {
-        bq25619_write_reg(i2c_num, BQ25619_REG_IINDPM, iindpm | IINDPM_TS_IGNORE);
+        bq25619_write_reg(i2c_num, BQ25619_REG_IINDPM, iindpm & (uint8_t)~IINDPM_TS_IGNORE);
     }
 
     // 2. Disable charge watchdog. Without this, the BQ halts charging ~40 s
@@ -224,7 +249,7 @@ out:
     }
 
     int64_t t1 = esp_timer_get_time();
-    ESP_LOGI(TAG, "%s init OK @ 0x%02X, REG_PART=0x%02X (WHO_AM_I bits [DSV]), boot=%lld us  [WD off, TS ignored, BATFET on]",
+    ESP_LOGI(TAG, "%s init OK @ 0x%02X, REG_PART=0x%02X (WHO_AM_I bits [DSV]), boot=%lld us  [WD off, TS enabled, BATFET on]",
              bq25619_get_chip_name(), BQ25619_ADDR, part, (long long)(t1 - t0));
     return ESP_OK;
 }
@@ -336,7 +361,8 @@ void task_battery_fn(void *arg)
         }
 
         uint8_t  status = 0, fault = 0, poc = 0;
-        uint16_t vbat_mv = 0;
+        uint16_t fuel_vcell_mv = 0;
+        uint16_t fuel_pct100   = 0;
 
         if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
             ESP_LOGW(TAG, "I2C mutex timeout (poll)");
@@ -346,7 +372,11 @@ void task_battery_fn(void *arg)
         bq25619_read_reg(I2C_NUM_1, BQ25619_REG_STATUS,   &status);
         bq25619_read_reg(I2C_NUM_1, BQ25619_REG_FAULT,    &fault);
         bq25619_read_reg(I2C_NUM_1, BQ25619_REG_POC,      &poc);
-        bq25619_read_vbat_mv(I2C_NUM_1, &vbat_mv);
+        // Vbat + SoC come from the MAX17048 fuel gauge on the same bus 2.
+        // BQ25619's own REG_VBAT ADC is unusable on iv8.0 silicon
+        // (see [[project_bq_no_vbat_adc]]).
+        (void)max17048_read_vcell_mv  (I2C_NUM_1, &fuel_vcell_mv);
+        (void)max17048_read_soc_pct100(I2C_NUM_1, &fuel_pct100);
         xSemaphoreGive(g_i2c2_mutex);
 
         uint8_t chrg = (status & BQ25619_STATUS_CHRG_MASK) >> BQ25619_STATUS_CHRG_SHIFT;
@@ -354,11 +384,9 @@ void task_battery_fn(void *arg)
         bool    is_charging = (chrg == BQ25619_CHRG_PRE_CHARGE) ||
                               (chrg == BQ25619_CHRG_FAST_CHARGE);
 
-        bq25619_soc_observe(vbat_mv, is_charging);
-
         broker_battery_data_t bd = {
-            .voltage       = (float)vbat_mv / 1000.0f,
-            .percentage    = bq25619_soc_from_mv(vbat_mv),
+            .voltage       = (float)fuel_vcell_mv / 1000.0f,
+            .percentage    = (uint8_t)((fuel_pct100 + 50U) / 100U),  // round to nearest %
             .charging      = is_charging,
             .power_good    = pg,
             .charge_state  = chrg,

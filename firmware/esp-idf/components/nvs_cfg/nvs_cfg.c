@@ -37,6 +37,7 @@ static const char *TAG = "NVS_CFG";
 #define K_SYS_PC_SYNC_UPT "pc_sync_upt_us"  // i64; esp_timer at write (staleness)
 #define K_SYS_LOG_LEVEL   "log_level"       // u8; ESP_LOG_* value 0..5, 0xFF = auto (Stage 17 §3.2)
 #define K_SYS_LVGL_FORCE  "lvgl_force"      // u8; 0 = auto (honour probe), 1 = force LVGL up even without a panel (Stage 22 §4.1a)
+#define K_SYS_AUTO_SHDN   "auto_shdn_m"     // u16; auto-shutdown minutes (0 = disabled, default 120)
 
 // ── RTC ────────────────────────────────────────────────────────────────────────
 
@@ -273,6 +274,33 @@ esp_err_t nvs_cfg_sys_set_rec_audio(bool enabled)
     return err;
 }
 
+// -- Auto-shutdown timer ------------------------------------------------------
+// Stage 30.2h side-quest: replaces the pre-existing 15-minute hardcoded
+// uptime cap in task_shutdown_watcher_fn with an NVS-backed configurable
+// timer. 0 = disabled (perma-on until manual ship-mode). Default 120 (2 h).
+uint16_t nvs_cfg_sys_get_auto_shdn_min(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return 120;
+    uint16_t v = 120;
+    nvs_get_u16(h, K_SYS_AUTO_SHDN, &v);
+    nvs_close(h);
+    if (v > 1440) v = 1440;   // clamp to 24 h max
+    return v;
+}
+
+esp_err_t nvs_cfg_sys_set_auto_shdn_min(uint16_t minutes)
+{
+    if (minutes > 1440) minutes = 1440;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u16(h, K_SYS_AUTO_SHDN, minutes);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
 esp_err_t nvs_cfg_sys_get_last_fw(char *out, size_t out_len)
 {
     if (out == NULL || out_len == 0) return ESP_ERR_INVALID_ARG;
@@ -393,7 +421,11 @@ void nvs_cfg_boot_print(int i2c_num)
         ESP_LOGI(TAG, "boot printout disabled (cfg_sys.print_boot=0)");
         return;
     }
+    nvs_cfg_dump(i2c_num);
+}
 
+void nvs_cfg_dump(int i2c_num)
+{
     nvs_cfg_rtc_t r;
     esp_err_t err = nvs_cfg_rtc_load(&r);
 
@@ -429,6 +461,14 @@ void nvs_cfg_boot_print(int i2c_num)
            nvs_cfg_sys_get_rec_audio() ? 1 : 0);
     printf("[SYS]   lvgl_force= %d  (toggle: LVGL_FORCE ON|OFF -- bring LVGL up without a panel, reboot to apply)\n",
            nvs_cfg_sys_get_lvgl_force_on() ? 1 : 0);
+    {
+        uint16_t m = nvs_cfg_sys_get_auto_shdn_min();
+        if (m == 0) {
+            printf("[SYS]   auto_shdn = OFF  (perma-on; AUTOSHDN <mins> to enable, reboot to apply)\n");
+        } else {
+            printf("[SYS]   auto_shdn = %u min  (AUTOSHDN <mins>|OFF, reboot to apply)\n", (unsigned)m);
+        }
+    }
     {
         char last_fw[NVS_CFG_FW_STR_MAX] = {0};
         (void)nvs_cfg_sys_get_last_fw(last_fw, sizeof(last_fw));

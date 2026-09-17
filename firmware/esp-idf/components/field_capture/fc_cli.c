@@ -30,6 +30,16 @@
 #include "sdcard.h"
 #include "mic_pdm.h"
 #include "haptic.h"
+#include "drv2605_cmd.h"
+#include "bq25619.h"
+#include "bq25619_cmd.h"
+#include "max17048.h"
+#include "veml6030_cmd.h"
+#include "pcf85063_cmd.h"
+#include "encoder_cmd.h"
+#include "ws2812_cmd.h"
+#include "flashlight.h"
+#include "lvgl_ui_screenshot.h"
 #include "pcf85063.h"
 #include "nvs_cfg.h"
 #include "lsm6dsv16x.h"
@@ -88,64 +98,73 @@ static uint64_t civil_to_unix(int yr, int mo, int da, int hr, int mi, int se) {
 }
 
 // ── NVS dump ────────────────────────────────────────────────────────────────
+// Delegates to the authoritative dumper in nvs_cfg.c so this stays in sync
+// with new NVS fields (added: lvgl_force, auto_shdn, log_level, pc_sync
+// after the local copy fell behind pre-Stage-30).
 static void rtc_cli_dump_nvs(void) {
-    nvs_cfg_rtc_t r;
-    if (nvs_cfg_rtc_load(&r) != ESP_OK || !r.valid) {
-        printf("[NVS] cfg_rtc empty (SET_TIME has not been called since NVS erase)\n");
-    } else {
-        printf("[NVS] cfg_rtc.wall_ts       = %llu\n", (unsigned long long)r.wall_ts);
-        printf("[NVS] cfg_rtc.wr_ms         = %llu\n", (unsigned long long)r.wr_ms);
-        printf("[NVS] cfg_rtc.boot_seq      = %lu\n",  (unsigned long)r.boot_seq);
-        printf("[NVS] cfg_rtc.last_set_time = \"%s\"\n", r.last_set_time);
-    }
-    uint8_t ram = 0;
-    if (pcf85063_ram_byte_read(I2C_NUM_0, &ram) == ESP_OK) {
-        printf("[PCF] RAM_byte (0x03)       = 0x%02X\n", ram);
-    } else {
-        printf("[PCF] RAM_byte read failed\n");
-    }
-    printf("[SYS] print_on_boot         = %d\n",
-           nvs_cfg_sys_get_print_on_boot() ? 1 : 0);
-    printf("[SYS] batt_test             = %d  (reboot to apply; VBUS-in keeps serial alive)\n",
-           nvs_cfg_sys_get_batt_test() ? 1 : 0);
-    printf("[SYS] blackbox              = %d  cadence=%u s\n",
-           nvs_cfg_sys_get_blackbox() ? 1 : 0,
-           (unsigned)nvs_cfg_sys_get_bb_cadence_s());
-    printf("[SYS] rec_audio             = %d\n",
-           nvs_cfg_sys_get_rec_audio() ? 1 : 0);
-    char last_fw[NVS_CFG_FW_STR_MAX] = {0};
-    (void)nvs_cfg_sys_get_last_fw(last_fw, sizeof(last_fw));
-    printf("[SYS] last_fw               = \"%s\"  (current=%s)\n",
-           last_fw[0] ? last_fw : "(none)", KOMPIC_FW_VERSION);
+    nvs_cfg_dump(I2C_NUM_0);
 }
 
 // ── HELP ────────────────────────────────────────────────────────────────────
+// Verb table: kept unsorted here (add new verbs anywhere) -- the print
+// routine sorts alphabetically before emitting so the on-screen list is
+// always in-order. Ivan asked for this on 2026-09-10 as the flat list
+// crossed the "can't scan" threshold.
+//
+// Format of each line: "VERB [args]        one-line description"
+// Two-space padding on the left is added at print time.
+static const char *k_help_lines[] = {
+    "AUTOSHDN [<min>|OFF]             auto-shutdown minutes (0/OFF = perma-on, default 120, reboot to apply)",
+    "FLASH [ON|OFF|<0..100>]          flashlight LED (bypass encoder; no arg = show state)",
+    "NVS                              dump every persisted NVS record (on-demand)",
+    "BATT_TEST [ON|OFF]               enter battery-test mode on next boot (no arg = state)",
+    "BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)",
+    "BLACKBOX_CADENCE <s>             sample cadence in seconds (default 10, range 1..3600)",
+    "BQ [EN|BOOST [ON|OFF] | SHIPMODE] BQ25619 command surface (no arg = dump)",
+    "ENC [RESET]                      encoder status + reg dump (RESET = zero counters)",
+    "FS_CAT </sd/path>                dump a file to console",
+    "FS_LS [/sd/path]                 list SD directory",
+    "DISP [ON|OFF]                    CO5300 panel sleep/wake (batt-test tool; no arg = state)",
+    "FUEL                             MAX17048 VERSION + VCELL + fuel % (needs cell attached)",
+    "GESTURE                          dump wrist-gesture state + LPF value",
+    "GET_TIME [-v]                    read RTC now (-v also dumps NVS + RAM_byte)",
+    "GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)",
+    "HAPTIC [EN|PLAY <n>|CAL|SWEEP START|STOP|UI [<n>]]  (no arg = dump)",
+    "HELP                             this list",
+    "LIGHT [EN|AUTO|BLUE [ON|OFF] | BR [<0..100>]]       (no arg = dump)",
+    "LOGLEVEL [OFF|E|W|I|D|V|AUTO]    runtime esp_log level (no arg = show current)",
+    "LVGL_FORCE [ON|OFF]              force LVGL up on next boot even without a panel (no arg = state)",
+    "LVGL_SCREENSHOT                  capture active screen -> /sd/lvgl_fb/*.png",
+    "NVS_PRINT [ON|OFF]               toggle boot-time NVS printout (no arg = dump)",
+    "PM_DUMP                          dump PM lock inventory now",
+    "REBOOT                           esp_restart() -- clean SW reset",
+    "REC_AUDIO [ON|OFF]               5 s voice annotation before ENV/MOTION/SKIN (no arg = state)",
+    "RGB <r> <g> <b> | AUTO           bench-poke WS2812 / release override (no arg = dump)",
+    "RTC                              PCF85063A status + register dump",
+    "RTC_DUMP                         hex dump of all 18 PCF85063A registers",
+    "SET_TIME YYYY-MM-DDTHH:MM:SS     write UTC + persist to NVS + PCF RAM_byte",
+    "SHIPMODE                         drop BATFET now (escape when button stuck)",
+    "STATUS                           one-shot state dump (uptime, sensors, batt, heap)",
+    "TEMP_DUMP                        read every onboard temp source (waits for stable, non-zero)",
+    "TILE [list | <n> | <name>]       jump tileview to a tile (bench-testable under LVGL_FORCE)",
+    "TOUCH                            dump CST9217 touch state (last x/y, event count, pressed)",
+    "WHOAMI                           I2C sensor identification + hw_alive status",
+};
+
+static int help_line_cmp(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
 static void rtc_cli_print_help(void) {
+    const size_t n = sizeof(k_help_lines) / sizeof(k_help_lines[0]);
+    const char *sorted[sizeof(k_help_lines) / sizeof(k_help_lines[0])];
+    memcpy(sorted, k_help_lines, sizeof(sorted));
+    qsort(sorted, n, sizeof(sorted[0]), help_line_cmp);
     printf("  Commands:\n");
-    printf("    HELP                             this list\n");
-    printf("    STATUS                           one-shot state dump (uptime, sensors, batt, heap)\n");
-    printf("    GET_TIME [-v]                    read RTC now (-v also dumps NVS + RAM_byte)\n");
-    printf("    SET_TIME YYYY-MM-DDTHH:MM:SS     write UTC + persist to NVS + PCF RAM_byte\n");
-    printf("    RTC_DUMP                         hex dump of all 18 PCF85063A registers\n");
-    printf("    NVS_PRINT [ON|OFF]               toggle boot-time NVS printout (no arg = dump)\n");
-    printf("    LOGLEVEL [OFF|E|W|I|D|V|AUTO]    runtime esp_log level (no arg = show current)\n");
-    printf("    GESTURE                          dump wrist-gesture state + LPF value\n");
-    printf("    BATT_TEST [ON|OFF]               enter battery-test mode on next boot (no arg = state)\n");
-    printf("    LVGL_FORCE [ON|OFF]              force LVGL up on next boot even without a panel (no arg = state)\n");
-    printf("    TILE [list | <n> | <name>]       jump tileview to a tile (bench-testable under LVGL_FORCE)\n");
-    printf("    TOUCH                            dump CST9217 touch state (last x/y, event count, pressed)\n");
-    printf("    GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)\n");
-    printf("    BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)\n");
-    printf("    BLACKBOX_CADENCE <s>             sample cadence in seconds (default 10, range 1..3600)\n");
-    printf("    REC_AUDIO [ON|OFF]               5 s voice annotation before ENV/MOTION/SKIN (no arg = state)\n");
-    printf("    WHOAMI                           I2C sensor identification + hw_alive status\n");
-    printf("    TEMP_DUMP                        read every onboard temp source (waits for stable, non-zero)\n");
-    printf("    PM_DUMP                          dump PM lock inventory now\n");
-    printf("    RGB <r> <g> <b> | RGB AUTO       bench-poke WS2812 (0..255) / release override\n");
-    printf("    FS_LS [/sd/path]                 list SD directory\n");
-    printf("    FS_CAT </sd/path>                dump a file to console\n");
-    printf("    SHIPMODE                         drop BATFET now (escape when button stuck)\n");
-    printf("    REBOOT                           esp_restart() -- clean SW reset\n");
+    for (size_t i = 0; i < n; i++) {
+        printf("    %s\n", sorted[i]);
+    }
 }
 
 // ── STATUS ──────────────────────────────────────────────────────────────────
@@ -161,9 +180,7 @@ static void rtc_cli_dump_status(void) {
     broker_battery_data_t bat; broker_battery_read(&bat);
 
     esp_ts_ensure_init();
-    float t_soc = esp_ts_read_c();
-    vbat_adc_ensure_init();
-    uint32_t v_adc = vbat_adc_read_mv();
+    float t_esp = esp_ts_read_c();
 
     uint32_t sens_on = 0;
     if (broker_imu_get_enabled())     sens_on |= (1 << 0);
@@ -190,11 +207,24 @@ static void rtc_cli_dump_status(void) {
     printf("  cpu_mhz      = %lu   heap = %lu KB (min %lu KB)\n",
            (unsigned long)cfg.freq_mhz, (unsigned long)heap_kb,
            (unsigned long)min_kb);
-    printf("  vbat_adc     = %lu mV   soc_temp = %.1f C\n",
-           (unsigned long)v_adc, t_soc);
-    printf("  bq_v (fake!) = %.3f V   pct = %u  charging = %d  pg = %d  fault = 0x%02X\n",
-           bat.voltage, (unsigned)bat.percentage,
-           bat.charging ? 1 : 0, bat.power_good ? 1 : 0, bat.fault);
+    printf("  esp_temp     = %.1f C  (ESP32-S3 die)\n", t_esp);
+    {
+        uint16_t vcell_mv = 0, soc_pct100 = 0;
+        esp_err_t rv = ESP_FAIL, rs = ESP_FAIL;
+        if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            rv = max17048_read_vcell_mv(I2C_NUM_1, &vcell_mv);
+            rs = max17048_read_soc_pct100(I2C_NUM_1, &soc_pct100);
+            xSemaphoreGive(g_i2c2_mutex);
+        }
+        if (rv == ESP_OK && rs == ESP_OK) {
+            printf("  vcell        = %u mV   fuel = %u.%02u %%   charging = %d  pg = %d  fault = 0x%02X\n",
+                   vcell_mv, soc_pct100 / 100U, soc_pct100 % 100U,
+                   bat.charging ? 1 : 0, bat.power_good ? 1 : 0, bat.fault);
+        } else {
+            printf("  vcell        = n/a   charging = %d  pg = %d  fault = 0x%02X\n",
+                   bat.charging ? 1 : 0, bat.power_good ? 1 : 0, bat.fault);
+        }
+    }
     // Display probe result -- proves boot_display_init ran even when the boot
     // log dropped its BOOT_DISP lines (persistent USB Serial JTAG dropout).
     {
@@ -314,6 +344,18 @@ static void rtc_cli_dump_whoami(void) {
              "DRV2605", got, broker_haptic_get_status() != SENSOR_OFFLINE,
              (e != ESP_OK) ? "I2C_ERR" :
              (dev_id == 0xE0 ? "OK (DEV_ID match; low bits = diagnostic)" : "MISMATCH")); }
+    // MAX17048 is 16-bit big-endian at reg 0x08; family mask = 0x001_
+    // where the low nibble is the IC production revision (per datasheet).
+    { uint16_t ver = 0;
+      esp_err_t e = ESP_FAIL;
+      if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+          e = max17048_read16(I2C_NUM_1, MAX17048_REG_VERSION, &ver);
+          xSemaphoreGive(g_i2c2_mutex);
+      }
+      printf("  I2C1 0x36  %-11s  0x08     0x%04X   0x001_  -         %s\n",
+             "MAX17048", ver,
+             (e != ESP_OK) ? "I2C_ERR (no cell?)" :
+             ((ver & 0xFFF0) == 0x0010 ? "OK" : "MISMATCH")); }
 
     printf("  --\n");
     if (sdcard_is_mounted()) {
@@ -345,8 +387,8 @@ static void rtc_cli_dump_temps(void) {
     const float STABLE_DELTA_C = 0.5f;
     const int   STABLE_HITS    = 2;
 
-    float t_tmp = 0, t_bme = 0, t_lsm = 0, t_max = 0, t_soc = 0;
-    float p_tmp = 999, p_bme = 999, p_lsm = 999, p_max = 999, p_soc = 999;
+    float t_tmp = 0, t_bme = 0, t_lsm = 0, t_max = 0, t_esp = 0;
+    float p_tmp = 999, p_bme = 999, p_lsm = 999, p_max = 999, p_esp = 999;
     int   hits = 0;
     int   elapsed_ms = 0;
     bool  timed_out = true;
@@ -361,11 +403,11 @@ static void rtc_cli_dump_temps(void) {
         t_bme = e.temperature_c;
         t_lsm = read_lsm_die_temp();
         t_max = read_max_die_temp();
-        t_soc = esp_ts_read_c();
+        t_esp = esp_ts_read_c();
 
         #define VALID_C(v) ((v) > -40.0f && (v) < 120.0f && (v) != 0.0f)
         bool all_valid = VALID_C(t_tmp) && VALID_C(t_bme) &&
-                         VALID_C(t_lsm) && VALID_C(t_max) && VALID_C(t_soc);
+                         VALID_C(t_lsm) && VALID_C(t_max) && VALID_C(t_esp);
         #undef VALID_C
 
         bool all_stable =
@@ -373,7 +415,7 @@ static void rtc_cli_dump_temps(void) {
             fabsf(t_bme - p_bme) < STABLE_DELTA_C &&
             fabsf(t_lsm - p_lsm) < STABLE_DELTA_C &&
             fabsf(t_max - p_max) < STABLE_DELTA_C &&
-            fabsf(t_soc - p_soc) < STABLE_DELTA_C;
+            fabsf(t_esp - p_esp) < STABLE_DELTA_C;
 
         if (all_valid && all_stable) {
             if (++hits >= STABLE_HITS) { timed_out = false; break; }
@@ -382,7 +424,7 @@ static void rtc_cli_dump_temps(void) {
         }
 
         p_tmp = t_tmp; p_bme = t_bme; p_lsm = t_lsm;
-        p_max = t_max; p_soc = t_soc;
+        p_max = t_max; p_esp = t_esp;
 
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
         elapsed_ms += TICK_MS;
@@ -398,38 +440,20 @@ static void rtc_cli_dump_temps(void) {
     printf("  air  (BME688)      = %6.2f C\n", t_bme);
     printf("  imu  (LSM6DSV16X)  = %6.2f C\n", t_lsm);
     printf("  ppg  (MAX30101)    = %6.2f C\n", t_max);
-    printf("  soc  (ESP32-S3)    = %6.2f C\n", t_soc);
-    printf("  bq   (BQ25619)     =    --   (TS network not populated on iv7.1)\n");
+    printf("  esp  (ESP32-S3)    = %6.2f C\n", t_esp);
+    {
+        // BQ25619 has no numeric TS ADC -- it only reports the JEITA zone.
+        broker_battery_data_t bd_now; broker_battery_read(&bd_now);
+        printf("  bq   (BQ25619 TS)  = %s (JEITA zone, no numeric °C on this chip)\n",
+               bq25619_ntc_status_str(bd_now.fault));
+    }
 
     if (!had_env)  broker_env_set_enabled(false);
     if (!had_imu)  broker_imu_set_enabled(false);
     if (!had_skin) broker_skin_set_enabled(false);
 }
 
-// ── RTC_DUMP + filesystem ───────────────────────────────────────────────────
-static void rtc_cli_dump_pcf_regs(void) {
-    uint8_t regs[18] = {0};
-    esp_err_t r = pcf85063_read_regs_raw(I2C_NUM_0, 0x00, regs, sizeof(regs));
-    if (r != ESP_OK) {
-        printf("[RTC_DUMP] i2c read failed: %s\n", esp_err_to_name(r));
-        return;
-    }
-    printf("[RTC_DUMP] PCF85063A registers 0x00..0x11:\n");
-    static const char *names[18] = {
-        "Control_1",   "Control_2",   "Offset",     "RAM_byte",
-        "Seconds",     "Minutes",     "Hours",      "Days",
-        "Weekdays",    "Months",      "Years",
-        "Sec_alarm",   "Min_alarm",   "Hour_alarm", "Day_alarm", "Wday_alarm",
-        "Timer_val",   "Timer_mode",
-    };
-    for (int i = 0; i < 18; i++) {
-        printf("  0x%02X  %-11s = 0x%02X  (%3u)\n", i, names[i], regs[i], regs[i]);
-    }
-    if (regs[4] & 0x80) {
-        printf("  ⚠ Seconds bit 7 (OS) = 1 -- oscillator was stopped, time INVALID\n");
-    }
-}
-
+// ── Filesystem helpers ──────────────────────────────────────────────────────
 static void rtc_cli_fs_ls(const char *path) {
     if (!path || !*path) path = "/sd";
     DIR *d = opendir(path);
@@ -524,9 +548,8 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
             printf("[RTC] PCF85063A not alive -- cannot set\n");
             return;
         }
-        esp_err_t r = pcf85063_sync_utc(I2C_NUM_0,
-                                        (uint8_t)hr, (uint8_t)mi, (uint8_t)se,
-                                        (uint8_t)da, (uint8_t)mo, (uint16_t)yr);
+        esp_err_t r = pcf85063_cmd_sync_utc((uint8_t)hr, (uint8_t)mi, (uint8_t)se,
+                                            (uint8_t)da, (uint8_t)mo, (uint16_t)yr);
         if (r == ESP_OK) {
             printf("[RTC] SET_TIME OK -> ");
             (void)pcf85063_ram_byte_write(I2C_NUM_0, PCF85063_RAM_CMD_SET_TIME);
@@ -560,7 +583,53 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
     if (startswith_ci(line, "WHOAMI"))    { rtc_cli_dump_whoami(); return; }
     if (startswith_ci(line, "TEMP_DUMP")) { rtc_cli_dump_temps();  return; }
     if (startswith_ci(line, "PM_DUMP"))   { boot_pm_dump_locks();  return; }
-    if (startswith_ci(line, "RTC_DUMP"))  { rtc_cli_dump_pcf_regs(); return; }
+    if (startswith_ci(line, "RTC_DUMP"))  { pcf85063_cmd_dump(); return; }
+    if (startswith_ci(line, "ENC")) {
+        const char *arg = line + 3;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (startswith_ci(arg, "RESET")) {
+            encoder_cmd_reset();
+            printf("[ENC] counters zeroed\n");
+            return;
+        }
+        char sum[80];
+        encoder_cmd_status_summary(sum, sizeof(sum));
+        printf("[ENC] %s\n", sum);
+        encoder_cmd_dump();
+        return;
+    }
+    if (startswith_ci(line, "LVGL_SCREENSHOT")) {
+        extern bool lvgl_ui_display_is_up(void);
+        if (!lvgl_ui_display_is_up()) {
+            printf("[SHOT] LVGL is off -- enable with LVGL_FORCE ON + reboot\n");
+            return;
+        }
+        char path[128] = {0};
+        esp_err_t r = lvgl_ui_screenshot_write(path, sizeof(path));
+        if (r == ESP_OK) {
+            printf("[SHOT] wrote %s\n", path);
+        } else {
+            printf("[SHOT] capture failed: %s\n", esp_err_to_name(r));
+        }
+        return;
+    }
+    if (startswith_ci(line, "RTC")) {
+        // Aggregator verb per Module_Blueprint. Existing GET_TIME / SET_TIME /
+        // RTC_DUMP verbs still work (matched above); this is the module-scoped
+        // shortcut for status + dump.
+        const char *arg = line + 3;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            char sum[80];
+            pcf85063_cmd_status_summary(sum, sizeof(sum));
+            printf("[RTC] %s\n", sum);
+            pcf85063_cmd_dump();
+            return;
+        }
+        printf("[RTC] usage: RTC (no arg = summary + dump). "
+               "Use GET_TIME / SET_TIME / RTC_DUMP for direct verbs.\n");
+        return;
+    }
     if (startswith_ci(line, "FS_LS")) {
         const char *arg = line + 5;
         while (*arg == ' ' || *arg == '\t') arg++;
@@ -573,22 +642,86 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         rtc_cli_fs_cat(arg);
         return;
     }
+    if (startswith_ci(line, "DISP")) {
+        extern bool      boot_display_is_present(void);
+        extern bool      boot_display_is_asleep(void);
+        extern esp_err_t boot_display_sleep(void);
+        extern esp_err_t boot_display_wake(void);
+        const char *arg = line + 4;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (!boot_display_is_present()) {
+            printf("[DISP] panel absent -- nothing to sleep/wake\n");
+            return;
+        }
+        if (*arg == 0) {
+            printf("[DISP] panel = %s\n", boot_display_is_asleep() ? "asleep" : "awake");
+            return;
+        }
+        if (startswith_ci(arg, "OFF")) {
+            ESP_LOGI("FC_CLI", "[DISP] reason=cli DISP OFF");
+            esp_err_t e = boot_display_sleep();
+            printf("[DISP] sleep %s\n", (e == ESP_OK) ? "OK" : esp_err_to_name(e));
+            return;
+        }
+        if (startswith_ci(arg, "ON")) {
+            ESP_LOGI("FC_CLI", "[DISP] reason=cli DISP ON");
+            esp_err_t e = boot_display_wake();
+            // Restart the 15s idle timer so the auto-sleep loop doesn't
+            // immediately re-sleep right after an operator wake.
+            s_last_activity_ms = millis_u32();
+            printf("[DISP] wake %s\n", (e == ESP_OK) ? "OK" : esp_err_to_name(e));
+            return;
+        }
+        printf("[DISP] usage: DISP [ON|OFF] (no arg = state)\n");
+        return;
+    }
+    if (startswith_ci(line, "FUEL")) {
+        uint16_t version = 0, vcell_mv = 0, soc_pct100 = 0;
+        esp_err_t rv = ESP_FAIL, rc = ESP_FAIL, rs = ESP_FAIL;
+        if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+            rv = max17048_read16(I2C_NUM_1, MAX17048_REG_VERSION, &version);
+            rc = max17048_read_vcell_mv(I2C_NUM_1, &vcell_mv);
+            rs = max17048_read_soc_pct100(I2C_NUM_1, &soc_pct100);
+            xSemaphoreGive(g_i2c2_mutex);
+        } else {
+            printf("[FUEL] g_i2c2_mutex timeout -- try again\n");
+            return;
+        }
+        if (rv != ESP_OK) {
+            printf("[FUEL] MAX17048 not responding (%s) -- no cell attached?\n",
+                   esp_err_to_name(rv));
+            return;
+        }
+        printf("[FUEL] VER=0x%04X  VCELL=%u mV  FUEL=%u.%02u %%  (reads=%s/%s)\n",
+               version, vcell_mv, soc_pct100 / 100U, soc_pct100 % 100U,
+               (rc == ESP_OK) ? "OK" : "ERR",
+               (rs == ESP_OK) ? "OK" : "ERR");
+        return;
+    }
     if (startswith_ci(line, "RGB")) {
         const char *arg = line + 3;
         while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            // Bare `RGB` = status + dump (Module_Blueprint convention).
+            char sum[80];
+            ws2812_cmd_status_summary(sum, sizeof(sum));
+            printf("[RGB] %s\n", sum);
+            ws2812_cmd_dump();
+            return;
+        }
         if (startswith_ci(arg, "AUTO") || startswith_ci(arg, "RESET")) {
-            ws2812_set_state(ws2812_get_state());
-            printf("[RGB] manual override cleared -- firmware animations resume\n");
+            ws2812_cmd_auto();
+            printf("[RGB] manual override cleared -- rgb_policy resumed\n");
             return;
         }
         int r=-1, g=-1, b=-1;
         if (sscanf(arg, "%d %d %d", &r, &g, &b) == 3 &&
             r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
-            ws2812_set_color((uint8_t)r, (uint8_t)g, (uint8_t)b);
-            printf("[RGB] set to (%d, %d, %d) -- manual override latched; RGB AUTO to release\n",
+            ws2812_cmd_set_rgb((uint8_t)r, (uint8_t)g, (uint8_t)b);
+            printf("[RGB] set to (%d, %d, %d) -- policy paused; RGB AUTO to release\n",
                    r, g, b);
         } else {
-            printf("[RGB] usage: RGB <r> <g> <b>   or   RGB AUTO   (each 0..255)\n");
+            printf("[RGB] usage: RGB <r> <g> <b>   or   RGB AUTO   (no arg = dump)\n");
         }
         return;
     }
@@ -599,6 +732,65 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         watcher_ship_mode();
         printf("[SHIP] BATFET dropped but device still powered by USB. "
                "Unplug USB to finish shutdown.\n");
+        return;
+    }
+    if (startswith_ci(line, "FLASH")) {
+        /* Direct flashlight toggle. Bypasses the FCM_FLASHLIGHT mode-cycle
+         * so the LED works while the encoder is offline on the iv8.0 unit.
+         * project_encoder_dead_on_iv80.
+         */
+        const char *arg = line + 5;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            printf("[FLASH] brightness = %u%%\n",
+                   (unsigned)flashlight_get_brightness());
+        } else if (startswith_ci(arg, "ON")) {
+            esp_err_t r = flashlight_set_brightness(100);
+            printf("[FLASH] ON (100%%) -- %s\n", esp_err_to_name(r));
+        } else if (startswith_ci(arg, "OFF")) {
+            esp_err_t r = flashlight_set_brightness(0);
+            printf("[FLASH] OFF -- %s\n", esp_err_to_name(r));
+        } else {
+            int pct = atoi(arg);
+            if (pct < 0 || pct > 100) {
+                printf("[FLASH] usage: FLASH [ON|OFF|<0..100>]\n");
+            } else {
+                esp_err_t r = flashlight_set_brightness((uint8_t)pct);
+                printf("[FLASH] brightness = %d%% -- %s\n",
+                       pct, esp_err_to_name(r));
+            }
+        }
+        return;
+    }
+    if (startswith_ci(line, "AUTOSHDN")) {
+        const char *arg = line + 8;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            uint16_t m = nvs_cfg_sys_get_auto_shdn_min();
+            if (m == 0) {
+                printf("[SHDN] auto_shdn = OFF (perma-on)\n");
+            } else {
+                printf("[SHDN] auto_shdn = %u min\n", (unsigned)m);
+            }
+        } else if (startswith_ci(arg, "OFF")) {
+            esp_err_t r = nvs_cfg_sys_set_auto_shdn_min(0);
+            printf("[SHDN] auto_shdn = OFF (%s). Reboot to apply.\n",
+                   esp_err_to_name(r));
+        } else {
+            int m = atoi(arg);
+            if (m < 0 || m > 1440) {
+                printf("[SHDN] usage: AUTOSHDN <0..1440> | OFF  (0/OFF = perma-on)\n");
+            } else {
+                esp_err_t r = nvs_cfg_sys_set_auto_shdn_min((uint16_t)m);
+                if (m == 0) {
+                    printf("[SHDN] auto_shdn = OFF (%s). Reboot to apply.\n",
+                           esp_err_to_name(r));
+                } else {
+                    printf("[SHDN] auto_shdn = %d min (%s). Reboot to apply.\n",
+                           m, esp_err_to_name(r));
+                }
+            }
+        }
         return;
     }
     if (startswith_ci(line, "BLACKBOX_CADENCE")) {
@@ -652,6 +844,224 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         } else {
             printf("[REC] usage: REC_AUDIO [ON|OFF]  (no arg = show state)\n");
         }
+        return;
+    }
+    if (startswith_ci(line, "BQ")) {
+        const char *arg = line + 2;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        if (*arg == 0) {
+            char sum[96];
+            bq_cmd_status_summary(sum, sizeof(sum));
+            printf("[BQ] %s\n", sum);
+            bq_cmd_dump();
+            return;
+        }
+        if (startswith_ci(arg, "SHIPMODE")) {
+            printf("[BQ] SHIPMODE alias -- firing watcher_ship_mode (buzz + BATFET drop)\n");
+            fflush(stdout);
+            watcher_ship_mode();
+            return;
+        }
+        if (startswith_ci(arg, "EN")) {
+            const char *val = arg + 2;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[BQ] charger enable = %d\n", bq_cmd_enable_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                esp_err_t r = bq_cmd_enable_set(true);
+                printf("[BQ] enable=1 (%s)\n", esp_err_to_name(r));
+            } else if (startswith_ci(val, "OFF")) {
+                esp_err_t r = bq_cmd_enable_set(false);
+                printf("[BQ] enable=0 (%s)\n", esp_err_to_name(r));
+            } else {
+                printf("[BQ] usage: BQ EN [ON|OFF]\n");
+            }
+            return;
+        }
+        if (startswith_ci(arg, "BOOST")) {
+            const char *val = arg + 5;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[BQ] PMID boost = %d\n", bq_cmd_boost_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                esp_err_t r = bq_cmd_boost_set(true);
+                printf("[BQ] boost=1 (%s)\n", esp_err_to_name(r));
+            } else if (startswith_ci(val, "OFF")) {
+                esp_err_t r = bq_cmd_boost_set(false);
+                printf("[BQ] boost=0 (%s)\n", esp_err_to_name(r));
+            } else {
+                printf("[BQ] usage: BQ BOOST [ON|OFF]\n");
+            }
+            return;
+        }
+        printf("[BQ] usage: BQ [EN|BOOST [ON|OFF] | SHIPMODE]  (no arg = dump)\n");
+        return;
+    }
+    if (startswith_ci(line, "HAPTIC")) {
+        const char *arg = line + 6;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        if (*arg == 0) {
+            char sum[96];
+            drv2605_cmd_status_summary(sum, sizeof(sum));
+            printf("[HAPTIC] %s\n", sum);
+            drv2605_cmd_dump();
+            return;
+        }
+        if (startswith_ci(arg, "PLAY")) {
+            const char *val = arg + 4;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[HAPTIC] usage: HAPTIC PLAY <1..123>\n");
+            } else {
+                int n = atoi(val);
+                esp_err_t r = drv2605_cmd_play_effect((uint8_t)n);
+                printf("[HAPTIC] play(%d) -> %s\n", n, esp_err_to_name(r));
+            }
+            return;
+        }
+        if (startswith_ci(arg, "CAL")) {
+            drv2605_cmd_calibrate();
+            printf("[HAPTIC] calibration requested (auto-cal is diagnostic; expect DIAG fail on Taptic)\n");
+            return;
+        }
+        if (startswith_ci(arg, "SWEEP")) {
+            const char *val = arg + 5;
+            while (*val == ' ' || *val == '\t') val++;
+            if (startswith_ci(val, "START")) {
+                drv2605_cmd_sweep_start();
+                printf("[HAPTIC] sweep START\n");
+            } else if (startswith_ci(val, "STOP")) {
+                drv2605_cmd_sweep_stop();
+                printf("[HAPTIC] sweep STOP (latched current step)\n");
+            } else {
+                printf("[HAPTIC] usage: HAPTIC SWEEP START|STOP\n");
+            }
+            return;
+        }
+        if (startswith_ci(arg, "EN")) {
+            const char *val = arg + 2;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[HAPTIC] enable = %d\n", drv2605_cmd_enable_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                esp_err_t r = drv2605_cmd_enable_set(true);
+                printf("[HAPTIC] enable=1 (%s)\n", esp_err_to_name(r));
+            } else if (startswith_ci(val, "OFF")) {
+                esp_err_t r = drv2605_cmd_enable_set(false);
+                printf("[HAPTIC] enable=0 (%s)\n", esp_err_to_name(r));
+            } else {
+                printf("[HAPTIC] usage: HAPTIC EN [ON|OFF]\n");
+            }
+            return;
+        }
+        if (startswith_ci(arg, "UI")) {
+            const char *val = arg + 2;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[HAPTIC] ui_effect = %u\n", (unsigned)drv2605_cmd_ui_effect_get());
+            } else {
+                int n = atoi(val);
+                if (n < 1 || n > 123) {
+                    printf("[HAPTIC] usage: HAPTIC UI <1..123>\n");
+                } else {
+                    drv2605_cmd_ui_effect_set((uint8_t)n);
+                    printf("[HAPTIC] ui_effect=%d (previewed + saved)\n", n);
+                }
+            }
+            return;
+        }
+        printf("[HAPTIC] usage: HAPTIC [EN|PLAY <n>|CAL|SWEEP START|STOP|UI [<n>]]  (no arg = dump)\n");
+        return;
+    }
+    if (startswith_ci(line, "LIGHT")) {
+        const char *arg = line + 5;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        if (*arg == 0) {
+            char sum[96];
+            veml6030_cmd_status_summary(sum, sizeof(sum));
+            printf("[LIGHT] %s\n", sum);
+            veml6030_cmd_dump();
+            return;
+        }
+        // Match longer prefixes before shorter ones (BLUE before BR, AUTO
+        // before nothing, etc.). "EN" is only 2 chars and could ambiguate
+        // with a hypothetical "EFFECT" someday -- guard with a trailing
+        // space/EOL check.
+        if (startswith_ci(arg, "AUTO")) {
+            const char *val = arg + 4;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[LIGHT] auto_brightness = %d\n",
+                       veml6030_cmd_auto_brightness_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                veml6030_cmd_auto_brightness_set(true);
+                printf("[LIGHT] auto=1 (saved async)\n");
+            } else if (startswith_ci(val, "OFF")) {
+                veml6030_cmd_auto_brightness_set(false);
+                printf("[LIGHT] auto=0 (saved async)\n");
+            } else {
+                printf("[LIGHT] usage: LIGHT AUTO [ON|OFF]\n");
+            }
+            return;
+        }
+        if (startswith_ci(arg, "BLUE")) {
+            const char *val = arg + 4;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[LIGHT] blue_light_filter = %d\n",
+                       veml6030_cmd_blue_light_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                veml6030_cmd_blue_light_set(true);
+                printf("[LIGHT] blue=1 (overlay flips on next tile update)\n");
+            } else if (startswith_ci(val, "OFF")) {
+                veml6030_cmd_blue_light_set(false);
+                printf("[LIGHT] blue=0\n");
+            } else {
+                printf("[LIGHT] usage: LIGHT BLUE [ON|OFF]\n");
+            }
+            return;
+        }
+        if (startswith_ci(arg, "BR")) {
+            const char *val = arg + 2;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[LIGHT] brightness = %u%%\n",
+                       (unsigned)veml6030_cmd_brightness_get());
+            } else {
+                int n = atoi(val);
+                if (n < 1 || n > 100) {
+                    printf("[LIGHT] usage: LIGHT BR <1..100>\n");
+                } else {
+                    esp_err_t r = veml6030_cmd_brightness_set((uint8_t)n);
+                    printf("[LIGHT] brightness=%d%% (%s%s)\n", n,
+                           esp_err_to_name(r),
+                           veml6030_cmd_auto_brightness_get()
+                             ? ", auto still on (saved; visible on AUTO OFF)" : "");
+                }
+            }
+            return;
+        }
+        if (startswith_ci(arg, "EN")) {
+            const char *val = arg + 2;
+            while (*val == ' ' || *val == '\t') val++;
+            if (*val == 0) {
+                printf("[LIGHT] sensor enable = %d\n",
+                       veml6030_cmd_enable_get() ? 1 : 0);
+            } else if (startswith_ci(val, "ON")) {
+                veml6030_cmd_enable_set(true);
+                printf("[LIGHT] enable=1\n");
+            } else if (startswith_ci(val, "OFF")) {
+                veml6030_cmd_enable_set(false);
+                printf("[LIGHT] enable=0\n");
+            } else {
+                printf("[LIGHT] usage: LIGHT EN [ON|OFF]\n");
+            }
+            return;
+        }
+        printf("[LIGHT] usage: LIGHT [EN|AUTO|BLUE [ON|OFF] | BR [<0..100>]]  (no arg = dump)\n");
         return;
     }
     if (startswith_ci(line, "BATT_TEST")) {
@@ -726,8 +1136,7 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         extern void lvgl_ui_display_touch_snapshot(uint16_t *x, uint16_t *y,
                                                    uint32_t *ev, bool *pressed);
         if (!boot_display_touch_is_present()) {
-            printf("[TOUCH] CST9217 absent -- no touch hardware (iv7.1 has no panel; "
-                   "Mk1b brings it up when the display FPC is populated)\n");
+            printf("[TOUCH] CST9217 absent -- no touch present\n");
             return;
         }
         uint16_t x = 0, y = 0;
@@ -887,6 +1296,19 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         esp_err_t r = nvs_cfg_sys_set_log_level((uint8_t)lv);
         printf("[LOG] level -> %s (%d)  persisted=%s\n",
                NAMES[lv], lv, esp_err_to_name(r));
+        return;
+    }
+    if (!startswith_ci(line, "NVS_PRINT") && startswith_ci(line, "NVS")) {
+        /* Match bare "NVS" -- exclude "NVS_PRINT" (handled below) via the
+         * negated pre-check so this verb doesn't swallow its own prefix.
+         */
+        const char *arg = line + 3;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            nvs_cfg_dump(I2C_NUM_0);
+        } else {
+            printf("[NVS] usage: NVS  (no args -- dumps every persisted record)\n");
+        }
         return;
     }
     if (startswith_ci(line, "NVS_PRINT")) {

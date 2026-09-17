@@ -52,28 +52,28 @@ const char *cst9217_get_chip_desc(void);  // returns "Capacitive touch controlle
 #define CST9217_INT_GPIO     GPIO_NUM_6
 #define CST9217_RST_GPIO     GPIO_NUM_44
 
-// Reset pulse widths (from v7.2 + datasheet generic OLED-class touch IC practice).
-// Confirm against CST9217 datasheet on first bench bring-up.
-#define CST9217_RST_LOW_MS   5
-#define CST9217_RST_HIGH_MS  50
+// Reset pulse widths. Match the Mk1b-verified Arduino sketch
+// (firmware/arduino/16_amoled_touch_test_mk1b) — the shorter 5/50 ms pulse
+// used to leave the chip in a state where 0xD000 read back 0xFF instead of
+// 0xAB. 20/200 ms is the settling that empirically wakes the chip cleanly.
+#define CST9217_RST_LOW_MS   20
+#define CST9217_RST_HIGH_MS  200
 
-// Touch report layout at 0xD000 (subject to datasheet confirmation -- the brief
-// names 0xD000 as the report base; the byte layout below mirrors the CST816S
-// family and is the assumption documented in the porting .md).
+// Touch report layout at 0xD000 (verified on Mk1b via
+// firmware/arduino/16_amoled_touch_test_mk1b/touch_read). The earlier CST816S-
+// family assumption (ACK@byte0, x/y at 4..7) was wrong on CST9217 silicon.
 //
-//   [0]  ACK byte (0xAB on a live chip)
-//   [1]  finger count (0 or 1 for single-touch path)
-//   [2]  gesture flags  (NONE / SWIPE_UP / DOWN / LEFT / RIGHT / SINGLE_TAP /
-//                        DOUBLE_TAP / LONG_PRESS -- gesture set is family-typical;
-//                        do not act on it until verified against CST9217 datasheet)
-//   [3]  reserved
-//   [4]  x_high (4 bits)
-//   [5]  x_low  (8 bits)
-//   [6]  y_high (4 bits)
-//   [7]  y_low  (8 bits)
+//   [0]  status nibble: (byte & 0x0F) == 0x06 when a touch is present
+//   [1]  x[11:4]              (upper 8 bits of x)
+//   [2]  y[11:4]              (upper 8 bits of y)
+//   [3]  x[3:0]<<4 | y[3:0]   (packed low nibbles)
+//   [4]  reserved
+//   [5]  finger count in low 7 bits (byte & 0x7F); accept 1 or 2
+//   [6]  0xAB validity marker (report is invalid if this is not 0xAB)
+//   [7..11]  reserved / second point (not consumed today)
 //
-// Total = 8 bytes per report (one burst read).
-#define CST9217_REPORT_LEN   8
+// Total = 12 bytes per report (one burst read).
+#define CST9217_REPORT_LEN   12
 
 // -- Public data types ----------------------------------------------------------
 
@@ -142,9 +142,30 @@ void task_touch_fn(void *arg);
 esp_err_t cst9217_read_report(i2c_port_t i2c_num, uint8_t buf[CST9217_REPORT_LEN]);
 
 /**
- * @brief Read just the ACK byte at 0xD000. Used by the probe path.
+ * @brief Read the first byte at 0xD000. Historically expected 0xAB but on
+ *        CST9217 silicon this byte is a status nibble, not the validity
+ *        marker (that lives at report byte 6). Kept for diagnostic reads
+ *        only; do NOT use for presence detection -- use cst9217_ack_probe.
  *        Caller MUST hold g_i2c_mutex.
  */
 esp_err_t cst9217_probe_ack(i2c_port_t i2c_num, uint8_t *ack_out);
+
+/**
+ * @brief Bare I2C ACK probe of the CST9217 address (0x5A). Matches the
+ *        Arduino sketch's i2c_ping strategy — the chip ACKs at boot even
+ *        before a reset, and the 0xAB @ 0xD000 register-read convention
+ *        turned out unreliable on Mk1b silicon. Use this for presence
+ *        detection; a full cst9217_init() runs the reset + probe + ISR
+ *        install and will fail cleanly if the chip is actually broken.
+ *        Caller MUST hold g_i2c_mutex.
+ */
+esp_err_t cst9217_ack_probe(i2c_port_t i2c_num);
+
+/**
+ * @brief Issue the hardware reset pulse on RST_GPIO (GPIO44).
+ *        CST9217 must be reset before it responds with 0xAB at 0xD000.
+ *        Called by boot_display probe before cst9217_probe_ack().
+ */
+esp_err_t cst9217_reset(void);
 
 #endif // CST9217_H

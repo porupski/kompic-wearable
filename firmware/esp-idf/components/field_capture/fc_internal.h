@@ -125,8 +125,9 @@ extern volatile bool g_recording_active;
 extern volatile bool g_watcher_press_reset_pending;
 extern volatile bool g_batt_test_active;
 
-// ── Shared I2C bus 0 mutex (defined in boot_hw_init.c) ──────────────────────
-extern SemaphoreHandle_t g_i2c_mutex;
+// ── Shared I2C bus 0 + bus 2 mutexes (defined in boot_hw_init.c) ────────────
+extern SemaphoreHandle_t g_i2c_mutex;   // bus 0 -- sensors + RTC
+extern SemaphoreHandle_t g_i2c2_mutex;  // bus 2 -- BQ25619 + DRV2605 + MAX17048
 
 // ── Utility (fc_common.c) ───────────────────────────────────────────────────
 static inline uint32_t millis_u32(void) {
@@ -161,6 +162,8 @@ void nvs_save_mode(void);
 void try_mkdir(const char *path);
 void ensure_sd(void);
 void rtc_iso_now(char *out, size_t n);
+void fc_dated_path(const char *dir, const char *suffix,
+                   char *out, size_t n);
 
 // Button + encoder (fc_common.c).
 int  button_poll(void);
@@ -214,8 +217,6 @@ void run_tap_dbg_mode(void);
 void run_ppg_bcg_mode(void);
 
 // ── Battery test + shared telemetry (fc_battery_test.c) ─────────────────────
-void     vbat_adc_ensure_init(void);
-uint32_t vbat_adc_read_mv(void);
 void     esp_ts_ensure_init(void);
 float    esp_ts_read_c(void);
 

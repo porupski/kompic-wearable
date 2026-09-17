@@ -85,11 +85,23 @@ def _dur_ms(rows: list[dict]) -> int:
     return max(0, t1 - t0)
 
 
+def _vbat_field(header: list[str]) -> Optional[str]:
+    """Which column holds the battery voltage for this file?
+    Mk1b (datetime CSVs) logs MAX17048 vcell_mv; iv7.1 (batt_XXXX) used a
+    GPIO ADC divider labelled vbat_adc_mv. Return the first one present.
+    """
+    for name in ("vcell_mv", "vbat_adc_mv"):
+        if name in header:
+            return name
+    return None
+
+
 def _vbat_samples(rows: list[dict], header: list[str]) -> list[int]:
-    if "vbat_adc_mv" not in header:
+    field = _vbat_field(header)
+    if field is None:
         return []
     return [v for r in rows
-            if (v := _i(r.get("vbat_adc_mv"))) is not None and VBAT_LO <= v <= VBAT_HI]
+            if (v := _i(r.get(field))) is not None and VBAT_LO <= v <= VBAT_HI]
 
 
 def _temp_samples(rows: list[dict]) -> list[float]:
@@ -98,9 +110,10 @@ def _temp_samples(rows: list[dict]) -> list[float]:
 
 
 def _vbat_or_nan(r: dict, header: list[str]) -> float:
-    if "vbat_adc_mv" not in header:
+    field = _vbat_field(header)
+    if field is None:
         return math.nan
-    v = _i(r.get("vbat_adc_mv"))
+    v = _i(r.get(field))
     return float(v) if (v is not None and VBAT_LO <= v <= VBAT_HI) else math.nan
 
 
@@ -165,17 +178,18 @@ def _split_phases(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 def _find_real_disch_start(disch_rows: list[dict], header: list[str]) -> int:
     """
     Return index within disch_rows where the on-USB plateau ends and real
-    battery discharge begins. Marker: first vbat_adc_mv < PLATEAU_MV with
+    battery discharge begins. Marker: first Vbat < PLATEAU_MV with
     PLATEAU_STREAK consecutive samples below. Returns 0 if no plateau
-    (voltage already below threshold, or vbat unavailable).
+    (voltage already below threshold, or Vbat unavailable).
     """
-    if "vbat_adc_mv" not in header or not disch_rows:
+    field = _vbat_field(header)
+    if field is None or not disch_rows:
         return 0
 
     streak = 0
     streak_start = 0
     for i, r in enumerate(disch_rows):
-        v = _i(r.get("vbat_adc_mv"))
+        v = _i(r.get(field))
         if v is None or not (VBAT_LO <= v <= VBAT_HI):
             continue
         if v < PLATEAU_MV:
@@ -209,22 +223,49 @@ class Session:
 
 # ── Folder scanner ────────────────────────────────────────────────────────────
 
+def _list_csvs(folder: Path) -> list[Path]:
+    """Collect both naming schemes:
+      batt_XXXX.csv                    -- iv7.1 legacy (boot-seq index)
+      kompic_YYYY-MM-DD_HH-MM-SS_batt.csv -- Mk1b datetime scheme
+    Pre-RTC-sync files (kompic_2000-*) are ignored per Ivan's convention
+    (bench testing before RTC was set).
+    """
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for pattern in ("batt_*.csv", "kompic_*_batt.csv"):
+        for p in folder.glob(pattern):
+            if p in seen:
+                continue
+            if p.name.startswith("kompic_2000-"):
+                continue
+            seen.add(p)
+            out.append(p)
+    return sorted(out, key=lambda p: p.name)
+
+
 def scan_folder(folder: Path) -> tuple[list[Session], list[Path]]:
     """
-    Scan folder for batt_XXXX.csv files.
-    Returns (sessions, short_paths) where short_paths are empty files or files
-    that qualify for neither charge nor discharge analysis.
+    Scan folder for battery CSVs (both legacy batt_XXXX and Mk1b
+    kompic_<datetime>_batt naming). Returns (sessions, short_paths) where
+    short_paths are empty files or files that qualify for neither charge
+    nor discharge analysis.
     """
     sessions: list[Session] = []
     short_paths: list[Path] = []
 
-    for p in sorted(folder.glob("batt_*.csv")):
-        parts = p.stem.split("_")
-        boot = _i(parts[-1]) if len(parts) >= 2 else None
-        if boot is None:
-            continue
+    for p in _list_csvs(folder):
+        # Legacy files carry boot in the stem (batt_0025 -> 25).
+        # Mk1b files carry boot inside the # comment (boot=135); read
+        # meta first to grab it.
+        stem_parts = p.stem.split("_")
+        boot_from_stem = _i(stem_parts[-1]) if p.stem.startswith("batt_") else None
 
         meta, header, rows = _read_csv(p)
+        if boot_from_stem is not None:
+            boot = boot_from_stem
+        else:
+            boot = _i(meta.get("boot")) or 0
+
         fw = meta.get("fw", UNKNOWN_FW) or UNKNOWN_FW
 
         if not rows:
@@ -340,7 +381,7 @@ def _build_profile(sessions: list[Session]) -> list[Optional[float]]:
     """
     Build a 101-element loaded-voltage-vs-SoC profile from discharge sessions.
     SoC is linearly estimated from elapsed discharge time (0% at cutoff, 100% at start).
-    Returns profile[soc_pct] = median vbat_mV across all contributing samples.
+    Returns profile[soc_pct] = median Vbat_mV across all contributing samples.
     """
     bins: dict[int, list[float]] = defaultdict(list)
 
@@ -348,9 +389,12 @@ def _build_profile(sessions: list[Session]) -> list[Optional[float]]:
         rows = s.disch_rows
         if len(rows) < 10 or s.disch_dur_ms == 0:
             continue
+        field = _vbat_field(s.header)
+        if field is None:
+            continue
         t0 = _i(rows[0].get("t_ms")) or 0
         for r in rows:
-            v = _i(r.get("vbat_adc_mv"))
+            v = _i(r.get(field))
             if v is None or not (VBAT_LO <= v <= VBAT_HI):
                 continue
             t = _i(r.get("t_ms")) or 0

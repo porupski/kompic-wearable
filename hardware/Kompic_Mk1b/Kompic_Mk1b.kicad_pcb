@@ -28365,6 +28365,56 @@
 		(uuid "14a30737-0cfc-415c-af11-ec2ab9942ac3")
 	)
 	(gr_line
+		(start 159.395 94.86)
+		(end 166.5 94.8)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "9466905e-0b82-450b-915d-3540cbd1a87d")
+	)
+	(gr_line
+		(start 159.75 90.3)
+		(end 161.25 90.3)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "a25cd652-3b5e-4c03-80af-8e34a3974c01")
+	)
+	(gr_line
+		(start 159.95 92.8)
+		(end 161.45 92.8)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "1438672a-6257-4e67-90f6-ea447ebbc074")
+	)
+	(gr_line
+		(start 163.1 99.9)
+		(end 164.6 99.9)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "0fc7490f-68a4-4500-a039-59163d931220")
+	)
+	(gr_line
+		(start 163.1 102.2)
+		(end 164.6 102.2)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco2.User")
+		(uuid "52c8dc88-4332-46d1-aeec-b6510ae3ad03")
+	)
+	(gr_line
 		(start 132.63 98.46)
 		(end 132.63 111.76)
 		(stroke
@@ -29215,6 +29265,30 @@
 					(xy 149.886256 101.207362) (xy 150.380188 101.207362)
 				)
 			)
+		)
+	)
+	(gr_text "needs jumper 1v8 to daughter board"
+		(at 165.1 98.4 0)
+		(layer "Eco2.User")
+		(uuid "97eed5e2-028f-4edb-a28d-68cbf8db0f7d")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "Should be floating for 3v2, or gnd for 1v8"
+		(at 160.65 92.7 45)
+		(layer "Eco2.User")
+		(uuid "4075a05d-8339-4390-931a-cb3645c0c0be")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
 		)
 	)
 	(dimension

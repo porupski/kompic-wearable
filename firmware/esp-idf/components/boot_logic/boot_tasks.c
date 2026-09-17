@@ -38,6 +38,7 @@ extern void task_battery_fn(void *arg);      // bq25619/bq25619.c
 extern void task_rtc_fn(void *arg);          // pcf85063/pcf85063.c
 extern void task_haptic_fn(void *arg);       // drv2605/haptic.c
 extern void task_alarm_fn(void *arg);        // alarm/alarm.c
+extern void task_gps_fn(void *arg);          // max_m10s/max_m10s.c (Stage 25 Batch A)
 
 // Core 1 - application logic
 extern void task_field_capture_fn(void *arg);      // field_capture/field_capture.c
@@ -56,7 +57,6 @@ extern void task_blackbox_fn(void *arg);           // field_capture/field_captur
 // -- Held out for later phases (uncomment when re-enabling) -------------------
 // extern void task_power_btn_fn(void *arg);    // GPIO16 owned by field_capture in Phase 2
 // extern void task_fusion_fn(void *arg);        // depends on IMU + MAG + BARO stability
-// extern void task_gps_fn(void *arg);           // GPS module offline (broken connector)
 // extern void task_touch_fn(void *arg);         // Stage 22 §4.2 will wire this
 // task_ui_refresh_fn + task_settings_saver_fn are spawned from
 // lvgl_ui_display_start_tasks() -- called by main.c to avoid a boot_logic ↔
@@ -86,6 +86,7 @@ static const task_entry_t task_table[] = {
     { "task_rtc",    task_rtc_fn,    4096, 4, 0 },
     { "task_haptic", task_haptic_fn, 4096, 3, 0 },
     { "task_alarm",  task_alarm_fn,  4096, 2, 0 },
+    { "task_gps",    task_gps_fn,    8192, 3, 0 },
 
     // -- CORE 1 - Application logic -------------------------------------------
     { "task_field",  task_field_capture_fn, 8192, 4, 1 },  // owns button + encoder + SD I/O
@@ -100,7 +101,11 @@ static const task_entry_t task_table[] = {
     { "task_shutdn", task_shutdown_watcher_fn, 3072, 6, tskNO_AFFINITY },
 
     // RTC CLI on stdin. Low priority; only wakes on serial input.
-    { "task_rtccli", task_rtc_cli_fn,          3072, 2, tskNO_AFFINITY },
+    // 8 KB stack because LVGL_SCREENSHOT runs the SW draw pipeline
+    // (lv_snapshot_take_to_draw_buf) inline on this task, and label/glyph
+    // rendering eats several KB. 3 KB was fine before Stage 23 §5.6 but
+    // overflowed the moment we added the screenshot verb.
+    { "task_rtccli", task_rtc_cli_fn,          8192, 2, tskNO_AFFINITY },
 
     // BLACKBOX -- Stage 11 background telemetry logger. Pinned Core 0
     // (utility side). Priority 1 so it never contends with sensors. Stack
@@ -139,7 +144,7 @@ void boot_tasks_start(QueueHandle_t settings_save_q)
     }
 
     ESP_LOGI(TAG, "All tasks created:");
-    ESP_LOGI(TAG, "  Core 0: ENV | IMU | MAG | MAG_CAL | HR | SKIN | LIGHT | BAT | RTC | HAPTIC | ALARM");
+    ESP_LOGI(TAG, "  Core 0: ENV | IMU | MAG | MAG_CAL | HR | SKIN | LIGHT | BAT | RTC | HAPTIC | ALARM | GPS");
     ESP_LOGI(TAG, "  Core 1: FIELD_CAPTURE");
     ESP_LOGI(TAG, "  Unpinned: SHUTDOWN_WATCHER (priority double-click ship mode) | RTC_CLI (stdin SET_TIME/GET_TIME)");
 }

@@ -196,7 +196,7 @@ void run_steps_mode(void) {
         try_mkdir("/sd/data/steps");
         f = fopen(path, "w");
         if (f) {
-            fprintf(f, "# kompic mk1 iv7.1 fw=%s hw=%s mode=steps boot=%lu seq=%lu\n",
+            fprintf(f, "# kompic mk1 fw=%s hw=%s mode=steps boot=%lu seq=%lu\n",
                     KOMPIC_FW_VERSION, KOMPIC_HW_VERSION,
                     (unsigned long)s_boot_seq, (unsigned long)s_rec_seq);
             fprintf(f, "t_ms,step_count,delta\n");
@@ -334,7 +334,7 @@ void run_mlc_collect_mode(void) {
                                  (unsigned)label);
                         f = fopen(path, "w");
                         if (f) {
-                            fprintf(f, "# kompic mk1 iv7.1 fw=%s hw=%s mode=mlc_collect "
+                            fprintf(f, "# kompic mk1 fw=%s hw=%s mode=mlc_collect "
                                        "boot=%lu seq=%lu label=%u\n",
                                     KOMPIC_FW_VERSION, KOMPIC_HW_VERSION,
                                     (unsigned long)s_boot_seq, (unsigned long)s_rec_seq,

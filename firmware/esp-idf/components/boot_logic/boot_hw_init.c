@@ -19,12 +19,15 @@
 #include "pcf85063.h"
 #include "drv2605.h"
 #include "bq25619.h"
+#include "max17048.h"
 #include "haptic.h"
 #include "encoder.h"
 #include "ws2812.h"
+#include "rgb_policy.h"
 #include "flashlight.h"
 #include "sdcard.h"
 #include "mic_pdm.h"
+#include "max_m10s.h"
 
 #include "driver/i2c.h"
 #include "esp_log.h"
@@ -166,6 +169,14 @@ static void bringup_bus1(void)
             ESP_LOGI(TAG, "  BQ25619 0x6A OK");
         } else ESP_LOGW(TAG, "  BQ25619 init failed");
     } else ESP_LOGW(TAG, "  BQ25619 0x6A NAK (absent or bus fault)");
+
+    // MAX17048 fuel gauge -- self-powered from CELL. NAK without a battery
+    // is expected; ACK confirms both wiring AND that VBAT+ reaches the chip.
+    if (i2c_probe(I2C_NUM_1, 0x36)) {
+        if (max17048_init(I2C_NUM_1) == ESP_OK) {
+            ESP_LOGI(TAG, "  MAX17048 0x36 OK");
+        } else ESP_LOGW(TAG, "  MAX17048 init failed");
+    } else ESP_LOGW(TAG, "  MAX17048 0x36 NAK (absent, no cell, or bus fault)");
 }
 
 // -- Public entry point -------------------------------------------------------
@@ -188,7 +199,24 @@ void boot_hw_init(const app_calibration_t *cal)
     // directly with a detent-rest state machine. Auto-memory:
     // feedback_encoder_polling.md -- PCNT/ISR approach oscillates +1/-1 on
     // the ALPS EC05E's settle bounce.
+    // -- MAX-M10S GNSS (UART_NUM_1 + 1PPS) -----------------------------------
+    // Stage 25 Batch A: bring the GPS driver up on Mk1b. Chip was populated but
+    // never exercised. task_gps_fn is added to boot_tasks.c in the same batch.
+    if (max_m10s_init() == ESP_OK) {
+        broker_gps_set_hw_status(true);
+        broker_gps_set_enabled(true);
+        ESP_LOGI(TAG, "  MAX-M10S UART1 OK (GPS enabled, will search for fix)");
+    } else {
+        ESP_LOGW(TAG, "  MAX-M10S init failed -- GPS offline");
+    }
+
     if (ws2812_init()     == ESP_OK) ESP_LOGI(TAG, "ws2812   OK");
+    // Stage 24 side quest 2026-09-10: rgb_policy was defined but never
+    // init'd, so no animations ran. This is the fix for the "RGB dark at
+    // boot" iv7.1 bench observation. On Mk1b bring-up (Phase A step 6)
+    // this init should give us the bright-then-fade-with-idle behaviour
+    // the rgb_policy header documents.
+    if (rgb_policy_init()  == ESP_OK) ESP_LOGI(TAG, "rgb_policy OK");
     if (flashlight_init() == ESP_OK) ESP_LOGI(TAG, "flashlight OK");
     if (sdcard_init()     == ESP_OK) ESP_LOGI(TAG, "sdcard   mutex up (mount deferred)");
     if (mic_pdm_init()    == ESP_OK) ESP_LOGI(TAG, "mic PDM  channel installed");

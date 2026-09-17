@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "drv2605.c"
+        "drv2605_cmd.c"
         "haptic.c"
         "haptic_tile.c"
     INCLUDE_DIRS 

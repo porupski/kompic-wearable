@@ -19,7 +19,11 @@
  *   Col  5: Env      (BME688)
  *   Col  6: Compass  (LIS3MDLTR)
  *   Col  7: IMU      (LSM6DSV16X)
- *   Col  8: ECG      (Qvar via LSM6DSV16X)  — stub label, no waveform yet
+ *
+ * Removed: ECG tile (Stage 24 side quest, 2026-09-10). No ECG on Kompic
+ * per feedback_no_ecg_on_kompic -- pulse = PPG + BCG; the qvar_ecg
+ * component was a dead stub. FCM_ECG mode + inline QVAR electrostatic
+ * sensing in fc_modes.c is untouched.
  *
  * Architecture: Blueprint 3 §5, Blueprint 5 §7 (revised)
  */
@@ -34,7 +38,6 @@
 #include "imu_tile.h"
 #include "env_tile.h"
 #include "health_tile.h"
-#include "ecg_tile.h"
 
 static tile_entry_t s_tiles[] = {
     { .desc = &health_tile_desc  }, // -1
@@ -46,7 +49,6 @@ static tile_entry_t s_tiles[] = {
     { .desc = &env_tile_desc     },  // Col 5
     { .desc = &compass_tile_desc },  // Col 6
     { .desc = &imu_tile_desc     },  // Col 7
-    { .desc = &ecg_tile_desc     },  // Col 8 — Phase 6 stub
 };
 
 #define TILE_COUNT  (sizeof(s_tiles) / sizeof(s_tiles[0]))

@@ -56,7 +56,10 @@ formats":
 
 Priority migration targets (Stage 22b or later): `bq25619`, `veml6030`,
 `pcf85063`, `drv2605`. Existing tile code (health, gps, env, imu,
-compass, alarm, system, ecg, haptic, light) predates this blueprint and
+compass, alarm, system, ~~ecg~~ (**NO ECG on Kompic** — the `ecg_tile` stub
+should be removed; there is no ECG hardware on Mk1 or Mk1b, only PPG + BCG
+via LSM6DSV16X qvar-adjacent + MAX30101; the external ECG rig is separate
+ground-truth hardware), haptic, light) predates this blueprint and
 still couples tile handlers to broker + NVS + driver directly — works
 today, drifts eventually.
 
@@ -330,7 +333,7 @@ Landed. New `TILE list | <n> | <name>` CLI verb.
 - `components/field_capture/fc_cli.c`: `TILE` dispatch block, accepts:
   - `TILE list` (or no arg) — dumps `col N  <name>` for all 10 tiles.
   - `TILE <n>` — jumps to column n.
-  - `TILE <name>` — case-insensitive name lookup against hardcoded `TILE_NAMES[]` (health / haptic / light / system / gps / rtc / env / compass / imu / ecg). Table lives in `fc_cli.c` rather than on `tile_desc_t` to avoid touching all 10 widget files this pass — natural bundle target the next time `tile_desc_t` gets extended.
+  - `TILE <name>` — case-insensitive name lookup against hardcoded `TILE_NAMES[]` (health / haptic / light / system / gps / rtc / env / compass / imu / ~~ecg~~ **[NO ECG — stub tile scheduled for removal, no hardware exists]**). Table lives in `fc_cli.c` rather than on `tile_desc_t` to avoid touching all 10 widget files this pass — natural bundle target the next time `tile_desc_t` gets extended.
 - HELP printout includes the verb.
 - Guarded with `lvgl_ui_display_is_up()` — prints a friendly hint pointing to `LVGL_FORCE ON` when LVGL is off.
 
@@ -412,7 +415,7 @@ Reasonable Stage 23 candidates once Stage 22 closes:
   aligns those four modules with the two-outlet contract in one pass.
 - Stage 23 -- Mk1b bring-up when the PCB returns.
 - Stage 24 -- Boot log drop root-cause + fix (`esp_log_set_vprintf`, buffer sizing, task priorities).
-- Stage 25 -- Day-2 tile polish (ECG waveform actual, Phase 20 broker_ecg_* definitions). Migrate remaining tile modules (health / env / imu / compass / alarm / system / ecg / haptic / gps) to command surface.
+- Stage 25 -- Day-2 tile polish. Migrate remaining tile modules (health / env / imu / compass / alarm / system / haptic / gps) to command surface. **~~ECG waveform~~ / ~~broker_ecg_*~~ — CANCELLED, NO ECG on Kompic** (see `feedback_no_ecg_on_kompic.md`). Remove `components/qvar_ecg/` + `ecg_tile.c`/`.h` + tile_registry entry as a small cleanup at the same time.
 - **`LVGL_SCREENSHOT` (§4.5c)** — deferred from Stage 22 §4.5b. Needs SD-write plumbing + `lv_snapshot_take`.
 - Battery drain overnight measurement at fw 0.4.20 baseline before Stage 23 (comparable curve).
 

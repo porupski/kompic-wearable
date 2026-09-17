@@ -21,6 +21,7 @@
 #include "haptic_tile.h"
 #include "data_broker.h"
 #include "haptic.h"
+#include "drv2605_cmd.h"
 #include "ui_theme_colors.h"
 #include "drv2605.h"
 #include "esp_log.h"
@@ -133,9 +134,8 @@ static void cb_power(lv_event_t *e)
 {
     if (s_syncing_power) return;
     bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    broker_haptic_set_enabled(on);
+    drv2605_cmd_enable_set(on);
     haptic_play(haptic_get_ui_effect());
-    ESP_LOGI(TAG, "Haptic %s", on ? "ON" : "OFF");
 }
 
 static void cb_roller_changed(lv_event_t *e)

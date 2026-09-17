@@ -23,6 +23,7 @@
 #include "haptic.h"
 #include "bq25619.h"
 #include "rgb_policy.h"
+#include "nvs_cfg.h"
 
 static const char *TAG = "FC_SHDN";
 
@@ -32,11 +33,11 @@ volatile bool g_recording_active               = false;
 volatile bool g_watcher_press_reset_pending    = false;
 volatile bool g_batt_test_active               = false;
 
-// Activity kick: any input handler (button, encoder, CLI) sets this flag; the
-// watcher loop clears it and re-arms uptime_cap_deadline. Rationale (Ivan,
-// 2026-09-08): the 15-min uptime cap should not fire while the user is
-// actively touching the device -- it is a damage-control fallback for the
-// idle case, not a hard session limit.
+// Activity kick: any input handler (button, encoder, touch, CLI) sets this
+// flag; the watcher loop clears it and re-arms uptime_cap_deadline.
+// Rationale (Ivan, 2026-09-08): the auto-shutdown cap should not fire while
+// the user is actively touching the device -- it is a damage-control
+// fallback for the idle case, not a hard session limit.
 static volatile bool s_activity_kick_pending = false;
 
 void shutdown_watcher_kick(void) {
@@ -118,9 +119,10 @@ void watcher_ship_mode(void) {
 // Only treat the button as "released" if it stays high for this long.
 #define SHDN_RELEASE_MS     80
 
-// Damage-control auto-shutoff: if the firmware has been running for this long
-// regardless of what the user has been doing, drop BATFET.
-#define SHDN_MAX_UPTIME_MS  (15u * 60u * 1000u)
+// Damage-control auto-shutoff. Loaded from NVS at task-start via
+// nvs_cfg_sys_get_auto_shdn_min() (default 120 min = 2 h; 0 = disabled).
+// Live-tunable via CLI verb AUTOSHDN; reboot to apply. This replaces the
+// pre-Stage-30 hardcoded 15-minute cap.
 
 void task_shutdown_watcher_fn(void *arg) {
     (void)arg;
@@ -142,27 +144,38 @@ void task_shutdown_watcher_fn(void *arg) {
     uint32_t high_since_ms   = 0;   // release-debounce timer
     bool     visual_owned    = false;   // Stage 20: pre-commit LED ownership
 
-    uint32_t uptime_cap_deadline = SHDN_MAX_UPTIME_MS;
+    const uint16_t auto_shdn_min   = nvs_cfg_sys_get_auto_shdn_min();
+    const uint32_t auto_shdn_cap_ms = (uint32_t)auto_shdn_min * 60u * 1000u;
+    const bool     auto_shdn_on    = (auto_shdn_min > 0);
+    uint32_t       uptime_cap_deadline = auto_shdn_on ? auto_shdn_cap_ms : 0;
 
-    ESP_LOGI(TAG, "shutdown watcher armed: hold %d ms to ship (buzz warn at %d ms). "
-                  "hard uptime cap = %u s.",
-             SHDN_FIRE_MS, SHDN_WARN_MS, (unsigned)(SHDN_MAX_UPTIME_MS / 1000));
+    if (auto_shdn_on) {
+        ESP_LOGI(TAG, "shutdown watcher armed: hold %d ms to ship (buzz warn at %d ms). "
+                      "auto-shdn cap = %u min (%u s).",
+                 SHDN_FIRE_MS, SHDN_WARN_MS,
+                 (unsigned)auto_shdn_min, (unsigned)(auto_shdn_cap_ms / 1000));
+    } else {
+        ESP_LOGI(TAG, "shutdown watcher armed: hold %d ms to ship (buzz warn at %d ms). "
+                      "auto-shdn cap = OFF (perma-on).",
+                 SHDN_FIRE_MS, SHDN_WARN_MS);
+    }
 
     for (;;) {
         uint32_t now = millis_u32();
         bool     low = (gpio_get_level(PIN_BUTTON) == 0);
 
         // ── Damage-control uptime cap ────────────────────────────────────
+        // Skip entirely when auto-shutdown is disabled (auto_shdn_min == 0).
         // Reset the deadline while a recording or battery test is running, or
         // when any input handler kicked us via shutdown_watcher_kick().
-        if (g_recording_active || g_batt_test_active) {
-            uptime_cap_deadline = now + SHDN_MAX_UPTIME_MS;
+        if (auto_shdn_on && (g_recording_active || g_batt_test_active)) {
+            uptime_cap_deadline = now + auto_shdn_cap_ms;
         }
         if (s_activity_kick_pending) {
             s_activity_kick_pending = false;
-            uptime_cap_deadline     = now + SHDN_MAX_UPTIME_MS;
+            if (auto_shdn_on) uptime_cap_deadline = now + auto_shdn_cap_ms;
         }
-        if (!g_recording_active && !g_batt_test_active && now >= uptime_cap_deadline) {
+        if (auto_shdn_on && !g_recording_active && !g_batt_test_active && now >= uptime_cap_deadline) {
             // Ivan 2026-09-08: while USB is plugged, do NOT drop BATFET on the
             // uptime cap -- the operator wants charging to continue until the
             // cable comes out. Abort any live recording anyway (matches the
@@ -178,7 +191,7 @@ void task_shutdown_watcher_fn(void *arg) {
                               "skipping BATFET disable. Charging continues.",
                          (unsigned)now);
                 s_recording_early_end = true;  // still abort any live session
-                uptime_cap_deadline   = now + SHDN_MAX_UPTIME_MS;
+                uptime_cap_deadline   = now + auto_shdn_cap_ms;
             } else {
                 ESP_LOGW(TAG, "shutdown FIRE (uptime cap reached, now=%u ms)", (unsigned)now);
                 g_shutdown_hold_active = true;
@@ -186,7 +199,7 @@ void task_shutdown_watcher_fn(void *arg) {
                 haptic_play_forced(DRV_LONG_BUZZ);
                 watcher_ship_mode();
                 g_shutdown_hold_active = false;
-                uptime_cap_deadline    = now + SHDN_MAX_UPTIME_MS;
+                uptime_cap_deadline    = now + auto_shdn_cap_ms;
             }
         }
 
