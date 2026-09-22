@@ -171,8 +171,18 @@
                     <!-- ==================== CHAPTER 2 ==================== -->
                     <section id="ch2" class="content-section">
                         <h2>2. The Bench Battles: 5 Critical Bugs of iv7.1</h2>
+
                         <p>Stage 3 brought up the daughterboard (MAX30101 PPG + TMP117) and the microSD
                         card slot — and the iv7.1 prototype hit a wall of critical board bugs.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/6_daughter_board.jpeg" alt="Daughter board attached via 0.1mm enamel wire"
+                                onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 6_daughter_board.jpeg<span>Daughter board, attached via 0.1mm enamel wire</span></div>
+                            <figcaption>Daughter board, attached via 0.1&nbsp;mm enamel wire</figcaption>
+                        </figure>
+
+                        <p>The daughter board is attached using eight 0.1&nbsp;mm enamel wires. While this thin wire is somewhat brittle and prone to fatigue, its compact size allows it to fit easily into the limited space.</p>
 
                         <figure class="chapter-figure">
                             <img src="img/development/3_mk1_first_light.jpeg" alt="Mk1 iv7.1 in its case, RGB status light on"
@@ -300,7 +310,7 @@
                             <img src="img/development/7_mk1b_3d_render.jpeg" alt="KiCad 3D render of Mk1b iv8.0"
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div class="img-missing">📷 7_mk1b_3d_render.jpeg<span>KiCad 3D render — fixed display connector, clean ground plane, fuel gauge</span></div>
-                            <figcaption>KiCad 3D render of Mk1b iv8.0</figcaption>
+                            <figcaption>KiCad 3D render of Mk1b iv8.0. Notable differences are the addition of the Fuel Gauge (U3, selected green) and the screw mount between the antenna and encoder, the removal of the touch contact to the crown, display and the critical circuit bug fixed.</figcaption>
                         </figure>
 
                         <p>In parallel, the UI was rebuilt on <b>LVGL 9</b>: a 10-tile horizontal carousel
@@ -321,12 +331,6 @@
                         (MAX30101 + TMP117) had to be flying-wired on with 0.1&nbsp;mm enamel magnet
                         wire — the same treatment the GPS module would need further down the line.</p>
 
-                        <figure class="chapter-figure">
-                            <img src="img/development/6_daughter_board.jpeg" alt="Daughter board attached via 0.1mm enamel wire"
-                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="img-missing">📷 6_daughter_board.jpeg<span>Daughter board, attached via 0.1mm enamel wire</span></div>
-                            <figcaption>Daughter board, attached via 0.1&nbsp;mm enamel wire</figcaption>
-                        </figure>
 
                         <p>A minor USB D+/D− trace short on the test pads was resolved, restoring USB
                         CDC-JTAG enumeration. Then the critical test: flash the display firmware, mate
@@ -336,10 +340,11 @@
                         initialized over QSPI in 690&nbsp;ms, and the screen lit up.</p>
 
                         <figure class="chapter-figure">
-                            <img src="img/development/8_amoled_working.jpeg" alt="The AMOLED lit up on Mk1b for the first time"
+                            <img src="img/development/8_amoled_working.jpeg" alt="Test display sketch running on the 2.06" AMOLED display on Mk1b for the first time"
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="img-missing">📷 8_amoled_working.jpeg<span>2.06" AMOLED lit up on Mk1b — Space Grotesk clock face</span></div>
-                            <figcaption>2.06" AMOLED lit up on Mk1b — Space Grotesk clock face</figcaption>
+                            <div class="img-missing">📷 8_amoled_working.jpeg<span>Test display sketch running on the 2.06" AMOLED display on Mk1b for the first time</span></div>
+                            <figcaption>Test display sketch (16_) running on the 2.06" AMOLED display on Mk1b for the first time. 
+                            The board with the screen is drawing 81 mA.</figcaption>
                         </figure>
 
                         <p>The BQ25619 charger and the new MAX17048 fuel gauge came up next, correctly
@@ -347,13 +352,13 @@
 
                         <h4>The Great GPS Silence Mystery</h4>
                         <p>The u-blox MAX-M10S was bodged on with 0.1&nbsp;mm enamel magnet wire and a
-                        1&nbsp;cm 50&nbsp;Ω coax pigtail to an external patch antenna.</p>
+                        1&nbsp;cm 50&nbsp;Ω coax pigtail to the external patch antenna.</p>
 
                         <figure class="chapter-figure">
                             <img src="img/development/9_gps_bodge.jpeg" alt="MAX-M10S GNSS module bodged onto Mk1b"
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div class="img-missing">📷 9_gps_bodge.jpeg<span>MAX-M10S bodged with 0.1mm enamel wire and coax pigtail</span></div>
-                            <figcaption>MAX-M10S bodged with 0.1&nbsp;mm enamel wire and a coax pigtail</figcaption>
+                            <figcaption>MAX-M10S bodged with 0.1&nbsp;mm enamel wire and a coax pigtail (black U-shape in between) to the external patch antenna.</figcaption>
                         </figure>
 
                         <p>Powered up: complete silence. The scope showed clean 9600-baud squarewaves
@@ -408,13 +413,13 @@
                                 <img src="img/development/10_mk1b_layout_a.jpeg" alt="Mk1b layout, just before it went into the case"
                                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                                 <div class="img-missing">📷 10_mk1b_layout_a.jpeg<span>Just before the case, top side</span></div>
-                                <figcaption>Just before the case, side one</figcaption>
+                                <figcaption>Just before the case, top side</figcaption>
                             </figure>
                             <figure class="chapter-figure">
                                 <img src="img/development/11_mk1b_layout_b.jpeg" alt="Mk1b layout, just before it went into the case, other side"
                                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                                 <div class="img-missing">📷 11_mk1b_layout_b.jpeg<span>Just before the case, bottom side</span></div>
-                                <figcaption>Just before the case, side two</figcaption>
+                                <figcaption>Just before the case, bottom side</figcaption>
                             </figure>
                         </div>
 
@@ -443,10 +448,20 @@
          └──► [GPS RX/TX Inversion Fixed ──► GPS Firmware Active]</div>
 
                         <p>With GPS active and hardware verified end-to-end, the project moves to outdoor
-                        field trials, tile sweeps, and fitting the enclosure. More stages get appended
-                        here as they happen.</p>
+                        field trials, tile sweeps, and fitting the enclosure. The watch board and case 
+                        weigh in at 33&nbsp;g, coming to 56&nbsp;g total with the chosen silicone straps. 
+                        More stages get appended here as they happen.</p>
 
                         <p class="source-note">Sources: Stage_31–32, GPS_M10S_Fixing.md</p>
+
+
+                <div>
+                    <h2>
+                    Status: Kompic Mk1b is going to Australia!
+                    </h2>
+                    <p> -> September-October 2026, InterSpeech2026 Conference in Sydney, Australia.</p>
+                </div>
+
                     </section>
 
                 </div>
