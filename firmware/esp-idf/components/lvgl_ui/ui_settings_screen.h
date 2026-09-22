@@ -33,7 +33,12 @@
 #include "lvgl.h"
 
 /**
- * @brief Create and return the settings screen lv_obj_t*.
+ * @brief Create and return the settings drawer pane lv_obj_t*.
+ *
+ * Stage 31.3: the settings pane is now a full-screen CHILD of the passed
+ * parent (main screen) instead of a separate top-level screen. It is
+ * created with initial translate_y = LCD_V_RES so it sits off-screen
+ * below main until ui_navigation animates it up on swipe-up.
  *
  * Iterates tile_registry, creates tileview columns (row 0) and optional
  * sub-tile rows (row 1) for each registered descriptor.  Calls each
@@ -44,9 +49,10 @@
  *
  * Call once from lvgl_ui_init(), inside lvgl_port_lock().
  *
- * @return lv_obj_t*  Screen object, or NULL on allocation failure.
+ * @param parent  Parent object for the drawer pane (typically main_scr).
+ * @return lv_obj_t*  Pane root object, or NULL on allocation failure.
  */
-lv_obj_t *settings_screen_build(void);
+lv_obj_t *settings_screen_build(lv_obj_t *parent);
 
 /**
  * @brief Return the tileview child of the settings screen.

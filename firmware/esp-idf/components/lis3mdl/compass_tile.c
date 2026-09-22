@@ -1,92 +1,80 @@
 /**
  * @file compass_tile.c
- * @brief Compass (QMC5883P) settings tile — LVGL 9 UI, Core 1 only.
+ * @brief Compass (LIS3MDLTR) settings tile -- LVGL 9 UI, Core 1 only.
  *
- * Tile type   : A (status LED + data rows) + compass rose + calibrate button.
- * Component   : components/qmc5883p/ — co-located with the MAG driver.
+ * Stage 32.1 rewrite -- subject-bound. XYZ / heading / cardinal / cal-button
+ * labels bound to subj_mag_*_str via lv_label_bind_text. Power switch
+ * bound two-way via lv_obj_bind_checked against subj_mag_enabled (observer
+ * in ui_subjects.c pushes to broker).
  *
- * Layout:
- *   [LED] QMC5883P  3-axis Mag          [SW]
- *   ──────────────────────────────────────
- *   X: -12.4  Y: 45.2  Z: 8.1  µT   [rose]
- *   127°                             N/S/E/W
- *   SE                               needle
- *   ──────────────────────────────────────
- *              [ CALIBRATE ]
+ * compass_tile_update() keeps ONLY the numeric / style ops that don't
+ * cleanly reduce to text bindings:
+ *   - LED colour, heading + cardinal colour (semantic).
+ *   - Needle rotation via transform_angle (numeric).
+ *   - Calibrate-button colour + enable state.
+ * All text updates are drain-driven from ui_subjects.
  *
- * Key patterns:
- *   - s_syncing guard on power toggle (prevents LV_EVENT_VALUE_CHANGED re-entry)
- *   - Needle rotation via lv_obj_set_style_transform_angle() × 10 (LVGL units)
- *   - Compass rose is a fixed 70×70 circle child; needle is a label child of it
- *   - Calibrate callback is a function pointer set at boot — Core 1 calls it,
- *     Core 0 task_mag_cal picks up the broker flag change
- *   - All float formatting via snprintf — never lv_label_set_text_fmt with %f
- *
- * Core 1 only. No I2C. No NVS.
- * Architecture: Blueprint 3 §6, Blueprint 5 §4–§6, Blueprint 9 §8
+ * Layout (portrait 410x502, 60H/40V corner-safe pads):
+ *   Row 0 (y=40):  LED + header + power switch
+ *   Divider y=100
+ *   y=115  status? (skipped, LED conveys)
+ *   y=120  XYZ row
+ *   y=155  heading (large)
+ *   y=225  cardinal
+ *   y=100..280 right column: compass rose 140x140
+ *   Bottom: CALIBRATE button
  */
 
 #include "compass_tile.h"
 #include "lis3mdl.h"           // broker_mag_data_t, get_chip_name/desc
-#include "data_broker.h"       // broker_mag_read/get_status/set_enabled/get_enabled
+#include "data_broker.h"       // broker_mag_read/get_status/set_enabled
 #include "ui_theme_colors.h"
+#include "ui_subjects.h"       // subj_mag_*, subj_mag_enabled
 #include "lvgl.h"
 #include "esp_log.h"
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
 
 static const char *TAG = "COMPASS_TILE";
+
+// ---------------------------------------------------------------------------
+// Corner-safe layout constants
+// ---------------------------------------------------------------------------
+#define MAG_PAD_H_UI      60
+#define MAG_PAD_H_TEXT    40
+#define MAG_PAD_V_UI      40
+#define MAG_DIVIDER_Y    100
+#define MAG_XYZ_Y        120
+#define MAG_HEAD_Y       160
+#define MAG_CARD_Y       230
+#define MAG_ROSE_SIZE    140
+#define MAG_ROSE_Y       110
+#define MAG_BTN_W        280
+#define MAG_BTN_H         60
 
 // ---------------------------------------------------------------------------
 // Static widget handles
 // ---------------------------------------------------------------------------
 static lv_obj_t *s_parent       = NULL;
 
-// Header row
 static lv_obj_t *s_led_status   = NULL;
 static lv_obj_t *s_lbl_header   = NULL;
 static lv_obj_t *s_sw_power     = NULL;
-
-// Divider (stored for theme recolour)
 static lv_obj_t *s_divider      = NULL;
 
-// Data rows
-static lv_obj_t *s_lbl_xyz      = NULL;  // "X: -12.4  Y: 45.2  Z: 8.1  µT"
-static lv_obj_t *s_lbl_heading  = NULL;  // "127°"
-static lv_obj_t *s_lbl_cardinal = NULL;  // "SE"
+static lv_obj_t *s_lbl_xyz      = NULL;
+static lv_obj_t *s_lbl_heading  = NULL;
+static lv_obj_t *s_lbl_cardinal = NULL;
 
-// Compass rose
-static lv_obj_t *s_compass_bg   = NULL;  // 70×70 circle container
-static lv_obj_t *s_needle       = NULL;  // LV_SYMBOL_UP label, rotated
+static lv_obj_t *s_compass_bg   = NULL;
+static lv_obj_t *s_needle       = NULL;
 
-// Calibrate button
 static lv_obj_t *s_btn_cal      = NULL;
 static lv_obj_t *s_lbl_btn_cal  = NULL;
 
-// Power toggle re-entrancy guard
-static volatile bool s_syncing = false;
-
-// Calibration callback (registered at boot)
+// Calibration callback (registered at boot from bring-up code)
 static void (*s_cal_cb)(void) = NULL;
 
 // ---------------------------------------------------------------------------
-// Cardinal direction helper (identical to legacy + Blueprint 9 §5)
-// ---------------------------------------------------------------------------
-static const char *heading_to_cardinal(float h)
-{
-    if (h <  22.5f || h >= 337.5f) return "N";
-    if (h <  67.5f)                return "NE";
-    if (h < 112.5f)                return "E";
-    if (h < 157.5f)                return "SE";
-    if (h < 202.5f)                return "S";
-    if (h < 247.5f)                return "SW";
-    if (h < 292.5f)                return "W";
-    return "NW";
-}
-
-// ---------------------------------------------------------------------------
-// Helper: map sensor_status_t → LED colour
+// Helper: map sensor_status_t -> LED colour
 // ---------------------------------------------------------------------------
 static void update_led(sensor_status_t st)
 {
@@ -96,21 +84,10 @@ static void update_led(sensor_status_t st)
         case SENSOR_OFFLINE:   col = COL_STATUS_OFFLINE;   break;
         case SENSOR_ACQUIRING: col = COL_STATUS_ACQUIRING; break;
         case SENSOR_STALE:     col = COL_STATUS_STALE;     break;
-        case SENSOR_DISABLED:  /* fall-through */
+        case SENSOR_DISABLED:
         default:               col = COL_STATUS_DISABLED;  break;
     }
     lv_led_set_color(s_led_status, col);
-}
-
-// ---------------------------------------------------------------------------
-// Callback: power toggle switch
-// ---------------------------------------------------------------------------
-static void cb_power_toggle(lv_event_t *e)
-{
-    if (s_syncing) return;
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    broker_mag_set_enabled(on);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,82 +112,60 @@ void compass_tile_init(lv_obj_t *parent)
     lv_obj_set_style_border_width(parent, 0, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 410x502 layout constants (old 240x280 values in /* */).
-    static const int X_MARGIN   = 20;   /* 12 */
-    static const int LED_SIZE   = 16;   /* 12 */
-    static const int LED_X      = 20;   /* 12 */
-    static const int LED_Y      = 20;   /* 12 */
-    static const int HEADER_X   = 44;   /* 30 */
-    static const int HEADER_Y   = 13;   /*  7 */
-    static const int SWITCH_X   = -14;  /* -8 */
-    static const int SWITCH_Y   = 12;   /*  6 */
-    static const int DIVIDER_W  = 360;  /* 216 */
-    static const int DIVIDER_Y  = 50;   /* 34 */
-    static const int XYZ_Y      = 79;   /* 44 */
-    static const int HEAD_Y     = 111;  /* 62 */
-    static const int CARD_Y     = 179;  /* 100 */
-    static const int ROSE_SIZE  = 120;  /* 70 */
-    static const int ROSE_X     = -20;  /* -12 */
-    static const int ROSE_Y     = 72;   /* 40 */
-    static const int BTN_W      = 280;  /* 180 */
-    static const int BTN_H      = 40;   /* 30 */
-    static const int BTN_Y      = -16;  /* -8 */
-
-    // ── Status LED (top-left) ──────────────────────────────────────────────
+    // ── Row 0: LED + header + power switch ────────────────────────────────
     s_led_status = lv_led_create(parent);
-    lv_obj_set_size(s_led_status, LED_SIZE, LED_SIZE);
-    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, LED_X, LED_Y);
+    lv_obj_set_size(s_led_status, 16, 16);
+    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, MAG_PAD_H_UI, MAG_PAD_V_UI + 12);
     lv_led_set_brightness(s_led_status, 200);
     lv_led_set_color(s_led_status, COL_STATUS_DISABLED);
 
-    // ── Header label ──────────────────────────────────────────────────────
     s_lbl_header = lv_label_create(parent);
-    lv_label_set_text_fmt(s_lbl_header, "%s  %s",
-        lis3mdl_get_chip_name(), lis3mdl_get_chip_desc());
-    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_LABEL, 0);
+    lv_label_set_text(s_lbl_header, lis3mdl_get_chip_name());   // chip-name only
+    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_lbl_header, theme_text(), 0);
-    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, HEADER_X, HEADER_Y);
+    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, MAG_PAD_H_UI + 26, MAG_PAD_V_UI);
 
-    // ── Power toggle switch (top-right) ───────────────────────────────────
     s_sw_power = lv_switch_create(parent);
-    lv_obj_set_size(s_sw_power, 60, 30);
-    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, SWITCH_X, SWITCH_Y);
-    lv_obj_add_event_cb(s_sw_power, cb_power_toggle, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_set_size(s_sw_power, 90, 46);
+    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -MAG_PAD_H_UI, MAG_PAD_V_UI);
+    // Two-way bind (user tap -> subject -> observer -> broker; drain
+    // mirrors broker back). Old cb_power_toggle event cb deleted.
+    lv_obj_bind_checked(s_sw_power, &subj_mag_enabled);
 
     // ── Divider ───────────────────────────────────────────────────────────
     s_divider = lv_obj_create(parent);
-    lv_obj_set_size(s_divider, DIVIDER_W, 1);
-    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, DIVIDER_Y);
+    lv_obj_set_size(s_divider, 260, 2);
+    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, MAG_DIVIDER_Y);
     lv_obj_set_style_bg_color(s_divider, theme_divider(), 0);
     lv_obj_set_style_bg_opa(s_divider, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_divider, 0, 0);
     lv_obj_clear_flag(s_divider, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── XYZ row (left column, below divider) ──────────────────────────────
+    // ── XYZ row (subject-bound) ───────────────────────────────────────────
     s_lbl_xyz = lv_label_create(parent);
-    lv_label_set_text(s_lbl_xyz, "X:---  Y:---  Z:---  \xc2\xb5T");
-    lv_obj_set_style_text_font(s_lbl_xyz, UI_FONT_CHIP, 0);
+    lv_obj_set_style_text_font(s_lbl_xyz, UI_FONT_LABEL, 0);
     lv_obj_set_style_text_color(s_lbl_xyz, theme_subtext(), 0);
-    lv_obj_align(s_lbl_xyz, LV_ALIGN_TOP_LEFT, X_MARGIN, XYZ_Y);
+    lv_obj_align(s_lbl_xyz, LV_ALIGN_TOP_LEFT, MAG_PAD_H_TEXT, MAG_XYZ_Y);
+    lv_label_bind_text(s_lbl_xyz, &subj_mag_xyz_str, NULL);
 
-    // ── Heading (large, below XYZ) ────────────────────────────────────────
+    // ── Heading (large, subject-bound; colour owned by update()) ──────────
     s_lbl_heading = lv_label_create(parent);
-    lv_label_set_text(s_lbl_heading, "---");
     lv_obj_set_style_text_font(s_lbl_heading, UI_FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_lbl_heading, theme_subtext(), 0);
-    lv_obj_align(s_lbl_heading, LV_ALIGN_TOP_LEFT, X_MARGIN, HEAD_Y);
+    lv_obj_align(s_lbl_heading, LV_ALIGN_TOP_LEFT, MAG_PAD_H_TEXT, MAG_HEAD_Y);
+    lv_label_bind_text(s_lbl_heading, &subj_mag_heading_str, NULL);
 
-    // ── Cardinal direction ────────────────────────────────────────────────
+    // ── Cardinal (subject-bound) ──────────────────────────────────────────
     s_lbl_cardinal = lv_label_create(parent);
-    lv_label_set_text(s_lbl_cardinal, "---");
     lv_obj_set_style_text_font(s_lbl_cardinal, UI_FONT_LABEL, 0);
     lv_obj_set_style_text_color(s_lbl_cardinal, theme_subtext(), 0);
-    lv_obj_align(s_lbl_cardinal, LV_ALIGN_TOP_LEFT, X_MARGIN, CARD_Y);
+    lv_obj_align(s_lbl_cardinal, LV_ALIGN_TOP_LEFT, MAG_PAD_H_TEXT, MAG_CARD_Y);
+    lv_label_bind_text(s_lbl_cardinal, &subj_mag_cardinal_str, NULL);
 
     // ── Compass rose (right column) ───────────────────────────────────────
     s_compass_bg = lv_obj_create(parent);
-    lv_obj_set_size(s_compass_bg, ROSE_SIZE, ROSE_SIZE);
-    lv_obj_align(s_compass_bg, LV_ALIGN_TOP_RIGHT, ROSE_X, ROSE_Y);
+    lv_obj_set_size(s_compass_bg, MAG_ROSE_SIZE, MAG_ROSE_SIZE);
+    lv_obj_align(s_compass_bg, LV_ALIGN_TOP_RIGHT, -MAG_PAD_H_UI, MAG_ROSE_Y);
     lv_obj_set_style_radius(s_compass_bg, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_compass_bg, lv_color_hex(0x2A2A2E), 0);
     lv_obj_set_style_border_color(s_compass_bg, lv_color_hex(0x48484A), 0);
@@ -219,7 +174,6 @@ void compass_tile_init(lv_obj_t *parent)
     lv_obj_clear_flag(s_compass_bg, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_compass_bg, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-    // Cardinal letters on the rose
     static const struct {
         const char   *t;
         lv_align_t    a;
@@ -238,113 +192,76 @@ void compass_tile_init(lv_obj_t *parent)
         lv_obj_align(cl, k_cards[i].a, k_cards[i].ox, k_cards[i].oy);
     }
 
-    // Needle — LV_SYMBOL_UP label, rotated by heading via transform_angle
     s_needle = lv_label_create(s_compass_bg);
     lv_label_set_text(s_needle, LV_SYMBOL_UP);
     lv_obj_set_style_text_color(s_needle, COL_STATUS_OFFLINE, 0);
     lv_obj_set_style_text_font(s_needle, UI_FONT_LABEL, 0);
     lv_obj_center(s_needle);
-    // Pivot at visual centre of the glyph — tune if font changes
     lv_obj_set_style_transform_pivot_x(s_needle, 7, 0);
     lv_obj_set_style_transform_pivot_y(s_needle, 9, 0);
 
-    // ── Calibrate button (bottom, centred) ────────────────────────────────
+    // ── Calibrate button (subject-bound label; colour + state in update) ──
     s_btn_cal = lv_btn_create(parent);
-    lv_obj_set_size(s_btn_cal, BTN_W, BTN_H);
-    lv_obj_align(s_btn_cal, LV_ALIGN_BOTTOM_MID, 0, BTN_Y);
+    lv_obj_set_size(s_btn_cal, MAG_BTN_W, MAG_BTN_H);
+    lv_obj_align(s_btn_cal, LV_ALIGN_BOTTOM_MID, 0, -MAG_PAD_V_UI);
     lv_obj_set_style_bg_color(s_btn_cal, COL_STATUS_DISABLED, 0);
     lv_obj_add_state(s_btn_cal, LV_STATE_DISABLED);
     lv_obj_add_event_cb(s_btn_cal, cb_calibrate, LV_EVENT_CLICKED, NULL);
 
     s_lbl_btn_cal = lv_label_create(s_btn_cal);
-    lv_label_set_text(s_lbl_btn_cal, "CALIBRATE");
-    lv_obj_set_style_text_font(s_lbl_btn_cal, UI_FONT_LABEL, 0);
+    lv_obj_set_style_text_font(s_lbl_btn_cal, UI_FONT_TITLE, 0);
     lv_obj_center(s_lbl_btn_cal);
+    lv_label_bind_text(s_lbl_btn_cal, &subj_mag_cal_btn_str, NULL);
 
-    ESP_LOGI(TAG, "%s tile init OK", lis3mdl_get_chip_name());
+    ESP_LOGI(TAG, "%s tile init OK (subject-bound)", lis3mdl_get_chip_name());
 }
 
 // ---------------------------------------------------------------------------
-// compass_tile_update — called every 200 ms by task_ui_refresh_fn()
+// compass_tile_update -- LED + heading colour + needle rotation +
+//                        cal-button colour/state. Text is drain-driven.
 // ---------------------------------------------------------------------------
 void compass_tile_update(void)
 {
-    broker_mag_data_t d  = {0};
-    broker_mag_read(&d);
-    sensor_status_t   st = broker_mag_get_status();
+    if (!s_led_status) return;
 
-    // ── Status LED ──────────────────────────────────────────────────────────
+    broker_mag_data_t d = {0};
+    broker_mag_read(&d);
+    sensor_status_t st = broker_mag_get_status();
+
     update_led(st);
 
-    // ── Power toggle sync (guard prevents re-entrancy) ─────────────────────
-    s_syncing = true;
-    if (broker_mag_get_enabled()) lv_obj_add_state(s_sw_power, LV_STATE_CHECKED);
-    else                          lv_obj_clear_state(s_sw_power, LV_STATE_CHECKED);
-    s_syncing = false;
+    bool data_ok  = (st == SENSOR_ONLINE || st == SENSOR_STALE || st == SENSOR_ACQUIRING);
+    bool has_fix  = (st == SENSOR_ONLINE || st == SENSOR_STALE) && d.enabled;
 
-    bool data_ok = (st == SENSOR_ONLINE || st == SENSOR_STALE || st == SENSOR_ACQUIRING);
+    // -- Heading + cardinal colour tint ----------------------------------------
+    lv_color_t hcol;
+    if (has_fix)                      hcol = d.calibrated ? COL_STATUS_ONLINE : COL_STATUS_STALE;
+    else if (data_ok && d.enabled)    hcol = COL_STATUS_ACQUIRING;
+    else                              hcol = theme_subtext();
+    lv_obj_set_style_text_color(s_lbl_heading,  hcol, 0);
+    lv_obj_set_style_text_color(s_lbl_cardinal, hcol, 0);
 
-    // ── XYZ row ──────────────────────────────────────────────────────────────
-    if (data_ok) {
-        char xs[10], ys[10], zs[10], buf[48];
-        snprintf(xs,  sizeof(xs),  "%.0f", (double)d.x_ut);
-        snprintf(ys,  sizeof(ys),  "%.0f", (double)d.y_ut);
-        snprintf(zs,  sizeof(zs),  "%.0f", (double)d.z_ut);
-        snprintf(buf, sizeof(buf), "X:%s  Y:%s  Z:%s  \xc2\xb5T", xs, ys, zs);
-        lv_label_set_text(s_lbl_xyz, buf);
-        lv_obj_set_style_text_color(s_lbl_xyz, theme_subtext(), 0);
-    } else {
-        lv_label_set_text(s_lbl_xyz, "X:---  Y:---  Z:---  \xc2\xb5T");
-        lv_obj_set_style_text_color(s_lbl_xyz, theme_subtext(), 0);
-    }
-
-    // ── Heading + cardinal + needle ──────────────────────────────────────────
-    if (data_ok && (st == SENSOR_ONLINE || st == SENSOR_STALE)) {
-        char hdg_buf[12];
-        snprintf(hdg_buf, sizeof(hdg_buf), "%.0f\xc2\xb0", (double)d.heading_deg);
-        lv_label_set_text(s_lbl_heading, hdg_buf);
-        lv_label_set_text(s_lbl_cardinal, heading_to_cardinal(d.heading_deg));
-
-        // Colour: green if calibrated, orange if heading valid but uncalibrated
-        lv_color_t hcol = d.calibrated ? COL_STATUS_ONLINE : COL_STATUS_STALE;
-        lv_obj_set_style_text_color(s_lbl_heading,  hcol, 0);
-        lv_obj_set_style_text_color(s_lbl_cardinal, hcol, 0);
-
-        // Needle rotation: LVGL angle unit = 0.1°, so multiply by 10
+    // -- Needle rotation -------------------------------------------------------
+    if (has_fix) {
         int16_t angle_lv = (int16_t)(d.heading_deg * 10.0f);
         lv_obj_set_style_transform_angle(s_needle, angle_lv, 0);
         lv_obj_set_style_opa(s_needle, LV_OPA_COVER, 0);
-        lv_obj_invalidate(s_needle);
-    } else if (data_ok && st == SENSOR_ACQUIRING) {
-        // Calibrating: show dashes, reset needle
-        lv_label_set_text(s_lbl_heading, "---");
-        lv_label_set_text(s_lbl_cardinal, heading_to_cardinal(0.0f));
-        lv_obj_set_style_text_color(s_lbl_heading,  COL_STATUS_ACQUIRING, 0);
-        lv_obj_set_style_text_color(s_lbl_cardinal, COL_STATUS_ACQUIRING, 0);
+    } else if (data_ok && d.enabled) {
         lv_obj_set_style_transform_angle(s_needle, 0, 0);
         lv_obj_set_style_opa(s_needle, LV_OPA_50, 0);
     } else {
-        lv_label_set_text(s_lbl_heading,  "---");
-        lv_label_set_text(s_lbl_cardinal, "---");
-        lv_obj_set_style_text_color(s_lbl_heading,  theme_subtext(), 0);
-        lv_obj_set_style_text_color(s_lbl_cardinal, theme_subtext(), 0);
         lv_obj_set_style_transform_angle(s_needle, 0, 0);
         lv_obj_set_style_opa(s_needle, LV_OPA_30, 0);
     }
 
-    // ── Calibrate button ─────────────────────────────────────────────────────
+    // -- Calibrate button colour + enable state --------------------------------
     if (d.calibrating) {
-        char cal_buf[24];
-        snprintf(cal_buf, sizeof(cal_buf), "CAL %ds", (int)d.cal_countdown);
-        lv_label_set_text(s_lbl_btn_cal, cal_buf);
         lv_obj_set_style_bg_color(s_btn_cal, COL_STATUS_ACQUIRING, 0);
         lv_obj_add_state(s_btn_cal, LV_STATE_DISABLED);
-    } else if (st == SENSOR_ONLINE || st == SENSOR_STALE || st == SENSOR_ACQUIRING) {
-        lv_label_set_text(s_lbl_btn_cal, "CALIBRATE");
+    } else if (data_ok && d.enabled) {
         lv_obj_set_style_bg_color(s_btn_cal, COL_ACCENT, 0);
         lv_obj_clear_state(s_btn_cal, LV_STATE_DISABLED);
     } else {
-        lv_label_set_text(s_lbl_btn_cal, "CALIBRATE");
         lv_obj_set_style_bg_color(s_btn_cal, COL_STATUS_DISABLED, 0);
         lv_obj_add_state(s_btn_cal, LV_STATE_DISABLED);
     }
@@ -370,10 +287,8 @@ void compass_tile_apply_theme(ui_theme_t theme)
     lv_obj_set_style_bg_color(s_divider,     theme_divider(), 0);
     lv_obj_set_style_text_color(s_lbl_header,   theme_text(),    0);
     lv_obj_set_style_text_color(s_lbl_xyz,      theme_subtext(), 0);
-    lv_obj_set_style_text_color(s_lbl_heading,  theme_subtext(), 0);
-    lv_obj_set_style_text_color(s_lbl_cardinal, theme_subtext(), 0);
-    // Rose background stays dark regardless of theme — it's a display element
-    // Button accent colour is constant
+    // heading + cardinal colour semantic; owned by update()
+    // Rose bg + button accent stay constant across themes.
 }
 
 const tile_desc_t compass_tile_desc = {

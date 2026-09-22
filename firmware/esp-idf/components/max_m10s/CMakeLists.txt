@@ -10,6 +10,7 @@ idf_component_register(
         esp_timer
         data_broker
         lvgl
+        lvgl_ui             # Stage 31.4: g_gps_q + subj_gps_* from ui_subjects.h
         esp_lvgl_port
         pcf85063
         cross_driver

@@ -45,7 +45,7 @@
 // ── I2C address + port ────────────────────────────────────────────────────────
 #define MAX30101_ADDR               0x57
 #define MAX30101_I2C_PORT           I2C_NUM_0
-#define MAX30101_INT_GPIO           7
+#define MAX30101_INT_GPIO           17//7 is original pin, 17 is dead gps-TX pin, bodged for gps priority
 
 // ── Register addresses ────────────────────────────────────────────────────────
 // MAX30101 register map (Maxim 19-7411; 2017 rev) -- shared with MAX30102 for

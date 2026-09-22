@@ -25,7 +25,11 @@
 
 #include "max_m10s.h"
 #include "data_broker.h"
+#include "ui_subjects.h"       // Stage 31.4: g_gps_q for UI drain path
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"     // rtc_gpio_hold_dis / _deinit / _is_valid_gpio
+#include "esp_rom_gpio.h"      // esp_rom_gpio_connect_out_signal (manual TX route)
+#include "soc/gpio_sig_map.h"  // U1TXD_OUT_IDX / U1RXD_IN_IDX
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"
@@ -64,7 +68,18 @@ volatile bool g_gps_sync_requested = false;
 #define UBX_SYNC1             0xB5
 #define UBX_SYNC2             0x62
 #define UBX_CLASS_NAV         0x01
+#define UBX_CLASS_MON         0x0A
+#define UBX_CLASS_ACK         0x05
 #define UBX_ID_NAV_TIMEUTC    0x21
+#define UBX_ID_MON_RF         0x38
+#define UBX_ID_ACK_ACK        0x01
+#define UBX_ID_ACK_NAK        0x00
+
+// -- Stage 31.4b: CFG-VALSET key IDs (from M10 Interface Description) ---------
+#define UBX_KEY_NAVSPG_DYNMODEL          0x20110021u
+#define UBX_KEY_MSGOUT_UBX_MON_RF_UART1  0x2091035au
+#define UBX_KEY_MSGOUT_UBX_NAV_PVT_UART1 0x20910007u
+#define UBX_LAYER_RAM  0x01
 
 // -- Internal state -----------------------------------------------------------
 typedef struct {
@@ -233,6 +248,90 @@ static void parse_rmc(char *sentence)
     s_gps.last_update_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
+// ─── NMEA GSV parser -> rolling SNR history for signal-strength bar ─────────
+// GSV format:
+//   $--GSV,total_sentences,sentence_num,sats_in_view,
+//         {prn,elev,azim,snr,}[up to 4 per sentence]*checksum
+// SNR is CN0 in dBHz (0..99). Multiple constellations (GP/GA/GB/GQ) each
+// emit their own GSV cycle every second; we merge across all of them.
+//
+// Storage: rolling buffer of the most recent SNR observations with a
+// timestamp. Anything older than SNR_MAX_AGE_MS is ignored when computing
+// the summary, so a sat that drops out stops contributing within ~2.5s.
+#define SNR_HISTORY_SIZE  40
+#define SNR_MAX_AGE_MS    2500U
+
+static struct { uint8_t snr; uint32_t rx_ms; } s_snr_hist[SNR_HISTORY_SIZE];
+static uint8_t s_snr_hist_idx = 0;
+
+static void snr_push(uint8_t snr)
+{
+    s_snr_hist[s_snr_hist_idx].snr   = snr;
+    s_snr_hist[s_snr_hist_idx].rx_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    s_snr_hist_idx = (uint8_t)((s_snr_hist_idx + 1) % SNR_HISTORY_SIZE);
+}
+
+static void parse_gsv(char *sentence)
+{
+    // strtok mutates -- caller must be OK with that (matches parse_gga/rmc).
+    // We only care about fields 4, 8, 12, 16 (snr for each of up to 4 sats).
+    // Field indices (0-based): 0='$--GSV', 1=total, 2=num, 3=sats_in_view,
+    //   4=prn1, 5=elev1, 6=azim1, 7=snr1,
+    //   8=prn2, 9=elev2, 10=azim2, 11=snr2, ...
+    char *tok  = strtok(sentence, ",");
+    int   field = 0;
+    while (tok && field < 20) {
+        // snr fields are at positions 7, 11, 15, 19 (every 4th from 7)
+        if (field >= 7 && ((field - 7) % 4) == 0) {
+            // strip optional trailing "*CS" checksum (only on last snr in
+            // a sentence with fewer than 4 sats -- but strtok on '*' would
+            // complicate; atoi stops at non-digit so we're fine).
+            uint8_t snr = (uint8_t)atoi(tok);
+            if (snr > 0 && snr < 100) snr_push(snr);
+        }
+        tok = strtok(NULL, ",");
+        field++;
+    }
+}
+
+void max_m10s_get_snr_summary(max_m10s_snr_summary_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    uint8_t  fresh[SNR_HISTORY_SIZE];
+    uint8_t  nfresh = 0;
+
+    for (uint8_t i = 0; i < SNR_HISTORY_SIZE; i++) {
+        uint8_t snr = s_snr_hist[i].snr;
+        if (snr == 0) continue;
+        if ((now - s_snr_hist[i].rx_ms) > SNR_MAX_AGE_MS) continue;
+        fresh[nfresh++] = snr;
+        if (snr > out->max_cn0) out->max_cn0 = snr;
+    }
+    out->sats_with_snr = nfresh;
+    out->sats_in_view  = nfresh;   // best proxy we have from GSV alone
+    out->last_update_ms = now;
+
+    // Top-4 average.
+    if (nfresh == 0) return;
+    // Simple selection: repeatedly find max, sum, remove.
+    uint32_t sum = 0;
+    uint8_t  taken = 0;
+    for (uint8_t k = 0; k < 4 && k < nfresh; k++) {
+        uint8_t best = 0, best_i = 0;
+        for (uint8_t i = 0; i < nfresh; i++) {
+            if (fresh[i] > best) { best = fresh[i]; best_i = i; }
+        }
+        if (best == 0) break;
+        sum += best;
+        taken++;
+        fresh[best_i] = 0;
+    }
+    if (taken) out->top4_avg_cn0 = (uint8_t)(sum / taken);
+}
+
 static void process_nmea_sentence(char *raw)
 {
     if (!raw || strlen(raw) < 6) return;
@@ -246,6 +345,12 @@ static void process_nmea_sentence(char *raw)
         strncpy(s_debug.rmc, raw, sizeof(s_debug.rmc) - 1);
         s_debug.rmc[sizeof(s_debug.rmc) - 1] = '\0';
         parse_rmc(raw);
+    } else if (strstr(raw, "GSV")) {
+        // Working buffer so we don't strtok-mutate s_debug/state.
+        char tmp[NMEA_BUF_SIZE];
+        strncpy(tmp, raw, sizeof(tmp) - 1);
+        tmp[sizeof(tmp) - 1] = '\0';
+        parse_gsv(tmp);
     }
 }
 
@@ -288,6 +393,178 @@ static void handle_ubx_nav_timeutc(const uint8_t *p, uint16_t len)
     s_gps.time_utc.tm_sec  = (int)sec;
     s_gps.time_valid       = true;
     s_gps.last_update_ms   = (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+// ─── Stage 31.4b: UBX-MON-RF (0x0A 0x38) parser + snapshot ─────────────────
+// Frame: 4 B header (version, nBlocks, reserved0[2]) + nBlocks * 24 B blocks.
+// Per manual, block offsets: 0 blockId, 1 flags, 2 antStatus, 3 antPower,
+// 4 postStatus U4, 8 reserved1 U1[4], 12 noisePerMS U2, 14 agcCnt U2.
+// We only look at block 0 (single-RF-block modules like MAX-M10S).
+static max_m10s_monrf_t s_monrf = {0};
+static SemaphoreHandle_t s_monrf_lock = NULL;
+
+static void handle_ubx_mon_rf(const uint8_t *p, uint16_t len)
+{
+    if (len < 4 + 24) return;
+    uint8_t nBlocks = p[1];
+    if (nBlocks < 1) return;
+    const uint8_t *blk = p + 4;   // first block starts here
+    uint8_t  ant_status   = blk[2];
+    uint8_t  ant_power    = blk[3];
+    uint16_t noise_per_ms = (uint16_t)blk[12] | ((uint16_t)blk[13] << 8);
+    uint16_t agc_cnt      = (uint16_t)blk[14] | ((uint16_t)blk[15] << 8);
+
+    if (s_monrf_lock && xSemaphoreTake(s_monrf_lock, pdMS_TO_TICKS(20)) == pdTRUE) {
+        s_monrf.valid          = true;
+        s_monrf.last_update_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        s_monrf.ant_status     = ant_status;
+        s_monrf.ant_power      = ant_power;
+        s_monrf.noise_per_ms   = noise_per_ms;
+        s_monrf.agc_cnt        = agc_cnt;
+        xSemaphoreGive(s_monrf_lock);
+    }
+    ESP_LOGD(TAG, "MON-RF: ant=%s(%u) pwr=%u noise=%u agc=%u",
+             max_m10s_ant_status_name(ant_status), ant_status,
+             ant_power, noise_per_ms, agc_cnt);
+}
+
+void max_m10s_get_monrf(max_m10s_monrf_t *out)
+{
+    if (!out) return;
+    if (s_monrf_lock && xSemaphoreTake(s_monrf_lock, pdMS_TO_TICKS(20)) == pdTRUE) {
+        *out = s_monrf;
+        xSemaphoreGive(s_monrf_lock);
+    } else {
+        memset(out, 0, sizeof(*out));
+    }
+}
+
+const char *max_m10s_ant_status_name(uint8_t ant_status)
+{
+    switch (ant_status) {
+        case 0: return "INIT";
+        case 1: return "DONTKNOW";
+        case 2: return "OK";
+        case 3: return "SHORT";
+        case 4: return "OPEN";
+        default: return "?";
+    }
+}
+
+// ─── Stage 31.4b: UBX-CFG-VALSET frame builder ─────────────────────────────
+// Fletcher-8 checksum over CLASS+ID+LEN_lo+LEN_hi+payload bytes.
+static void ubx_fletcher(const uint8_t *buf, size_t n, uint8_t *ck_a, uint8_t *ck_b)
+{
+    uint8_t a = 0, b = 0;
+    for (size_t i = 0; i < n; i++) {
+        a = (uint8_t)(a + buf[i]);
+        b = (uint8_t)(b + a);
+    }
+    *ck_a = a; *ck_b = b;
+}
+
+// Build + send a single-key VALSET (U1/E1 value). Buffered UART write.
+static esp_err_t ubx_send_valset_u1(uint8_t layers, uint32_t key_id, uint8_t value)
+{
+    // Payload: version(1) + layers(1) + reserved0(2) + keyID(4) + value(1) = 9 B
+    uint8_t frame[6 + 9 + 2];
+    frame[0] = UBX_SYNC1;
+    frame[1] = UBX_SYNC2;
+    frame[2] = 0x06;                 // CLASS = CFG
+    frame[3] = 0x8A;                 // ID    = VALSET
+    frame[4] = 9;                    // LEN lo
+    frame[5] = 0;                    // LEN hi
+    frame[6] = 0x00;                 // version
+    frame[7] = layers;               // layers bitmask
+    frame[8] = 0x00;                 // reserved0[0]
+    frame[9] = 0x00;                 // reserved0[1]
+    frame[10] = (uint8_t)(key_id >>  0);
+    frame[11] = (uint8_t)(key_id >>  8);
+    frame[12] = (uint8_t)(key_id >> 16);
+    frame[13] = (uint8_t)(key_id >> 24);
+    frame[14] = value;
+    ubx_fletcher(&frame[2], 4 + 9, &frame[15], &frame[16]);   // CLASS..value
+
+    int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
+    if (w != (int)sizeof(frame)) {
+        ESP_LOGW(TAG, "ubx_send_valset_u1: uart_write short (%d/%zu)",
+                 w, sizeof(frame));
+        return ESP_FAIL;
+    }
+    ESP_LOGD(TAG, "ubx_send_valset_u1: key=0x%08lx val=%u layers=0x%02x",
+             (unsigned long)key_id, value, layers);
+    return ESP_OK;
+}
+
+// -- Public API ---------------------------------------------------------------
+
+static max_m10s_dynmodel_t s_dynmodel_last = UBX_DYNMODEL_PORTABLE;   // chip default
+
+const char *max_m10s_dynmodel_name(max_m10s_dynmodel_t mode)
+{
+    switch (mode) {
+        case UBX_DYNMODEL_PORTABLE:   return "PORTABLE";
+        case UBX_DYNMODEL_STATIONARY: return "STATIONARY";
+        case UBX_DYNMODEL_PEDESTRIAN: return "PEDESTRIAN";
+        case UBX_DYNMODEL_AUTOMOTIVE: return "AUTOMOTIVE";
+        case UBX_DYNMODEL_SEA:        return "SEA";
+        case UBX_DYNMODEL_AIR1G:      return "AIR<1G";
+        case UBX_DYNMODEL_AIR2G:      return "AIR<2G";
+        case UBX_DYNMODEL_AIR4G:      return "AIR<4G";
+        case UBX_DYNMODEL_WRIST:      return "WRIST";
+        case UBX_DYNMODEL_BIKE:       return "BIKE";
+        default:                      return "?";
+    }
+}
+
+esp_err_t max_m10s_set_dynmodel(max_m10s_dynmodel_t mode)
+{
+    esp_err_t r = ubx_send_valset_u1(UBX_LAYER_RAM, UBX_KEY_NAVSPG_DYNMODEL,
+                                     (uint8_t)mode);
+    if (r == ESP_OK) {
+        s_dynmodel_last = mode;
+        ESP_LOGI(TAG, "DYNMODEL -> %s (%u) queued to UART",
+                 max_m10s_dynmodel_name(mode), mode);
+    }
+    return r;
+}
+
+max_m10s_dynmodel_t max_m10s_get_dynmodel(void) { return s_dynmodel_last; }
+
+esp_err_t max_m10s_enable_monrf(uint8_t rate)
+{
+    esp_err_t r = ubx_send_valset_u1(UBX_LAYER_RAM,
+                                     UBX_KEY_MSGOUT_UBX_MON_RF_UART1, rate);
+    if (r == ESP_OK) {
+        ESP_LOGI(TAG, "MON-RF output rate -> %u", rate);
+    }
+    return r;
+}
+
+// -- UBX diagnostics (TX-alive probe + per-class receive counters) -----------
+static max_m10s_ubx_counters_t s_ubx_ctr = {0};
+
+void max_m10s_get_ubx_counters(max_m10s_ubx_counters_t *out)
+{
+    if (!out) return;
+    *out = s_ubx_ctr;
+}
+
+// UBX-MON-VER poll: 6-byte header only, no payload. Chip always answers
+// if it's alive and hears the request. Use to prove ESP->GPS TX works.
+esp_err_t max_m10s_ping(void)
+{
+    static const uint8_t frame[8] = {
+        0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00,
+        0x0E, 0x34,   // pre-computed Fletcher for (0A 04 00 00)
+    };
+    int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
+    if (w != (int)sizeof(frame)) {
+        ESP_LOGW(TAG, "ping: uart_write short (%d/%zu)", w, sizeof(frame));
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued");
+    return ESP_OK;
 }
 
 static void ubx_reset(void)
@@ -337,8 +614,36 @@ void max_m10s_feed_ubx_byte(uint8_t b)
     case UBX_CK_B:
         s_ubx.ck_b = b;
         if (s_ubx.ck_a == s_ubx.calc_a && s_ubx.ck_b == s_ubx.calc_b) {
+            s_ubx_ctr.total++;
             if (s_ubx.cls == UBX_CLASS_NAV && s_ubx.id == UBX_ID_NAV_TIMEUTC) {
+                s_ubx_ctr.nav_timeutc++;
                 handle_ubx_nav_timeutc(s_ubx.payload, s_ubx.len);
+            }
+            else if (s_ubx.cls == UBX_CLASS_MON && s_ubx.id == UBX_ID_MON_RF) {
+                s_ubx_ctr.mon_rf++;
+                handle_ubx_mon_rf(s_ubx.payload, s_ubx.len);
+            }
+            else if (s_ubx.cls == UBX_CLASS_MON && s_ubx.id == 0x04) {
+                // UBX-MON-VER: response to PING. Log SW/HW strings if long
+                // enough, so bench can see chip identity + confirm TX path.
+                s_ubx_ctr.mon_ver++;
+                if (s_ubx.len >= 40) {
+                    char sw[31] = {0}, hw[11] = {0};
+                    memcpy(sw, s_ubx.payload,      30);
+                    memcpy(hw, s_ubx.payload + 30, 10);
+                    ESP_LOGI(TAG, "MON-VER SW='%s' HW='%s' (TX path OK)", sw, hw);
+                } else {
+                    ESP_LOGI(TAG, "MON-VER (short, %u B) received", s_ubx.len);
+                }
+            }
+            else if (s_ubx.cls == UBX_CLASS_ACK && s_ubx.len >= 2) {
+                bool ack = (s_ubx.id == UBX_ID_ACK_ACK);
+                if (ack) s_ubx_ctr.ack_ack++; else s_ubx_ctr.ack_nak++;
+                // Log ACK/NAK so bench sees whether the chip accepted our
+                // CFG-VALSET frames. payload[0] = ack'd class, [1] = ack'd id.
+                ESP_LOGD(TAG, "UBX-ACK-%s cls=0x%02x id=0x%02x",
+                         ack ? "ACK" : "NAK",
+                         s_ubx.payload[0], s_ubx.payload[1]);
             }
         }
         ubx_reset();
@@ -384,19 +689,45 @@ int64_t  max_m10s_get_last_pps_us(void) { return s_pps_last_us; }
 // -- Init ---------------------------------------------------------------------
 esp_err_t max_m10s_init(void)
 {
+    // Clear every latching mechanism that could hold either GPS pin in a
+    // stale state from a prior firmware image (digital hold, RTC hold,
+    // deep-sleep hold, RTC-IO subsystem attachment). Cheap belt-and-
+    // suspenders: without this, on WROOMs that had older IDF fw the pin
+    // can look electrically fine on a scope but stay disconnected from
+    // the UART matrix. Diagnosed 2026-09-20 via Arduino sketch 18c.
+    const gpio_num_t gps_pins[2] = { MAX_M10S_TX_PIN, MAX_M10S_RX_PIN };
+    gpio_deep_sleep_hold_dis();
+    for (int i = 0; i < 2; i++) {
+        gpio_num_t g = gps_pins[i];
+        gpio_hold_dis(g);
+        if (rtc_gpio_is_valid_gpio(g)) {
+            rtc_gpio_hold_dis(g);
+            rtc_gpio_deinit(g);
+        }
+        gpio_reset_pin(g);
+    }
+
+    // Explicit APB clock source -- matches the bench-verified sketch.
+    // UART_SCLK_DEFAULT on ESP32-S3 usually resolves to APB too, but
+    // pinning it removes ambiguity and any future IDF default change.
     uart_config_t cfg = {
         .baud_rate  = MAX_M10S_BAUD_RATE,
         .data_bits  = UART_DATA_8_BITS,
         .parity     = UART_PARITY_DISABLE,
         .stop_bits  = UART_STOP_BITS_1,
         .flow_ctrl  = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
+        .source_clk = UART_SCLK_APB,
     };
 
-    ESP_LOGI(TAG, "Init UART%d TX=%d RX=%d 1PPS=%d @ %d baud",
+    ESP_LOGI(TAG, "Init UART%d TX=GPIO%d RX=GPIO%d 1PPS=GPIO%d @ %d baud, clk=APB",
              MAX_M10S_UART_NUM, MAX_M10S_TX_PIN, MAX_M10S_RX_PIN,
              MAX_M10S_PPS_PIN, MAX_M10S_BAUD_RATE);
 
+    // IDF v5.x order: install -> param_config -> set_pin. Calling
+    // param_config/set_pin before install worked in the Arduino sketch
+    // (IDF v4.4) but on v5.x install can reset peripheral state, silently
+    // losing the earlier config -- symptom is RX-works / TX-queues-but-
+    // never-clocks-out. Diagnosed 2026-09-21 vs. sketch 18c on same pins.
     esp_err_t ret = uart_driver_install(MAX_M10S_UART_NUM, UART_RX_BUF_SIZE, 0, 0, NULL, 0);
     if (ret != ESP_OK) { ESP_LOGE(TAG, "UART install: %s", esp_err_to_name(ret)); return ret; }
 
@@ -406,6 +737,27 @@ esp_err_t max_m10s_init(void)
     ret = uart_set_pin(MAX_M10S_UART_NUM, MAX_M10S_TX_PIN, MAX_M10S_RX_PIN,
                        UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) { ESP_LOGE(TAG, "UART pin: %s", esp_err_to_name(ret)); return ret; }
+
+    // Belt-and-suspenders: on IDF v5.5, uart_set_pin for a non-IOMUX pin
+    // (GPIO7 is not U1TXD's IOMUX default -- only GPIO17 is) can silently
+    // fail to route the output signal, leaving TX bytes queued but never
+    // clocked out on the pin. Force it by hand:
+    //   1) select GPIO function on the pin (undo any prior peripheral IOMUX)
+    //   2) enable output + idle-high (UART idle state)
+    //   3) route U1TXD_OUT_IDX through the matrix to this pin
+    //   4) same for RX side (input) for symmetry
+    gpio_num_t tx_pin = (gpio_num_t)MAX_M10S_TX_PIN;
+    gpio_num_t rx_pin = (gpio_num_t)MAX_M10S_RX_PIN;
+    esp_rom_gpio_pad_select_gpio(tx_pin);
+    gpio_set_direction(tx_pin, GPIO_MODE_OUTPUT);
+    gpio_set_level    (tx_pin, 1);
+    esp_rom_gpio_connect_out_signal(tx_pin, U1TXD_OUT_IDX, false, false);
+
+    esp_rom_gpio_pad_select_gpio(rx_pin);
+    gpio_set_direction(rx_pin, GPIO_MODE_INPUT);
+    esp_rom_gpio_connect_in_signal (rx_pin, U1RXD_IN_IDX,  false);
+    ESP_LOGI(TAG, "GPIO matrix forced: U1TXD->GPIO%d, U1RXD<-GPIO%d",
+             MAX_M10S_TX_PIN, MAX_M10S_RX_PIN);
 
     gpio_pullup_en(MAX_M10S_RX_PIN);
 
@@ -424,7 +776,23 @@ esp_err_t max_m10s_init(void)
         // Non-fatal: GNSS still works without 1PPS, only RTC discipline is lost.
     }
 
-    ESP_LOGI(TAG, "%s init OK", max_m10s_get_chip_name());
+    // Stage 31.4b: MON-RF snapshot mutex + queue config sends to the chip.
+    // Chip startup is fast per §2.1.1 of the Integration Manual; brief delay
+    // gives it a beat to finish its own boot before we hit it with CFG.
+    if (s_monrf_lock == NULL) s_monrf_lock = xSemaphoreCreateMutex();
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // Dynamic model: PEDESTRIAN is the sanest default for a wrist device
+    // (WRIST enum value 9 is not guaranteed on M10 -- start conservative,
+    // Ivan can flip via GPS_DYNMODEL CLI verb once bench-verified).
+    (void)max_m10s_set_dynmodel(UBX_DYNMODEL_PEDESTRIAN);
+
+    // Enable UBX-MON-RF at 1 Hz -- primary "why no fix" diagnostic
+    // (antenna status + noise + AGC).
+    (void)max_m10s_enable_monrf(1);
+
+    ESP_LOGI(TAG, "%s init OK (dynmodel=PED, MON-RF on)",
+             max_m10s_get_chip_name());
     return ESP_OK;
 }
 
@@ -579,7 +947,20 @@ void task_gps_fn(void *arg)
     static bool s_had_fix = false;
 
     while (1) {
-        if (!broker_gps_hw_alive() || !broker_gps_get_enabled()) {
+        if (!broker_gps_hw_alive()) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+        if (!broker_gps_get_enabled()) {
+            // Stage 31.4: push a "disabled" snapshot so the UI tile
+            // reflects the state transition without waiting for a
+            // real sample (which will never arrive while disabled).
+            if (g_gps_q) {
+                broker_gps_data_t bd = {0};
+                max_m10s_get_snapshot(&bd);
+                bd.enabled = false;
+                (void)xQueueOverwrite(g_gps_q, &bd);
+            }
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
@@ -591,6 +972,13 @@ void task_gps_fn(void *arg)
             max_m10s_get_snapshot(&bd);
             bd.enabled = broker_gps_get_enabled();
             broker_gps_write(&bd);
+
+            // Stage 31.4: publish to UI drain queue in addition to the
+            // broker write above. Overwrite semantics; ui_subjects drain
+            // formats + pushes into subjects on the LVGL task every 200 ms.
+            if (g_gps_q) {
+                (void)xQueueOverwrite(g_gps_q, &bd);
+            }
 
             if (bd.time_valid && !g_gps_time_seeded) {
                 cross_driver_fire(XD_EVENT_GPS_TIME_VALID, &bd);

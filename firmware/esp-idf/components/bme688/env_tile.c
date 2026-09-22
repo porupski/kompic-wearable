@@ -29,9 +29,10 @@
 
 #include "env_tile.h"
 #include "bme688_drv.h"      // bme688_get_chip_name/desc, broker_env_data_t
-#include "data_broker.h"     // broker_env_read/get_status/set_enabled/get_enabled
+#include "data_broker.h"     // broker_env_get_status/set_enabled/get_enabled
 #include "app_nvs.h"         // app_nvs_save_height_reference
 #include "ui_theme_colors.h"
+#include "ui_subjects.h"     // Stage 31.2: subj_env_* string bindings
 #include "lvgl.h"
 #include "esp_log.h"
 #include "esp_timer.h"       // esp_timer_get_time() for button feedback timing
@@ -124,6 +125,13 @@ static void cb_zero_height(lv_event_t *e)
     bd.home_ref_valid      = true;
     broker_env_write(&bd);
 
+    // Stage 31.2: piggyback the just-updated sample into the UI drain
+    // queue so the Δ Height label refreshes on the next 200 ms drain
+    // tick instead of waiting for bme688's 2 s cycle.
+    if (g_env_q) {
+        (void)xQueueOverwrite(g_env_q, &bd);
+    }
+
     // Persist to NVS — safe from Core 1 (app_nvs uses NVS internal mutex)
     esp_err_t ret = app_nvs_save_height_reference(ref);
     if (ret == ESP_OK) {
@@ -142,6 +150,19 @@ static void cb_zero_height(lv_event_t *e)
 // ---------------------------------------------------------------------------
 // env_tile_init
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Corner-safe layout constants (Stage 31.2 batch b, 2026-09-18).
+// AMOLED corners cut ~15% each side per project_display_corner_cutoff.
+// Interactive elements must stay INSIDE these pads; text can be a touch
+// closer to the edge but never past 40 px.
+// Display is 410x502 portrait.
+// ---------------------------------------------------------------------------
+#define ENV_PAD_H_TEXT   40    // px from left for text-only rows
+#define ENV_PAD_H_UI     60    // px from edge for interactive (touch)
+#define ENV_PAD_V_UI     40    // px from top/bottom for interactive
+#define ENV_ROW_STEP     42    // vertical stride between value labels
+#define ENV_ROW_Y0      130    // first data-row y (below divider)
+
 void env_tile_init(lv_obj_t *parent)
 {
     s_parent = parent;
@@ -149,79 +170,85 @@ void env_tile_init(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Status LED (top-left) ──────────────────────────────────────────────
+    // ── Status LED (top-left, inside safe zone) ────────────────────────────
     s_led_status = lv_led_create(parent);
-    lv_obj_set_size(s_led_status, 12, 12);
-    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, 12, 12);
+    lv_obj_set_size(s_led_status, 16, 16);
+    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, ENV_PAD_H_UI, ENV_PAD_V_UI + 12);
     lv_led_set_brightness(s_led_status, 200);
     lv_led_set_color(s_led_status, COL_STATUS_DISABLED);
 
-    // ── Chip header label ─────────────────────────────────────────────────
+    // ── Chip header label (title font, right of LED) ──────────────────────
     s_lbl_header = lv_label_create(parent);
     lv_label_set_text_fmt(s_lbl_header, "%s  %s",
         bme688_get_chip_name(), bme688_get_chip_desc());
-    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_LABEL, 0);
+    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_lbl_header, theme_text(), 0);
-    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, 30, 7);
+    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, ENV_PAD_H_UI + 26, ENV_PAD_V_UI);
 
-    // ── Power toggle switch (top-right) ───────────────────────────────────
+    // ── Power toggle switch (top-right, larger, inside safe zone) ─────────
+    // Was 46x22 at (-8, 6) -- 100% inside the corner arc. Bumped ~2x and
+    // pulled INSIDE the corner-safe zone so the touch surface is reachable.
     s_sw_power = lv_switch_create(parent);
-    lv_obj_set_size(s_sw_power, 46, 22);
-    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -8, 6);
+    lv_obj_set_size(s_sw_power, 90, 46);
+    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -ENV_PAD_H_UI, ENV_PAD_V_UI);
     lv_obj_add_event_cb(s_sw_power, cb_power_toggle, LV_EVENT_VALUE_CHANGED, NULL);
 
     // ── Divider ───────────────────────────────────────────────────────────
     s_divider = lv_obj_create(parent);
-    lv_obj_set_size(s_divider, 216, 1);
-    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_set_size(s_divider, 260, 2);
+    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, ENV_PAD_V_UI + 60);
     lv_obj_set_style_bg_color(s_divider, theme_divider(), 0);
     lv_obj_set_style_bg_opa(s_divider, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_divider, 0, 0);
     lv_obj_clear_flag(s_divider, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Data rows (y starts at 44, step 22 px) ────────────────────────────
-    const lv_font_t *fnt = UI_FONT_LABEL;
+    // ── Data rows (28 px font, 42 px stride, subject-bound) ───────────────
+    // Stage 31.2: labels bind to subj_env_* strings; drain timer pushes.
+    // Font bumped 20 -> 28 px (UI_FONT_TITLE). A literal 2x (40 px)
+    // needs a new lv_font_conv output; ping Ivan if 28 isn't big enough.
+    const lv_font_t *fnt = UI_FONT_TITLE;
     lv_color_t       col = theme_subtext();
 
     s_lbl_temp = lv_label_create(parent);
-    lv_label_set_text(s_lbl_temp, "Temp:      ---");
     lv_obj_set_style_text_font(s_lbl_temp, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_temp, col, 0);
-    lv_obj_align(s_lbl_temp, LV_ALIGN_TOP_LEFT, 12, 44);
+    lv_obj_align(s_lbl_temp, LV_ALIGN_TOP_LEFT, ENV_PAD_H_TEXT, ENV_ROW_Y0);
+    lv_label_bind_text(s_lbl_temp, &subj_env_temp_str, NULL);
 
     s_lbl_hum = lv_label_create(parent);
-    lv_label_set_text(s_lbl_hum, "Hum:       ---");
     lv_obj_set_style_text_font(s_lbl_hum, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_hum, col, 0);
-    lv_obj_align(s_lbl_hum, LV_ALIGN_TOP_LEFT, 12, 66);
+    lv_obj_align(s_lbl_hum, LV_ALIGN_TOP_LEFT, ENV_PAD_H_TEXT, ENV_ROW_Y0 + ENV_ROW_STEP);
+    lv_label_bind_text(s_lbl_hum, &subj_env_hum_str, NULL);
 
     s_lbl_press = lv_label_create(parent);
-    lv_label_set_text(s_lbl_press, "Press:     ---");
     lv_obj_set_style_text_font(s_lbl_press, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_press, col, 0);
-    lv_obj_align(s_lbl_press, LV_ALIGN_TOP_LEFT, 12, 88);
+    lv_obj_align(s_lbl_press, LV_ALIGN_TOP_LEFT, ENV_PAD_H_TEXT, ENV_ROW_Y0 + 2 * ENV_ROW_STEP);
+    lv_label_bind_text(s_lbl_press, &subj_env_press_str, NULL);
 
     s_lbl_alt = lv_label_create(parent);
-    lv_label_set_text(s_lbl_alt, "Alt:       ---");
     lv_obj_set_style_text_font(s_lbl_alt, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_alt, col, 0);
-    lv_obj_align(s_lbl_alt, LV_ALIGN_TOP_LEFT, 12, 110);
+    lv_obj_align(s_lbl_alt, LV_ALIGN_TOP_LEFT, ENV_PAD_H_TEXT, ENV_ROW_Y0 + 3 * ENV_ROW_STEP);
+    lv_label_bind_text(s_lbl_alt, &subj_env_alt_str, NULL);
 
     s_lbl_delta = lv_label_create(parent);
-    lv_label_set_text(s_lbl_delta, "\xce\x94 Height:  -- not zeroed --");
     lv_obj_set_style_text_font(s_lbl_delta, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_delta, col, 0);
-    lv_obj_align(s_lbl_delta, LV_ALIGN_TOP_LEFT, 12, 132);
+    lv_obj_align(s_lbl_delta, LV_ALIGN_TOP_LEFT, ENV_PAD_H_TEXT, ENV_ROW_Y0 + 4 * ENV_ROW_STEP);
+    lv_label_bind_text(s_lbl_delta, &subj_env_delta_str, NULL);
 
-    // ── ZERO HEIGHT button (bottom) ───────────────────────────────────────
+    // ── ZERO HEIGHT button (bottom, larger, inside safe zone) ─────────────
+    // Was 200x34 at (0, -8). Bumped size + pulled inside the bottom arc.
     s_btn_zero = lv_btn_create(parent);
-    lv_obj_set_size(s_btn_zero, 200, 34);
-    lv_obj_align(s_btn_zero, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_size(s_btn_zero, 280, 60);
+    lv_obj_align(s_btn_zero, LV_ALIGN_BOTTOM_MID, 0, -ENV_PAD_V_UI);
     lv_obj_set_style_bg_color(s_btn_zero, COL_ACCENT, 0);
 
     s_lbl_btn_zero = lv_label_create(s_btn_zero);
     lv_label_set_text(s_lbl_btn_zero, "ZERO HEIGHT");
-    lv_obj_set_style_text_font(s_lbl_btn_zero, UI_FONT_LABEL, 0);
+    lv_obj_set_style_text_font(s_lbl_btn_zero, UI_FONT_TITLE, 0);
     lv_obj_center(s_lbl_btn_zero);
 
     lv_obj_add_event_cb(s_btn_zero, cb_zero_height, LV_EVENT_CLICKED, NULL);
@@ -231,12 +258,21 @@ void env_tile_init(lv_obj_t *parent)
 
 // ---------------------------------------------------------------------------
 // env_tile_update  — called every 200 ms by task_ui_refresh_fn()
+//
+// Stage 31.2: value labels (temp / hum / press / alt / delta) are now
+// subject-bound and driven by the ui_subjects drain timer (see
+// ui_subjects.c). This function retains only the pieces that aren't
+// value-tracked observables yet:
+//   - Status LED colour (transitions rare; poll fine for now)
+//   - Power toggle sync (two-way widget<->broker; Stage 32/33 scope)
+//   - ZERO HEIGHT button enable + feedback timeout
+// Fully-no-op status ships in Stage 33.3 with the update-cb removal
+// from the registry contract.
 // ---------------------------------------------------------------------------
 void env_tile_update(void)
 {
-    broker_env_data_t d  = {0};
-    broker_env_read(&d);
-    sensor_status_t   st = broker_env_get_status();
+    sensor_status_t st = broker_env_get_status();
+    bool data_valid    = (st == SENSOR_ONLINE || st == SENSOR_STALE);
 
     // ── Status LED ──────────────────────────────────────────────────────────
     update_led(st);
@@ -246,73 +282,6 @@ void env_tile_update(void)
     if (broker_env_get_enabled()) lv_obj_add_state(s_sw_power, LV_STATE_CHECKED);
     else                          lv_obj_clear_state(s_sw_power, LV_STATE_CHECKED);
     s_syncing = false;
-
-    // ── Data validity gate ───────────────────────────────────────────────────
-    bool data_valid = (st == SENSOR_ONLINE || st == SENSOR_STALE);
-
-    // ── Temp row ──────────────────────────────────────────────────────────────
-    if (data_valid) {
-        char buf[48];
-        int t_w = (int)d.temperature_c;
-        int t_d = (int)((d.temperature_c - t_w) * 10);
-        if (t_d < 0) t_d = -t_d;
-        snprintf(buf, sizeof(buf), "Temp:      %d.%d \xc2\xb0""C", t_w, t_d);
-        lv_label_set_text(s_lbl_temp, buf);
-    } else {
-        lv_label_set_text(s_lbl_temp, "Temp:      ---");
-    }
-
-    // ── Humidity row ─────────────────────────────────────────────────────────
-    if (data_valid) {
-        char buf[48];
-        int h_w = (int)d.humidity_pct;
-        int h_d = (int)((d.humidity_pct - h_w) * 10);
-        if (h_d < 0) h_d = -h_d;
-        snprintf(buf, sizeof(buf), "Hum:       %d.%d %%", h_w, h_d);
-        lv_label_set_text(s_lbl_hum, buf);
-    } else {
-        lv_label_set_text(s_lbl_hum, "Hum:       ---");
-    }
-
-    // ── Pressure row ─────────────────────────────────────────────────────────
-    if (data_valid) {
-        char buf[48];
-        int p_w = (int)d.pressure_hpa;
-        int p_d = (int)((d.pressure_hpa - p_w) * 10);
-        if (p_d < 0) p_d = -p_d;
-        snprintf(buf, sizeof(buf), "Press:     %d.%d hPa", p_w, p_d);
-        lv_label_set_text(s_lbl_press, buf);
-    } else {
-        lv_label_set_text(s_lbl_press, "Press:     ---");
-    }
-
-    // ── Altitude row ─────────────────────────────────────────────────────────
-    if (data_valid) {
-        char buf[48];
-        int a_w = (int)d.altitude_m;
-        snprintf(buf, sizeof(buf), "Alt:       %d m", a_w);
-        lv_label_set_text(s_lbl_alt, buf);
-    } else {
-        lv_label_set_text(s_lbl_alt, "Alt:       ---");
-    }
-
-    // ── Δ Height row ─────────────────────────────────────────────────────────
-    if (data_valid && d.home_ref_valid) {
-        float delta = d.altitude_m - d.home_ref_altitude_m;
-        char buf[48];
-        // Format with explicit sign: +1.2 m or -0.5 m
-        int d_w = (int)delta;
-        int d_f = (int)((delta - (float)d_w) * 10);
-        if (d_f < 0) d_f = -d_f;
-        char sign = (delta >= 0.0f) ? '+' : '-';
-        if (d_w < 0) d_w = -d_w;
-        snprintf(buf, sizeof(buf), "\xce\x94 Height:  %c%d.%d m", sign, d_w, d_f);
-        lv_label_set_text(s_lbl_delta, buf);
-    } else if (!d.home_ref_valid) {
-        lv_label_set_text(s_lbl_delta, "\xce\x94 Height:  -- not zeroed --");
-    } else {
-        lv_label_set_text(s_lbl_delta, "\xce\x94 Height:  ---");
-    }
 
     // ── Zero Height button enable/disable ─────────────────────────────────────
     // Enable only when sensor is online and not showing feedback.

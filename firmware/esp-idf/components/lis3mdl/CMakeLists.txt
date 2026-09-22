@@ -10,6 +10,7 @@ idf_component_register(
         data_broker
         lvgl
         esp_lvgl_port
+        lvgl_ui
     PRIV_REQUIRES
         boot_logic
 )

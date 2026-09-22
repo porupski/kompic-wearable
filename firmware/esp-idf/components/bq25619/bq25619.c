@@ -23,6 +23,7 @@
 #include "bq25619.h"
 #include "data_broker.h"
 #include "max17048.h"
+#include "boot_power.h"      // g_display_sleep -- skip poll while display off
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -356,6 +357,17 @@ void task_battery_fn(void *arg)
 
     while (1) {
         if (!broker_battery_hw_alive()) {
+            vTaskDelayUntil(&last, period);
+            continue;
+        }
+
+        // Prophylactic against [[project_i2c_hw_fsm_reset_crash]] --
+        // no reason to hammer I2C1 while the display is off; the
+        // last-cached broker value stays visible when we wake.
+        // Does NOT fix the legacy driver's fsm_reset bug (real fix
+        // = i2c_master API migration), just reduces exposure.
+        if (g_display_sleep) {
+            ESP_LOGD(TAG, "poll skipped: display asleep");
             vTaskDelayUntil(&last, period);
             continue;
         }

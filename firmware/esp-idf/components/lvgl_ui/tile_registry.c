@@ -9,16 +9,21 @@
  *   2. Add one entry to s_tiles[] with &foo_tile_desc
  *   Done. Nothing else changes in lvgl_ui.c or anywhere else.
  *
- * Current order (Phase 6, v7.2 part list):
- *   Col -1: Health   (MAX30101)             — wraps to the left of Col 0
- *   Col  0: Haptic   (DRV2605)
- *   Col  1: Light    (VEML6030)
- *   Col  2: System                          — default start tile
- *   Col  3: GPS      (MAX-M10S)             — has sub-tile
- *   Col  4: RTC      (PCF85063)
- *   Col  5: Env      (BME688)
- *   Col  6: Compass  (LIS3MDLTR)
- *   Col  7: IMU      (LSM6DSV16X)
+ * Current order (GPS-active reorder, 2026-09-21):
+ *   Col  0: System                          — home tile (settings hub)
+ *   Col  1: GPS      (MAX-M10S)             — default start tile (active-iteration)
+ *   Col  2: Env      (BME688)
+ *   Col  3: Health   (MAX30101)
+ *   Col  4: Haptic   (DRV2605)
+ *   Col  5: Light    (VEML6030)
+ *   Col  6: RTC      (PCF85063)
+ *   Col  7: Compass  (LIS3MDLTR)
+ *   Col  8: IMU      (LSM6DSV16X)
+ *
+ * Workflow rule: the tile currently being iterated on gets moved to
+ * Col 1 so bench access is a single swipe-down (via DEFAULT_TILE_COL
+ * = 1 in ui_settings_screen.c). GPS is at Col 1 during MAX-M10S
+ * bring-up + antenna work; the next active tile takes its spot.
  *
  * Removed: ECG tile (Stage 24 side quest, 2026-09-10). No ECG on Kompic
  * per feedback_no_ecg_on_kompic -- pulse = PPG + BCG; the qvar_ecg
@@ -40,15 +45,15 @@
 #include "health_tile.h"
 
 static tile_entry_t s_tiles[] = {
-    { .desc = &health_tile_desc  }, // -1
-    { .desc = &haptic_tile_desc  },  // Col 0
-    { .desc = &light_tile_desc   },  // Col 1
-    { .desc = &system_tile_desc  },  // Col 2 — default start tile
-    { .desc = &gps_tile_desc     },  // Col 3 — has sub-tile
-    { .desc = &rtc_tile_desc     },  // Col 4
-    { .desc = &env_tile_desc     },  // Col 5
-    { .desc = &compass_tile_desc },  // Col 6
-    { .desc = &imu_tile_desc     },  // Col 7
+    { .desc = &system_tile_desc  },  // Col 0 — home / settings hub
+    { .desc = &gps_tile_desc     },  // Col 1 — default start (active-iteration slot)
+    { .desc = &env_tile_desc     },  // Col 2
+    { .desc = &health_tile_desc  },  // Col 3
+    { .desc = &haptic_tile_desc  },  // Col 4
+    { .desc = &light_tile_desc   },  // Col 5
+    { .desc = &rtc_tile_desc     },  // Col 6
+    { .desc = &compass_tile_desc },  // Col 7
+    { .desc = &imu_tile_desc     },  // Col 8
 };
 
 #define TILE_COUNT  (sizeof(s_tiles) / sizeof(s_tiles[0]))

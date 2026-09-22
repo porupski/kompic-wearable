@@ -28365,6 +28365,36 @@
 		(uuid "14a30737-0cfc-415c-af11-ec2ab9942ac3")
 	)
 	(gr_line
+		(start 156.2 94.6)
+		(end 158.5 94.6)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco1.User")
+		(uuid "15a7f2ed-d12f-4554-86e9-2b73a71511d9")
+	)
+	(gr_line
+		(start 160 94.6)
+		(end 162.3 94.6)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco1.User")
+		(uuid "7bbfc9e4-b1bc-4758-a9f5-53a1da81f857")
+	)
+	(gr_line
+		(start 163.8 94.6)
+		(end 166.1 94.6)
+		(stroke
+			(width 0.5)
+			(type solid)
+		)
+		(layer "Eco1.User")
+		(uuid "e120e387-35e7-4ab0-8525-f6d2cc02c3ef")
+	)
+	(gr_line
 		(start 159.395 94.86)
 		(end 166.5 94.8)
 		(stroke
@@ -29265,6 +29295,18 @@
 					(xy 149.886256 101.207362) (xy 150.380188 101.207362)
 				)
 			)
+		)
+	)
+	(gr_text "SAFEBOOT -> FLOAT\nSDA/SCL not in use -> FLOAT"
+		(at 140.8 96 0)
+		(layer "Eco1.User")
+		(uuid "f522bc66-fa20-43a8-8ee6-4defa3dbcd04")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
 		)
 	)
 	(gr_text "needs jumper 1v8 to daughter board"

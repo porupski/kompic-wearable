@@ -26,6 +26,7 @@
 #include "bme68x_defs.h"
 #include "data_broker.h"
 #include "cross_driver.h"
+#include "ui_subjects.h"       // Stage 31.2: g_env_q for UI drain path
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/i2c.h"
@@ -255,6 +256,15 @@ void task_env_fn(void *arg)
         // bd.home_ref_altitude_m / bd.home_ref_valid preserved from read.
 
         broker_env_write(&bd);
+
+        // Stage 31.2: publish to UI drain queue in addition to the broker
+        // write above. Overwrite semantics: producer never blocks; the UI
+        // drain timer (ui_subjects.c) picks up the freshest sample every
+        // 200 ms on the LVGL task. Broker path stays for CLI (STATUS,
+        // WHOAMI) and other consumers not yet subject-bound.
+        if (g_env_q) {
+            (void)xQueueOverwrite(g_env_q, &bd);
+        }
 
         cross_driver_fire(XD_EVENT_ENV_UPDATED, &bd);
     }

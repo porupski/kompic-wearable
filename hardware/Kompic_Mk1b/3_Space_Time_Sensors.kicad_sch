@@ -3757,7 +3757,7 @@
 		)
 		(uuid "606b40cc-127b-429d-bb36-2037af0bcaee")
 	)
-	(text "BUG:  pin 7 V_io should be FLOATING"
+	(text "BUG:  pin 7 V_IO should be 3v3 + VCC\nfor 3v3 operation with V_SEL FLOATING"
 		(exclude_from_sim no)
 		(at 62.23 185.928 0)
 		(effects
@@ -3780,6 +3780,19 @@
 		)
 		(uuid "6aa6ab64-6469-4458-9413-0418a57d1ebd")
 	)
+	(text "BUG:  R20 shouldn't be here"
+		(exclude_from_sim no)
+		(at 119.126 153.416 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "6b3eea12-96ef-477f-ae97-0c8e2fbb73d5")
+	)
 	(text "IMU (Qvar Touch)"
 		(exclude_from_sim no)
 		(at 77.47 79.502 0)
@@ -3792,7 +3805,7 @@
 		)
 		(uuid "6bbcdf6a-8b2e-4f59-ad0e-96a5c62bae97")
 	)
-	(text "BUG:  pin 15 V_SET should be FLOATING"
+	(text "BUG:  pin 15 V_SET should be FLOATING\nfor 3v3 operation (talk with esp)"
 		(exclude_from_sim no)
 		(at 167.386 148.59 0)
 		(effects
@@ -3848,9 +3861,22 @@
 		)
 		(uuid "9ba6006a-b7c6-4a76-86ab-153df0863a51")
 	)
-	(text "BUG: pins 17 SCL and 16 SDA SHOULD BE FLOATING"
+	(text "BUG:  R17 not needed for pullup at all"
 		(exclude_from_sim no)
-		(at 140.716 134.366 0)
+		(at 87.884 175.26 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "9e4bc606-1052-4350-bc21-a2b663b456a0")
+	)
+	(text "BUG: pins 17 SCL and 16 SDA SHOULD BE FLOATING\nif not used"
+		(exclude_from_sim no)
+		(at 163.068 138.938 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -3919,6 +3945,32 @@
 			)
 		)
 		(uuid "d37edb82-ad0d-4497-9e25-fd597b188858")
+	)
+	(text "BUG:  pin 5 FLOAT if not used"
+		(exclude_from_sim no)
+		(at 33.782 152.146 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "d3edf70e-cb91-47b8-a1da-5ea10982bdc2")
+	)
+	(text "BUG: pins 18 SAFEBOOT\nopen for normal\ngnd (at startup) for safemode"
+		(exclude_from_sim no)
+		(at 119.634 113.538 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+				(thickness 0.4064)
+				(bold yes)
+				(color 255 31 41 1)
+			)
+		)
+		(uuid "d7f5dd3c-9b2e-4873-b5a3-f62a8187c630")
 	)
 	(text "RTC (PCF85063ATL/1,118)"
 		(exclude_from_sim no)

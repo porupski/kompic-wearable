@@ -3,8 +3,11 @@
  * @brief Main watch face screen — clock, date, battery label, status bar.
  *
  * This file owns the main screen object and its three dynamic label widgets.
- * All colours are hardcoded to the DARK palette — the main screen is exempt
- * from the theme system and never changes appearance regardless of g_ui_theme.
+ *
+ * Stage 31.1: outer container adopts kw_ui_style_pane_root() so screen
+ * background + text colour track g_ui_theme automatically. Time + battery
+ * labels inherit text_color from the pane style; date label uses
+ * kw_ui_style_subtext() to render dim. Zero per-widget theme reapply calls.
  *
  * Timezone offset (g_tz_offset_hours) is declared extern here and defined in
  * data_broker.c.  It is applied to rtc.hour at update time so the displayed
@@ -25,6 +28,7 @@
 #include "ui_main_screen.h"
 #include "ui_status_bar.h"
 #include "ui_theme_colors.h"
+#include "ui_pane_styles.h"    // Stage 31.1: style_pane_root
 #include "data_broker.h"
 #include "boot_display.h"      // LCD_H_RES, LCD_V_RES
 #include "lvgl.h"
@@ -131,9 +135,10 @@ lv_obj_t *main_screen_build(void)
         return NULL;
     }
 
-    // Always DARK — never themed.
-    lv_obj_set_style_bg_color(s_screen, COL_BG_DARK, 0);
-    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    // Stage 31.1: shared pane style carries bg colour + opa. On theme
+    // reapply, the style mutates and LVGL invalidates -- no per-widget
+    // colour write needed here.
+    lv_obj_add_style(s_screen, kw_ui_style_pane_root(), 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Time label ────────────────────────────────────────────────────────
@@ -144,7 +149,7 @@ lv_obj_t *main_screen_build(void)
     s_lbl_time = lv_label_create(s_screen);
     lv_label_set_text(s_lbl_time, "--:--");
     lv_obj_set_style_text_font(s_lbl_time, UI_FONT_TIME_XL, 0);
-    lv_obj_set_style_text_color(s_lbl_time, COL_TEXT_DARK, 0);
+    // Stage 31.1: text colour inherits from style_pane_root on s_screen.
     lv_obj_align(s_lbl_time, LV_ALIGN_CENTER, 0, -50);
 
     // ── Date label ────────────────────────────────────────────────────────
@@ -152,7 +157,8 @@ lv_obj_t *main_screen_build(void)
     s_lbl_date = lv_label_create(s_screen);
     lv_label_set_text(s_lbl_date, "---");
     lv_obj_set_style_text_font(s_lbl_date, UI_FONT_LABEL, 0);
-    lv_obj_set_style_text_color(s_lbl_date, COL_SUBTEXT_DARK, 0);
+    // Stage 31.1: style_subtext carries theme_subtext(), tracks theme swap.
+    lv_obj_add_style(s_lbl_date, kw_ui_style_subtext(), 0);
     lv_obj_align(s_lbl_date, LV_ALIGN_CENTER, 0, 0);
 
     // ── Battery label ─────────────────────────────────────────────────────
@@ -160,7 +166,7 @@ lv_obj_t *main_screen_build(void)
     s_lbl_battery = lv_label_create(s_screen);
     lv_label_set_text(s_lbl_battery, "--%");
     lv_obj_set_style_text_font(s_lbl_battery, UI_FONT_CHIP, 0);
-    lv_obj_set_style_text_color(s_lbl_battery, COL_TEXT_DARK, 0);
+    // Stage 31.1: text colour inherits from style_pane_root on s_screen.
     lv_obj_align(s_lbl_battery, LV_ALIGN_TOP_RIGHT, -UI_TILE_PAD_H, UI_TILE_PAD_V);
 
     // ── Status bar ────────────────────────────────────────────────────────

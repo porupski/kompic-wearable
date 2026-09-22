@@ -45,6 +45,7 @@
 #include "ui_settings_screen.h"
 #include "tile_registry.h"
 #include "ui_theme_colors.h"
+#include "ui_pane_styles.h"    // Stage 31.1: style_pane_root
 #include "data_broker.h"
 #include "boot_display.h"      // LCD_H_RES, LCD_V_RES
 #include "lvgl.h"
@@ -67,17 +68,30 @@ static lv_obj_t *s_tileview = NULL;
 // Public API
 // ---------------------------------------------------------------------------
 
-lv_obj_t *settings_screen_build(void)
+lv_obj_t *settings_screen_build(lv_obj_t *parent)
 {
-    // ── Screen ────────────────────────────────────────────────────────────
-    s_screen = lv_obj_create(NULL);
-    if (!s_screen) {
-        ESP_LOGE(TAG, "Failed to create settings screen");
+    // ── Drawer pane (Stage 31.3: child of parent, off-screen initial) ─────
+    // Was lv_obj_create(NULL) -- a top-level screen loaded via lv_scr_load.
+    // Now a full-screen child of the main screen, positioned off-screen
+    // BELOW (translate_y = LCD_V_RES). ui_navigation animates it up on
+    // swipe-up and back down on swipe-down (drawer affordance -- main
+    // stays visible under the drawer during the slide).
+    if (!parent) {
+        ESP_LOGE(TAG, "settings_screen_build: null parent");
         return NULL;
     }
+    s_screen = lv_obj_create(parent);
+    if (!s_screen) {
+        ESP_LOGE(TAG, "Failed to create settings drawer pane");
+        return NULL;
+    }
+    lv_obj_set_size(s_screen, LCD_H_RES, LCD_V_RES);
+    lv_obj_align(s_screen, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_translate_y(s_screen, LCD_V_RES, 0);
 
-    lv_obj_set_style_bg_color(s_screen, theme_bg(), 0);
-    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    // Stage 31.3: drawer variant of pane style (adds rounded corners
+    // for the slide-in-over-home affordance; theme bg + text via style).
+    lv_obj_add_style(s_screen, kw_ui_style_pane_drawer(), 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Tileview ──────────────────────────────────────────────────────────
@@ -87,7 +101,7 @@ lv_obj_t *settings_screen_build(void)
     s_tileview = lv_tileview_create(s_screen);
     lv_obj_set_size(s_tileview, LCD_H_RES, LCD_V_RES);
     lv_obj_align(s_tileview, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(s_tileview, theme_bg(), 0);
+    lv_obj_add_style(s_tileview, kw_ui_style_pane_root(), 0);
 
     // ── Registry-driven tile creation ─────────────────────────────────────
     tile_entry_t *tiles = tile_registry_get();

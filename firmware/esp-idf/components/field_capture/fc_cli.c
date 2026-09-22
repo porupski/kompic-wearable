@@ -128,6 +128,11 @@ static const char *k_help_lines[] = {
     "FUEL                             MAX17048 VERSION + VCELL + fuel % (needs cell attached)",
     "GESTURE                          dump wrist-gesture state + LPF value",
     "GET_TIME [-v]                    read RTC now (-v also dumps NVS + RAM_byte)",
+    "GPS_DYNMODEL [PORT|STAT|PED|AUTO|SEA|AIR1|AIR2|AIR4|WRIST|BIKE]  set MAX-M10S dynamic model (no arg = show)",
+    "GPS_MONRF [ON]                   dump UBX-MON-RF snapshot (ON = re-issue enable frame first)",
+    "GPS_PING                         send UBX-MON-VER poll; check GPS_UBX_STATS for mon_ver++ within a second",
+    "GPS_UBX_STATS                    per-class UBX frame receive counters (0 across the board = TX broken)",
+    "GPS_SNR                          NMEA GSV-derived signal summary (top-4 CN0, sats in view)",
     "GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)",
     "HAPTIC [EN|PLAY <n>|CAL|SWEEP START|STOP|UI [<n>]]  (no arg = dump)",
     "HELP                             this list",
@@ -1128,6 +1133,124 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
 
         const int v = gps_tile_cmd_view_get();
         printf("[GPS] view = %s\n", (v == 1) ? "PHOTO" : "NORMAL");
+        return;
+    }
+    if (startswith_ci(line, "GPS_DYNMODEL")) {
+        // Stage 31.4b: set MAX-M10S dynamic platform model at runtime.
+        // max_m10s.h is reachable via data_broker.h include chain -- use
+        // the real types directly instead of re-externing (was causing
+        // conflicting-type build errors).
+        const char *arg = line + 12;
+        while (*arg == ' ' || *arg == '\t') arg++;
+
+        int mode = -1;
+        if      (*arg == 0)                          { /* show current */ }
+        else if (startswith_ci(arg, "PORT"))         mode = UBX_DYNMODEL_PORTABLE;
+        else if (startswith_ci(arg, "STAT"))         mode = UBX_DYNMODEL_STATIONARY;
+        else if (startswith_ci(arg, "PED"))          mode = UBX_DYNMODEL_PEDESTRIAN;
+        else if (startswith_ci(arg, "AUTO"))         mode = UBX_DYNMODEL_AUTOMOTIVE;
+        else if (startswith_ci(arg, "SEA"))          mode = UBX_DYNMODEL_SEA;
+        else if (startswith_ci(arg, "AIR1"))         mode = UBX_DYNMODEL_AIR1G;
+        else if (startswith_ci(arg, "AIR2"))         mode = UBX_DYNMODEL_AIR2G;
+        else if (startswith_ci(arg, "AIR4"))         mode = UBX_DYNMODEL_AIR4G;
+        else if (startswith_ci(arg, "WRIST"))        mode = UBX_DYNMODEL_WRIST;
+        else if (startswith_ci(arg, "BIKE"))         mode = UBX_DYNMODEL_BIKE;
+        else {
+            printf("[GPS] usage: GPS_DYNMODEL "
+                   "[PORT|STAT|PED|AUTO|SEA|AIR1|AIR2|AIR4|WRIST|BIKE]"
+                   "  (no arg = show current)\n");
+            return;
+        }
+
+        if (mode >= 0) {
+            esp_err_t r = max_m10s_set_dynmodel((max_m10s_dynmodel_t)mode);
+            printf("[GPS] DYNMODEL <- %s (%d) : %s\n",
+                   max_m10s_dynmodel_name((max_m10s_dynmodel_t)mode),
+                   mode, esp_err_to_name(r));
+            printf("      watch DEBUG log for UBX-ACK-NAK if not supported.\n");
+        }
+        max_m10s_dynmodel_t cur = max_m10s_get_dynmodel();
+        printf("[GPS] DYNMODEL = %s (%d)\n",
+               max_m10s_dynmodel_name(cur), (int)cur);
+        return;
+    }
+    if (startswith_ci(line, "GPS_MONRF")) {
+        // Stage 31.4b: dump UBX-MON-RF snapshot. Optional "ON" arg re-issues
+        // the enable frame so we can retry after the chip has fully booted
+        // (useful if the init-time enable was lost for whatever reason).
+        const char *arg = line + 9;   // strlen("GPS_MONRF")
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg && startswith_ci(arg, "ON")) {
+            esp_err_t r = max_m10s_enable_monrf(1);
+            printf("[GPS] MON-RF enable re-issued: %s\n", esp_err_to_name(r));
+            return;
+        }
+        max_m10s_monrf_t rf = {0};
+        max_m10s_get_monrf(&rf);
+        if (!rf.valid) {
+            printf("[GPS] MON-RF: no snapshot yet -- either MON-RF not enabled\n");
+            printf("             or chip is silent (check antenna/wiring first).\n");
+            printf("             Try: GPS_PING (proves TX), then GPS_MONRF ON.\n");
+            return;
+        }
+        uint32_t age_ms = (uint32_t)(esp_timer_get_time() / 1000ULL)
+                        - rf.last_update_ms;
+        const char *pwr_str = (rf.ant_power == 0) ? "OFF" :
+                              (rf.ant_power == 1) ? "ON"  :
+                              (rf.ant_power == 2) ? "DONTKNOW" : "?";
+        int agc_pct = (int)(((uint32_t)rf.agc_cnt * 100) / 8191U);
+        printf("[GPS] MON-RF (age=%lu ms):\n", (unsigned long)age_ms);
+        printf("      antStatus  = %s (%u)\n",
+               max_m10s_ant_status_name(rf.ant_status), rf.ant_status);
+        printf("      antPower   = %s (%u)\n", pwr_str, rf.ant_power);
+        printf("      noise/ms   = %u\n", rf.noise_per_ms);
+        printf("      AGC count  = %u (~%d%%)\n", rf.agc_cnt, agc_pct);
+        return;
+    }
+    if (startswith_ci(line, "GPS_PING")) {
+        max_m10s_ubx_counters_t before = {0};
+        max_m10s_get_ubx_counters(&before);
+        esp_err_t r = max_m10s_ping();
+        if (r != ESP_OK) {
+            printf("[GPS] PING send failed: %s\n", esp_err_to_name(r));
+            return;
+        }
+        // Chip typically responds in ~5-10 ms; poll for up to 300 ms.
+        for (int i = 0; i < 30; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            max_m10s_ubx_counters_t now = {0};
+            max_m10s_get_ubx_counters(&now);
+            if (now.mon_ver > before.mon_ver) {
+                printf("[GPS] PING -> MON-VER response received (TX path OK)\n");
+                return;
+            }
+        }
+        printf("[GPS] PING: NO response in 300 ms.\n");
+        printf("      TX path to GPS is broken, OR chip is not powered / not booted.\n");
+        printf("      NMEA still flowing? Then RX works, only TX side is dead.\n");
+        return;
+    }
+    if (startswith_ci(line, "GPS_UBX_STATS")) {
+        max_m10s_ubx_counters_t c = {0};
+        max_m10s_get_ubx_counters(&c);
+        printf("[GPS] UBX counters:  total=%lu  mon_ver=%lu  mon_rf=%lu  "
+               "nav_timeutc=%lu  ack_ack=%lu  ack_nak=%lu\n",
+               (unsigned long)c.total, (unsigned long)c.mon_ver,
+               (unsigned long)c.mon_rf, (unsigned long)c.nav_timeutc,
+               (unsigned long)c.ack_ack, (unsigned long)c.ack_nak);
+        if (c.total == 0) {
+            printf("      All zero: either TX broken (chip never got a request/enable) "
+                   "or every UBX frame is being dropped upstream.\n");
+        }
+        return;
+    }
+    if (startswith_ci(line, "GPS_SNR")) {
+        max_m10s_snr_summary_t s = {0};
+        max_m10s_get_snr_summary(&s);
+        printf("[GPS] SNR (from NMEA GSV, last %u ms window):\n", 2500);
+        printf("      sats_with_snr = %u\n", s.sats_with_snr);
+        printf("      max CN0       = %u dBHz\n", s.max_cn0);
+        printf("      top-4 avg     = %u dBHz\n", s.top4_avg_cn0);
         return;
     }
     if (startswith_ci(line, "TOUCH")) {

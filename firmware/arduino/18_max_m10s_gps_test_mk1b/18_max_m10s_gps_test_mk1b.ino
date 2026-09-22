@@ -48,8 +48,11 @@
 //  PINS -- Kompic_Pinout_MASTER_v20 (Mk1b iv8.0)
 // ════════════════════════════════════════════════════════════════════
 
-#define GPS_TX_PIN      18   // ESP TX -> MAX-M10S RX
-#define GPS_RX_PIN      17   // ESP RX <- MAX-M10S TX
+// Pins per firmware/esp-idf/components/max_m10s/max_m10s.h (PCB-authoritative).
+// Earlier revision of this sketch had these swapped, which is why every
+// bench-test showed "no bytes" from a chip that was in fact alive.
+#define GPS_TX_PIN      17   // ESP TX -> MAX-M10S RX
+#define GPS_RX_PIN      18   // ESP RX <- MAX-M10S TX
 #define GPS_PPS_PIN     46   // MAX-M10S TimePulse
 #define GPS_BAUD      9600   // MAX-M10S default
 
@@ -329,6 +332,7 @@ void setup() {
   }
 
   Serial1.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  pinMode(GPS_RX_PIN, INPUT_PULLUP);   // match IDF driver's gpio_pullup_en on RX
 
   pinMode(GPS_PPS_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(GPS_PPS_PIN), pps_isr, RISING);

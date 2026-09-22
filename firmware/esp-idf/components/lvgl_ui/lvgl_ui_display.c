@@ -35,6 +35,7 @@
 #include "cst9217.h"           /* g_touch_q, cst9217_point_t, task_touch_fn */
 #include "lvgl_ui.h"           /* lvgl_ui_init */
 #include "ui_broker.h"         /* ui_settings_t, ui_broker_init */
+#include "ui_subjects.h"       /* Stage 31.2: kw_ui_subjects_init + drain */
 #include "ui_settings_screen.h"/* settings_screen_get_tileview */
 #include "tile_registry.h"     /* tile_entry_t, tile_registry_get/count */
 #include "app_nvs.h"           /* app_nvs_load_ui_settings */
@@ -281,11 +282,17 @@ esp_err_t lvgl_ui_display_boot_screens(void)
 
     (void)ui_broker_init();
 
+    // Stage 31.2: subject singletons + producer queue must exist BEFORE
+    // any tile's init runs lv_label_bind_text against them. Safe to call
+    // outside the port lock (only subject_init + xQueueCreate).
+    kw_ui_subjects_init();
+
     if (!lvgl_port_lock(0)) {
         ESP_LOGE(TAG, "boot_screens: lvgl_port_lock failed");
         return ESP_FAIL;
     }
     lvgl_ui_init(&cfg);
+    kw_ui_subjects_start_drain();   // Stage 31.2: LVGL-task drain timer
     lvgl_port_unlock();
 
     if (!s_forced) {

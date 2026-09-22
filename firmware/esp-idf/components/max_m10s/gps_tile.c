@@ -1,114 +1,120 @@
 /**
  * @file gps_tile.c
- * @brief GPS (TU10F) settings tile — LVGL 9 UI, Core 1 only.
+ * @brief GPS (MAX-M10S) settings tile -- LVGL 9 UI, Core 1 only.
  *
- * Tile type   : A (status + data rows) + sub-tile (raw NMEA debug)
- * Layout      : Header, divider, 5 data rows, ATOMIC SYNC button.
- * Sub-tile    : Raw $GPGGA / $GPRMC sentences, refreshed live.
+ * Stage 31.4 rewrite -- subject-bound, corner-safe, status-first.
  *
- * Key patterns used:
- *   - s_syncing guard on power toggle (prevents re-entrant LV_EVENT_VALUE_CHANGED)
- *   - ATOMIC SYNC button: enabled only when gps.time_valid == true
- *   - Sync feedback: button label changes for SYNC_FEEDBACK_MS then reverts
- *   - first_fix_notified flag: consumed here (cleared via broker write) to
- *     prevent repeat NOTIF state after the tile acks it
+ * Layout (portrait 410x502, 60H/40V corner-safe pads per
+ * project_display_corner_cutoff):
  *
- * Phase 14 fix:
- *   - Bug 2: On fix loss, lat/lon/alt now hold last known broker values and
- *     display "(last known)" suffix during SENSOR_STALE window instead of
- *     snapping to "---" immediately.
+ *   Row 0 (y=40):
+ *     LED(16x16) at x=60
+ *     Header "MAX-M10S" (28 px) at x=90
+ *     Power switch (90x46, two-way bound) at TOP_RIGHT(-60, 40)
+ *   Divider at y=100
+ *   STATUS line (28 px, primary user-facing) at y=115
+ *   Time+date line at y=160
+ *   LAT line at y=200
+ *   LON line at y=240
+ *   ALT+SPD line at y=280
+ *   Photo button (small) at BOTTOM_LEFT(60, -100)
+ *   ATOMIC SYNC button (280x60) at BOTTOM_MID(0, -40)
  *
- * Core 1 only. No I2C/UART/NVS calls. No pcf85063 include here.
- * The ATOMIC SYNC action is handled entirely on Core 0 via a posted flag;
- * this tile only sets g_gps_sync_requested = true and reads the result.
+ * Bindings (Stage 31.4):
+ *   All value labels use lv_label_bind_text against subj_gps_*_str.
+ *   Power switch uses lv_obj_bind_checked against subj_gps_enabled
+ *     (two-way -- observer in ui_subjects.c writes broker on change).
+ *   Photo container + normal-view widgets use lv_obj_bind_flag_if_(not_)eq
+ *     against subj_gps_photo_view.
+ *   Sub-tile (raw NMEA) stays poll-based -- debug view, low priority.
  *
- * Architecture: Blueprint 3 §6, Blueprint 5 §4–§6, Blueprint 7 §6
+ * gps_tile_update() is minimal: only LED colour, sync-button enable
+ * gating, and the sync-feedback timeout remain. All value / switch
+ * updates are subject-driven.
+ *
+ * Core 1 only. No I2C/UART/NVS calls.
  */
 
 #include "gps_tile.h"
 #include "max_m10s.h"      // broker_gps_data_t, max_m10s_get_chip_name/desc,
                            // max_m10s_get_debug_sentences, gps_fix_type_t
-#include "data_broker.h"   // broker_gps_read/get_status/set_enabled/get_enabled
+#include "data_broker.h"   // broker_gps_get_status
 #include "ui_theme_colors.h"
+#include "ui_subjects.h"   // Stage 31.4: subj_gps_*, kw_gps_view_*
 #include "lvgl.h"
 #include "esp_log.h"
-#include "esp_timer.h"     // esp_timer_get_time() for sync feedback timing
+#include "esp_timer.h"
 
 static const char *TAG = "GPS_TILE";
 
 // ---------------------------------------------------------------------------
-// Sync feedback timing
+// Layout constants (corner-safe zone per project_display_corner_cutoff)
 // ---------------------------------------------------------------------------
-#define SYNC_FEEDBACK_MS  2000U   // How long to show SYNC OK / FAIL on button
+#define GPS_PAD_H_UI       60
+#define GPS_PAD_H_TEXT     40
+#define GPS_PAD_V_UI       40
+#define GPS_STATUS_Y      115
+#define GPS_ROW_Y0        160
+#define GPS_ROW_STEP       40
+#define SYNC_FEEDBACK_MS  2000U
 
 // ---------------------------------------------------------------------------
-// Atomic flag posted by this tile, consumed by Core 0 task (boot_hw_init.c).
-// Declared extern here; defined in boot_hw_init.c (or main.c).
-// Core 0 clears it after attempting the sync and calls gps_tile_show_sync_result().
+// Atomic flag posted by this tile, consumed by Core 0.
 // ---------------------------------------------------------------------------
 extern volatile bool g_gps_sync_requested;
 
 // ---------------------------------------------------------------------------
-// Static widget handles — tile owns these, nothing else touches them
+// Static widget handles
 // ---------------------------------------------------------------------------
-
-// Shared parent reference (needed for apply_theme bg restyle)
-static lv_obj_t *s_parent     = NULL;
+static lv_obj_t *s_parent       = NULL;
 
 // Header row
-static lv_obj_t *s_led_status = NULL;
-static lv_obj_t *s_lbl_header = NULL;
-static lv_obj_t *s_sw_power   = NULL;  // power toggle (Blueprint 7 §6)
+static lv_obj_t *s_led_status   = NULL;
+static lv_obj_t *s_lbl_header   = NULL;
+static lv_obj_t *s_sw_power     = NULL;
 
-// Divider (stored so apply_theme can restyle it)
-static lv_obj_t *s_divider    = NULL;
+// Divider
+static lv_obj_t *s_divider      = NULL;
 
-// Data rows — each is a single label "Field:  value" on one line
-static lv_obj_t *s_lbl_sats   = NULL;  // "Sats:  8      HDOP: 1.2"
-static lv_obj_t *s_lbl_time   = NULL;  // "Time:  14:32:07"
-static lv_obj_t *s_lbl_date   = NULL;  // "Date:  2026/02/14"
-static lv_obj_t *s_lbl_lat    = NULL;  // "LAT:   46.0511° N"
-static lv_obj_t *s_lbl_lon    = NULL;  // "LON:   14.5051° E"
-static lv_obj_t *s_lbl_alt    = NULL;  // "ALT:   302 m   SPD: 0.0 km/h"
+// Data labels (all subject-bound)
+static lv_obj_t *s_lbl_status   = NULL;   // primary status line
+static lv_obj_t *s_lbl_time     = NULL;
+static lv_obj_t *s_lbl_lat      = NULL;
+static lv_obj_t *s_lbl_lon      = NULL;
+static lv_obj_t *s_lbl_altspd   = NULL;
 
-// ATOMIC SYNC button + its label (label stored separately for text swap)
-static lv_obj_t *s_btn_sync       = NULL;
-static lv_obj_t *s_lbl_btn_sync   = NULL;
-
-// Sync feedback state
+// Sync button
+static lv_obj_t *s_btn_sync     = NULL;
+static lv_obj_t *s_lbl_btn_sync = NULL;
 static bool     s_showing_feedback  = false;
 static int64_t  s_feedback_start_us = 0;
 
-// Power toggle re-entrancy guard (Blueprint 7 §6)
-static bool s_syncing = false;
+// MODE cycle button (Stage 31.4b: on-tile dynmodel cycle)
+static lv_obj_t *s_btn_mode     = NULL;
+static lv_obj_t *s_lbl_mode     = NULL;
 
-// ---------------------------------------------------------------------------
-// Sub-tile widget handles
-// ---------------------------------------------------------------------------
+// Photo button + photo container + photo view labels
+static lv_obj_t *s_btn_photo    = NULL;
+static lv_obj_t *s_photo        = NULL;
+static lv_obj_t *s_photo_time   = NULL;
+static lv_obj_t *s_photo_lat    = NULL;
+static lv_obj_t *s_photo_lon    = NULL;
+static lv_obj_t *s_photo_alt    = NULL;
+static lv_obj_t *s_photo_hint   = NULL;
+
+// Signal-strength bar (7 discrete blocks, driven from GSV-derived SNR)
+#define SIG_BAR_BLOCKS   7
+static lv_obj_t *s_sig_bar_blocks[SIG_BAR_BLOCKS] = {0};
+static lv_obj_t *s_sig_bar_lbl   = NULL;   // "12/15 sats  CN0 34 dBHz" tag
+
+// Sub-tile handles
 static lv_obj_t *s_sub_parent   = NULL;
+static lv_obj_t *s_lbl_sub_hdr  = NULL;
 static lv_obj_t *s_lbl_gga      = NULL;
 static lv_obj_t *s_lbl_rmc      = NULL;
-static lv_obj_t *s_lbl_sub_hdr  = NULL;
 
 // ---------------------------------------------------------------------------
-// Photo view widget handles (Stage 22 §4.6 / spec Stage 18 §5.2b)
-// Fullscreen black overlay with huge white lat / lon rows and a smaller
-// time+date row above. Lives inside the same tile parent as the normal view;
-// visibility is toggled via lv_obj_add_flag / clear_flag LV_OBJ_FLAG_HIDDEN.
-// A NORMAL-view toggle button (bottom-left "PHOTO ◑") switches in;
-// a PHOTO-view tap-anywhere handler switches back out.
-// ---------------------------------------------------------------------------
-static gps_tile_view_t s_view          = GPS_TILE_VIEW_NORMAL;
-static lv_obj_t       *s_photo         = NULL;   // container (fullscreen, hidden by default)
-static lv_obj_t       *s_photo_time    = NULL;   // small: "14:32:07 UTC · 2026-02-14"
-static lv_obj_t       *s_photo_lat     = NULL;   // huge:  "46.05110° N"
-static lv_obj_t       *s_photo_lon     = NULL;   // huge:  "14.50510° E"
-static lv_obj_t       *s_photo_alt     = NULL;   // small: "ALT 302 m · Sats 8"
-static lv_obj_t       *s_photo_hint    = NULL;   // tiny:  "tap to exit"
-static lv_obj_t       *s_btn_photo     = NULL;   // tiny bottom-left button in normal view
-
-// ---------------------------------------------------------------------------
-// Helper: map sensor_status_t → LED colour and set it
+// Helper: map sensor_status_t -> LED colour
 // ---------------------------------------------------------------------------
 static void update_led(sensor_status_t st)
 {
@@ -119,74 +125,61 @@ static void update_led(sensor_status_t st)
         case SENSOR_ACQUIRING: col = COL_STATUS_ACQUIRING; break;
         case SENSOR_STALE:     col = COL_STATUS_STALE;     break;
         case SENSOR_NOTIF:     col = COL_STATUS_NOTIF;     break;
-        case SENSOR_DISABLED:  /* fall-through */
+        case SENSOR_DISABLED:
         default:               col = COL_STATUS_DISABLED;  break;
     }
     lv_led_set_color(s_led_status, col);
 }
 
 // ---------------------------------------------------------------------------
-// Callback: power toggle switch
+// Callbacks
 // ---------------------------------------------------------------------------
-static void cb_power_toggle(lv_event_t *e)
-{
-    if (s_syncing) return;
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    bool new_val = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    broker_gps_set_enabled(new_val);
-    // Core 0 task_gps_fn() reads broker_gps_get_enabled() every cycle —
-    // no further signalling needed here.
-}
 
-// ---------------------------------------------------------------------------
-// Callback: ATOMIC SYNC button
-// ---------------------------------------------------------------------------
+// ATOMIC SYNC: fire-and-forget command (not observable), stays as event cb.
 static void cb_sync_btn(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    // Disable button immediately to prevent double-tap
     lv_obj_add_state(s_btn_sync, LV_STATE_DISABLED);
-    // Post the request — Core 0 will pick this up in its next cycle,
-    // call pcf85063_sync_from_gps(), then call gps_tile_show_sync_result().
     g_gps_sync_requested = true;
     ESP_LOGI(TAG, "Atomic sync requested");
 }
 
-// ---------------------------------------------------------------------------
-// Callback: "PHOTO" button in normal view → switch to photo view.
-// Forwards to the command-surface setter so tile + future CLI use the same
-// path (Module_Blueprint.md §6.2).
-// ---------------------------------------------------------------------------
+// Photo entry button -> subject flip via view API.
 static void cb_photo_btn(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gps_tile_cmd_view_set(GPS_TILE_VIEW_PHOTO);
+    kw_ui_gps_view_set(KW_GPS_VIEW_PHOTO);
 }
 
-// ---------------------------------------------------------------------------
-// Callback: tap anywhere on the photo container → back to normal.
-// ---------------------------------------------------------------------------
+// Tap anywhere on the photo container -> back to normal.
 static void cb_photo_container_tap(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gps_tile_cmd_view_set(GPS_TILE_VIEW_NORMAL);
+    kw_ui_gps_view_set(KW_GPS_VIEW_NORMAL);
 }
 
-// ---------------------------------------------------------------------------
-// Show / hide the normal-view widget set. Called by view_set().
-// ---------------------------------------------------------------------------
-static void set_normal_widgets_hidden(bool hide)
+// Stage 31.4b: MODE cycle. Same command surface as GPS_DYNMODEL CLI.
+// Cycles the four modes Ivan asked for: PED -> WRIST -> AUTO -> AIR1G.
+// WRIST may NAK on M10 (chip refuses, prior mode stays) -- that's OK,
+// bench sees UBX-ACK-NAK at DEBUG and knows to skip it.
+static void cb_mode_btn(lv_event_t *e)
 {
-    lv_obj_t *widgets[] = {
-        s_led_status, s_lbl_header, s_sw_power, s_divider,
-        s_lbl_sats, s_lbl_time, s_lbl_date,
-        s_lbl_lat,  s_lbl_lon,  s_lbl_alt,
-        s_btn_sync, s_btn_photo,
-    };
-    for (size_t i = 0; i < sizeof widgets / sizeof widgets[0]; i++) {
-        if (widgets[i] == NULL) continue;
-        if (hide) lv_obj_add_flag  (widgets[i], LV_OBJ_FLAG_HIDDEN);
-        else      lv_obj_clear_flag(widgets[i], LV_OBJ_FLAG_HIDDEN);
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    max_m10s_dynmodel_t cur = max_m10s_get_dynmodel();
+    max_m10s_dynmodel_t next;
+    switch (cur) {
+        case UBX_DYNMODEL_PEDESTRIAN: next = UBX_DYNMODEL_WRIST;      break;
+        case UBX_DYNMODEL_WRIST:      next = UBX_DYNMODEL_AUTOMOTIVE; break;
+        case UBX_DYNMODEL_AUTOMOTIVE: next = UBX_DYNMODEL_AIR1G;      break;
+        case UBX_DYNMODEL_AIR1G:
+        default:                      next = UBX_DYNMODEL_PEDESTRIAN; break;
+    }
+    (void)max_m10s_set_dynmodel(next);
+    // Label refresh: update() will pick it up on the next tick, but do
+    // an immediate write so tap feels instant.
+    if (s_lbl_mode) {
+        lv_label_set_text_fmt(s_lbl_mode, "MODE\n%s",
+                              max_m10s_dynmodel_name(next));
     }
 }
 
@@ -200,104 +193,158 @@ void gps_tile_init(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Status LED (top-left) ──────────────────────────────────────────────
+    // ── Row 0: LED + header + power switch ────────────────────────────────
     s_led_status = lv_led_create(parent);
-    lv_obj_set_size(s_led_status, 12, 12);
-    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, 12, 12);
+    lv_obj_set_size(s_led_status, 16, 16);
+    lv_obj_align(s_led_status, LV_ALIGN_TOP_LEFT, GPS_PAD_H_UI, GPS_PAD_V_UI + 12);
     lv_led_set_brightness(s_led_status, 200);
     lv_led_set_color(s_led_status, COL_STATUS_DISABLED);
 
-    // ── Chip header label ─────────────────────────────────────────────────
     s_lbl_header = lv_label_create(parent);
-    lv_label_set_text_fmt(s_lbl_header, "%s  %s",
-        max_m10s_get_chip_name(), max_m10s_get_chip_desc());
-    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_LABEL, 0);
+    lv_label_set_text(s_lbl_header, max_m10s_get_chip_name());   // chip-name only
+    lv_obj_set_style_text_font(s_lbl_header, UI_FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_lbl_header, theme_text(), 0);
-    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, 30, 7);
+    lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, GPS_PAD_H_UI + 26, GPS_PAD_V_UI);
 
-    // ── Power toggle switch (top-right) ───────────────────────────────────
     s_sw_power = lv_switch_create(parent);
-    lv_obj_set_size(s_sw_power, 46, 22);
-    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -8, 6);
-    lv_obj_add_event_cb(s_sw_power, cb_power_toggle, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_set_size(s_sw_power, 90, 46);
+    lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -GPS_PAD_H_UI, GPS_PAD_V_UI);
+    // Stage 31.4: two-way binding. User tap updates subject; observer in
+    // ui_subjects.c writes broker. Drain mirrors broker back into subject.
+    // No cb_power_toggle event cb needed here.
+    lv_obj_bind_checked(s_sw_power, &subj_gps_enabled);
 
     // ── Divider ───────────────────────────────────────────────────────────
     s_divider = lv_obj_create(parent);
-    lv_obj_set_size(s_divider, 216, 1);
-    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_set_size(s_divider, 260, 2);
+    lv_obj_align(s_divider, LV_ALIGN_TOP_MID, 0, 100);
     lv_obj_set_style_bg_color(s_divider, theme_divider(), 0);
     lv_obj_set_style_bg_opa(s_divider, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_divider, 0, 0);
     lv_obj_clear_flag(s_divider, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Data rows (y starts at 44, steps of 22 px) ────────────────────────
-    const lv_font_t *fnt = UI_FONT_LABEL;
+    // ── STATUS line (primary user-facing text) ────────────────────────────
+    // Larger, brighter, always shows a coherent message regardless of chip
+    // state. Bound to subj_gps_status_str which the drain populates from
+    // the producer sample OR from broker status when no producer data.
+    s_lbl_status = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_lbl_status, UI_FONT_TITLE, 0);
+    lv_obj_set_style_text_color(s_lbl_status, theme_text(), 0);
+    lv_obj_align(s_lbl_status, LV_ALIGN_TOP_MID, 0, GPS_STATUS_Y);
+    lv_label_set_long_mode(s_lbl_status, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_lbl_status, 290);
+    lv_obj_set_style_text_align(s_lbl_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_bind_text(s_lbl_status, &subj_gps_status_str, NULL);
+
+    // ── Value rows ────────────────────────────────────────────────────────
+    const lv_font_t *fnt = UI_FONT_LABEL;   // smaller than status for hierarchy
     lv_color_t       col = theme_subtext();
 
-    s_lbl_sats = lv_label_create(parent);
-    lv_label_set_text(s_lbl_sats, "Sats:  ---   HDOP: ---");
-    lv_obj_set_style_text_font(s_lbl_sats, fnt, 0);
-    lv_obj_set_style_text_color(s_lbl_sats, col, 0);
-    lv_obj_align(s_lbl_sats, LV_ALIGN_TOP_LEFT, 12, 44);
-
     s_lbl_time = lv_label_create(parent);
-    lv_label_set_text(s_lbl_time, "Time:  ---");
     lv_obj_set_style_text_font(s_lbl_time, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_time, col, 0);
-    lv_obj_align(s_lbl_time, LV_ALIGN_TOP_LEFT, 12, 66);
-
-    s_lbl_date = lv_label_create(parent);
-    lv_label_set_text(s_lbl_date, "Date:  ---");
-    lv_obj_set_style_text_font(s_lbl_date, fnt, 0);
-    lv_obj_set_style_text_color(s_lbl_date, col, 0);
-    lv_obj_align(s_lbl_date, LV_ALIGN_TOP_LEFT, 12, 88);
+    lv_obj_align(s_lbl_time, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_ROW_Y0);
+    lv_label_bind_text(s_lbl_time, &subj_gps_time_str, NULL);
 
     s_lbl_lat = lv_label_create(parent);
-    lv_label_set_text(s_lbl_lat, "LAT:   ---");
     lv_obj_set_style_text_font(s_lbl_lat, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_lat, col, 0);
-    lv_obj_align(s_lbl_lat, LV_ALIGN_TOP_LEFT, 12, 110);
+    lv_obj_align(s_lbl_lat, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_ROW_Y0 + GPS_ROW_STEP);
+    lv_label_bind_text(s_lbl_lat, &subj_gps_lat_str, NULL);
 
     s_lbl_lon = lv_label_create(parent);
-    lv_label_set_text(s_lbl_lon, "LON:   ---");
     lv_obj_set_style_text_font(s_lbl_lon, fnt, 0);
     lv_obj_set_style_text_color(s_lbl_lon, col, 0);
-    lv_obj_align(s_lbl_lon, LV_ALIGN_TOP_LEFT, 12, 132);
+    lv_obj_align(s_lbl_lon, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_ROW_Y0 + 2 * GPS_ROW_STEP);
+    lv_label_bind_text(s_lbl_lon, &subj_gps_lon_str, NULL);
 
-    s_lbl_alt = lv_label_create(parent);
-    lv_label_set_text(s_lbl_alt, "ALT:   ---   SPD: ---");
-    lv_obj_set_style_text_font(s_lbl_alt, fnt, 0);
-    lv_obj_set_style_text_color(s_lbl_alt, col, 0);
-    lv_obj_align(s_lbl_alt, LV_ALIGN_TOP_LEFT, 12, 154);
+    s_lbl_altspd = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_lbl_altspd, fnt, 0);
+    lv_obj_set_style_text_color(s_lbl_altspd, col, 0);
+    lv_obj_align(s_lbl_altspd, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_ROW_Y0 + 3 * GPS_ROW_STEP);
+    lv_label_bind_text(s_lbl_altspd, &subj_gps_altspd_str, NULL);
 
-    // ── ATOMIC SYNC button (bottom, full-width) ────────────────────────────
-    s_btn_sync = lv_btn_create(parent);
-    lv_obj_set_size(s_btn_sync, 200, 34);
-    lv_obj_align(s_btn_sync, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_bg_color(s_btn_sync, COL_ACCENT, 0);
-    lv_obj_add_state(s_btn_sync, LV_STATE_DISABLED);  // disabled until time_valid
+    // ── Signal-strength bar (7 discrete blocks, driven by GSV-derived SNR)
+    // Buckets (top-4 avg CN0 in dBHz):
+    //   [0] sliver: alive-no-sats
+    //   [1] <15 red        [2] 15-24 red-orange     [3] 25-29 orange
+    //   [4] 30-34 yellow   [5] 35-44 light green    [6] 45+   deep green
+    // A block is "on" (its fixed colour) if bar_level > block_idx; else dim.
+    static const lv_color_t block_colors[SIG_BAR_BLOCKS] = {
+        LV_COLOR_MAKE(0x60, 0x60, 0x60),  // 0: alive marker (grey when off)
+        LV_COLOR_MAKE(0xE0, 0x20, 0x20),  // 1: deep red
+        LV_COLOR_MAKE(0xE0, 0x60, 0x10),  // 2: red-orange
+        LV_COLOR_MAKE(0xE0, 0xA0, 0x00),  // 3: orange
+        LV_COLOR_MAKE(0xE0, 0xE0, 0x00),  // 4: yellow
+        LV_COLOR_MAKE(0x60, 0xE0, 0x30),  // 5: light green
+        LV_COLOR_MAKE(0x00, 0xC0, 0x30),  // 6: deep green
+    };
+    const int bar_w      = 280;
+    const int bar_y      = GPS_ROW_Y0 + 4 * GPS_ROW_STEP + 8;   // y ≈ 328
+    const int block_h    = 22;
+    const int block_gap  = 4;
+    const int block_w    = (bar_w - (SIG_BAR_BLOCKS - 1) * block_gap) / SIG_BAR_BLOCKS;
+    const int bar_x0     = -bar_w / 2;
+    for (int i = 0; i < SIG_BAR_BLOCKS; i++) {
+        s_sig_bar_blocks[i] = lv_obj_create(parent);
+        lv_obj_set_size(s_sig_bar_blocks[i], block_w, block_h);
+        lv_obj_align(s_sig_bar_blocks[i], LV_ALIGN_TOP_MID,
+                     bar_x0 + i * (block_w + block_gap) + block_w / 2, bar_y);
+        lv_obj_set_style_bg_color(s_sig_bar_blocks[i], block_colors[i], 0);
+        lv_obj_set_style_bg_opa(s_sig_bar_blocks[i], LV_OPA_20, 0);  // start dim
+        lv_obj_set_style_border_width(s_sig_bar_blocks[i], 0, 0);
+        lv_obj_set_style_radius(s_sig_bar_blocks[i], 4, 0);
+        lv_obj_clear_flag(s_sig_bar_blocks[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(s_sig_bar_blocks[i], LV_OBJ_FLAG_CLICKABLE);
+    }
+    s_sig_bar_lbl = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_sig_bar_lbl, UI_FONT_CHIP, 0);
+    lv_obj_set_style_text_color(s_sig_bar_lbl, theme_subtext(), 0);
+    lv_obj_align(s_sig_bar_lbl, LV_ALIGN_TOP_MID, 0, bar_y + block_h + 4);
+    lv_label_set_text(s_sig_bar_lbl, "no data");
 
-    s_lbl_btn_sync = lv_label_create(s_btn_sync);
-    lv_label_set_text(s_lbl_btn_sync, "ATOMIC SYNC");
-    lv_obj_set_style_text_font(s_lbl_btn_sync, UI_FONT_LABEL, 0);
-    lv_obj_center(s_lbl_btn_sync);
-
-    lv_obj_add_event_cb(s_btn_sync, cb_sync_btn, LV_EVENT_CLICKED, NULL);
-
-    // ── Photo-view entry button (tiny, bottom-left) ────────────────────────
+    // ── PHOTO button (small, bottom-left, inside safe zone) ───────────────
     s_btn_photo = lv_btn_create(parent);
-    lv_obj_set_size(s_btn_photo, 60, 22);
-    lv_obj_align(s_btn_photo, LV_ALIGN_BOTTOM_LEFT, 6, -46);
+    lv_obj_set_size(s_btn_photo, 90, 40);
+    lv_obj_align(s_btn_photo, LV_ALIGN_BOTTOM_LEFT, GPS_PAD_H_UI, -110);
     lv_obj_set_style_bg_color(s_btn_photo, theme_divider(), 0);
     {
         lv_obj_t *lbl = lv_label_create(s_btn_photo);
         lv_label_set_text(lbl, "PHOTO");
-        lv_obj_set_style_text_font(lbl, UI_FONT_CHIP, 0);
+        lv_obj_set_style_text_font(lbl, UI_FONT_LABEL, 0);
         lv_obj_center(lbl);
     }
     lv_obj_add_event_cb(s_btn_photo, cb_photo_btn, LV_EVENT_CLICKED, NULL);
 
-    // ── Photo view container (built hidden; toggled by cmd_view_set) ───────
+    // ── MODE cycle button (bottom-right, mirrors PHOTO) ───────────────────
+    // Two-line label: "MODE\n<current>". Tap cycles PED->WRIST->AUTO->AIR1G
+    // via the same max_m10s_set_dynmodel() the CLI uses.
+    s_btn_mode = lv_btn_create(parent);
+    lv_obj_set_size(s_btn_mode, 100, 60);
+    lv_obj_align(s_btn_mode, LV_ALIGN_BOTTOM_RIGHT, -GPS_PAD_H_UI, -110);
+    lv_obj_set_style_bg_color(s_btn_mode, theme_divider(), 0);
+    s_lbl_mode = lv_label_create(s_btn_mode);
+    lv_label_set_text_fmt(s_lbl_mode, "MODE\n%s",
+                          max_m10s_dynmodel_name(max_m10s_get_dynmodel()));
+    lv_obj_set_style_text_font(s_lbl_mode, UI_FONT_CHIP, 0);
+    lv_obj_set_style_text_align(s_lbl_mode, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(s_lbl_mode);
+    lv_obj_add_event_cb(s_btn_mode, cb_mode_btn, LV_EVENT_CLICKED, NULL);
+
+    // ── ATOMIC SYNC button (bottom, big) ──────────────────────────────────
+    s_btn_sync = lv_btn_create(parent);
+    lv_obj_set_size(s_btn_sync, 280, 60);
+    lv_obj_align(s_btn_sync, LV_ALIGN_BOTTOM_MID, 0, -GPS_PAD_V_UI);
+    lv_obj_set_style_bg_color(s_btn_sync, COL_ACCENT, 0);
+    lv_obj_add_state(s_btn_sync, LV_STATE_DISABLED);
+    s_lbl_btn_sync = lv_label_create(s_btn_sync);
+    lv_label_set_text(s_lbl_btn_sync, "ATOMIC SYNC");
+    lv_obj_set_style_text_font(s_lbl_btn_sync, UI_FONT_TITLE, 0);
+    lv_obj_center(s_lbl_btn_sync);
+    lv_obj_add_event_cb(s_btn_sync, cb_sync_btn, LV_EVENT_CLICKED, NULL);
+
+    // ── PHOTO view container (subject-bound HIDDEN flag) ──────────────────
+    // Container: hidden when subj_photo_view != 1 (i.e., not in photo mode).
     s_photo = lv_obj_create(parent);
     lv_obj_set_size(s_photo, LV_PCT(100), LV_PCT(100));
     lv_obj_align(s_photo, LV_ALIGN_CENTER, 0, 0);
@@ -306,172 +353,118 @@ void gps_tile_init(lv_obj_t *parent)
     lv_obj_set_style_border_width(s_photo, 0, 0);
     lv_obj_set_style_pad_all(s_photo, 0, 0);
     lv_obj_clear_flag(s_photo, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
-    // Tap anywhere on the photo container returns to NORMAL view.
     lv_obj_add_flag(s_photo, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_photo, cb_photo_container_tap, LV_EVENT_CLICKED, NULL);
+    lv_obj_bind_flag_if_not_eq(s_photo, &subj_gps_photo_view,
+                               LV_OBJ_FLAG_HIDDEN, 1);
 
     s_photo_time = lv_label_create(s_photo);
-    lv_label_set_text(s_photo_time, "--:--:-- UTC · ----/--/--");
     lv_obj_set_style_text_font(s_photo_time, UI_FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_photo_time, lv_color_white(), 0);
-    lv_obj_align(s_photo_time, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align(s_photo_time, LV_ALIGN_TOP_MID, 0, 60);
+    lv_label_bind_text(s_photo_time, &subj_gps_photo_time_str, NULL);
 
     s_photo_lat = lv_label_create(s_photo);
-    lv_label_set_text(s_photo_lat, "-- . -----° -");
     lv_obj_set_style_text_font(s_photo_lat, &lv_font_montserrat_30, 0);
     lv_obj_set_style_text_color(s_photo_lat, lv_color_white(), 0);
-    lv_obj_align(s_photo_lat, LV_ALIGN_CENTER, 0, -16);
+    lv_obj_align(s_photo_lat, LV_ALIGN_CENTER, 0, -20);
+    lv_label_bind_text(s_photo_lat, &subj_gps_photo_lat_str, NULL);
 
     s_photo_lon = lv_label_create(s_photo);
-    lv_label_set_text(s_photo_lon, "-- . -----° -");
     lv_obj_set_style_text_font(s_photo_lon, &lv_font_montserrat_30, 0);
     lv_obj_set_style_text_color(s_photo_lon, lv_color_white(), 0);
-    lv_obj_align(s_photo_lon, LV_ALIGN_CENTER, 0, 28);
+    lv_obj_align(s_photo_lon, LV_ALIGN_CENTER, 0, 24);
+    lv_label_bind_text(s_photo_lon, &subj_gps_photo_lon_str, NULL);
 
     s_photo_alt = lv_label_create(s_photo);
-    lv_label_set_text(s_photo_alt, "ALT --- m · Sats --");
     lv_obj_set_style_text_font(s_photo_alt, UI_FONT_LABEL, 0);
     lv_obj_set_style_text_color(s_photo_alt, lv_color_white(), 0);
-    lv_obj_align(s_photo_alt, LV_ALIGN_BOTTOM_MID, 0, -50);
+    lv_obj_align(s_photo_alt, LV_ALIGN_BOTTOM_MID, 0, -70);
+    lv_label_bind_text(s_photo_alt, &subj_gps_photo_alt_str, NULL);
 
     s_photo_hint = lv_label_create(s_photo);
     lv_label_set_text(s_photo_hint, "tap to exit");
     lv_obj_set_style_text_font(s_photo_hint, UI_FONT_CHIP, 0);
     lv_obj_set_style_text_color(s_photo_hint,
                                 lv_color_make(0x80, 0x80, 0x80), 0);
-    lv_obj_align(s_photo_hint, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_align(s_photo_hint, LV_ALIGN_BOTTOM_MID, 0, -30);
 
-    ESP_LOGI(TAG, "%s tile init OK (normal + photo views)",
+    // Normal-view widgets: HIDDEN when subj_photo_view == 1.
+    lv_obj_t *normal_widgets[] = {
+        s_led_status, s_lbl_header, s_sw_power, s_divider,
+        s_lbl_status, s_lbl_time, s_lbl_lat, s_lbl_lon, s_lbl_altspd,
+        s_btn_photo, s_btn_mode, s_btn_sync,
+        s_sig_bar_blocks[0], s_sig_bar_blocks[1], s_sig_bar_blocks[2],
+        s_sig_bar_blocks[3], s_sig_bar_blocks[4], s_sig_bar_blocks[5],
+        s_sig_bar_blocks[6], s_sig_bar_lbl,
+    };
+    for (size_t i = 0; i < sizeof normal_widgets / sizeof normal_widgets[0]; i++) {
+        lv_obj_bind_flag_if_eq(normal_widgets[i], &subj_gps_photo_view,
+                               LV_OBJ_FLAG_HIDDEN, 1);
+    }
+
+    ESP_LOGI(TAG, "%s tile init OK (subject-bound, normal + photo views)",
              max_m10s_get_chip_name());
 }
 
 // ---------------------------------------------------------------------------
-// gps_tile_update  — called every 200 ms by task_ui_refresh_fn()
+// gps_tile_update -- minimal: LED + sync button gating + feedback timeout
 // ---------------------------------------------------------------------------
 void gps_tile_update(void)
 {
-    broker_gps_data_t  d  = {0};
-    broker_gps_read(&d);
-    sensor_status_t    st = broker_gps_get_status();
-
-    // ── Status LED ──────────────────────────────────────────────────────────
+    sensor_status_t st = broker_gps_get_status();
     update_led(st);
 
-    // ── Power toggle sync (guard prevents re-entrancy crash) ────────────────
-    s_syncing = true;
-    if (broker_gps_get_enabled()) lv_obj_add_state(s_sw_power, LV_STATE_CHECKED);
-    else                          lv_obj_clear_state(s_sw_power, LV_STATE_CHECKED);
-    s_syncing = false;
-
-    // ── Data validity gates ──────────────────────────────────────────────────
-    // pos_valid: live fix — show all fields normally
-    bool pos_valid = d.position_valid &&
-                     (st == SENSOR_ONLINE || st == SENSOR_NOTIF);
-
-    // Bug 2: stale_pos — fix lost but broker still holds last good coordinates.
-    // Show retained values with "(last known)" suffix during SENSOR_STALE window.
-    // Guard against (0, 0) default: only show if we actually had a real fix.
-    bool stale_pos = !d.position_valid && (st == SENSOR_STALE) &&
-                     (d.latitude != 0.0 || d.longitude != 0.0);
-
-    bool time_valid = d.time_valid;
-
-    // ── Sats + HDOP row ──────────────────────────────────────────────────────
-    if (pos_valid) {
-        const char *fix_str = (d.fix == GPS_FIX_3D) ? "3D" :
-                              (d.fix == GPS_FIX_2D) ? "2D" : "--";
-
-        int hdop_w = (int)d.hdop;
-        int hdop_d = (int)((d.hdop - hdop_w) * 10);
-        if (hdop_d < 0) hdop_d = -hdop_d;
-
-        lv_label_set_text_fmt(s_lbl_sats, "Sats: %u (%s)   HDOP: %d.%d",
-                              d.sats_in_use, fix_str, hdop_w, hdop_d);
-    } else {
-        lv_label_set_text(s_lbl_sats, "Sats:  ---   HDOP: ---");
-    }
-
-    // ── UTC time row ─────────────────────────────────────────────────────────
-    if (time_valid) {
-        lv_label_set_text_fmt(s_lbl_time, "Time:  %02u:%02u:%02u UTC",
-                              d.utc_hour, d.utc_minute, d.utc_second);
-    } else {
-        lv_label_set_text(s_lbl_time, "Time:  ---");
-    }
-
-    // ── Date row ─────────────────────────────────────────────────────────────
-    if (time_valid) {
-        lv_label_set_text_fmt(s_lbl_date, "Date:  %04u/%02u/%02u",
-                              d.utc_year, d.utc_month, d.utc_day);
-    } else {
-        lv_label_set_text(s_lbl_date, "Date:  ---");
-    }
-
-    // ── LAT row ──────────────────────────────────────────────────────────────
-    if (pos_valid || stale_pos) {
-        double lat = d.latitude;
-        char   ns  = (lat >= 0.0) ? 'N' : 'S';
-        if (lat < 0.0) lat = -lat;
-        int lat_w = (int)lat;
-        int lat_d = (int)((lat - lat_w) * 10000);
-        if (stale_pos) {
-            lv_label_set_text_fmt(s_lbl_lat, "LAT:   %d.%04d\xc2\xb0 %c (last known)",
-                                  lat_w, lat_d, ns);
-        } else {
-            lv_label_set_text_fmt(s_lbl_lat, "LAT:   %d.%04d\xc2\xb0 %c",
-                                  lat_w, lat_d, ns);
+    // ── Signal-strength bar ──────────────────────────────────────────────
+    // Level 0: chip silent (no bar lit, label = "silent")
+    // Level 1: chip alive but zero sats (only the leftmost grey block lit)
+    // Levels 2..7: fill up-to-and-including the bucket for top-4 CN0.
+    // We consider the chip "alive" if we've seen any NMEA within ~2s AND
+    // the driver isn't OFFLINE.
+    {
+        max_m10s_snr_summary_t snr = {0};
+        max_m10s_get_snr_summary(&snr);
+        bool alive = (st != SENSOR_DISABLED && st != SENSOR_OFFLINE);
+        uint8_t level;
+        if (!alive)                          level = 0;
+        else if (snr.sats_with_snr == 0)     level = 1;
+        else if (snr.top4_avg_cn0 < 15)      level = 2;
+        else if (snr.top4_avg_cn0 < 25)      level = 3;
+        else if (snr.top4_avg_cn0 < 30)      level = 4;
+        else if (snr.top4_avg_cn0 < 35)      level = 5;
+        else if (snr.top4_avg_cn0 < 45)      level = 6;
+        else                                  level = 7;
+        for (int i = 0; i < SIG_BAR_BLOCKS; i++) {
+            if (!s_sig_bar_blocks[i]) continue;
+            lv_obj_set_style_bg_opa(s_sig_bar_blocks[i],
+                                    (i < level) ? LV_OPA_COVER : LV_OPA_20, 0);
         }
-    } else {
-        lv_label_set_text(s_lbl_lat, "LAT:   ---");
-    }
-
-    // ── LON row ──────────────────────────────────────────────────────────────
-    if (pos_valid || stale_pos) {
-        double lon = d.longitude;
-        char   ew  = (lon >= 0.0) ? 'E' : 'W';
-        if (lon < 0.0) lon = -lon;
-        int lon_w = (int)lon;
-        int lon_d = (int)((lon - lon_w) * 10000);
-        if (stale_pos) {
-            lv_label_set_text_fmt(s_lbl_lon, "LON:   %d.%04d\xc2\xb0 %c (last known)",
-                                  lon_w, lon_d, ew);
-        } else {
-            lv_label_set_text_fmt(s_lbl_lon, "LON:   %d.%04d\xc2\xb0 %c",
-                                  lon_w, lon_d, ew);
+        if (s_sig_bar_lbl) {
+            if (!alive) {
+                lv_label_set_text(s_sig_bar_lbl, "silent");
+            } else if (snr.sats_with_snr == 0) {
+                lv_label_set_text(s_sig_bar_lbl, "alive, 0 sats");
+            } else {
+                lv_label_set_text_fmt(s_sig_bar_lbl,
+                                      "%u sats  CN0 %u dBHz  (max %u)",
+                                      snr.sats_with_snr, snr.top4_avg_cn0,
+                                      snr.max_cn0);
+            }
         }
-    } else {
-        lv_label_set_text(s_lbl_lon, "LON:   ---");
     }
 
-    // ── ALT + SPD row ────────────────────────────────────────────────────────
-    if (pos_valid || stale_pos) {
-        int alt_w = (int)d.altitude_m;
-        int spd_w = (int)d.speed_kmh;
-        int spd_d = (int)((d.speed_kmh - spd_w) * 10);
-        if (spd_d < 0) spd_d = -spd_d;
-        if (stale_pos) {
-            // Speed meaningless when stale — show alt only
-            lv_label_set_text_fmt(s_lbl_alt, "ALT: %d m (last known)", alt_w);
-        } else {
-            lv_label_set_text_fmt(s_lbl_alt, "ALT: %d m   SPD: %d.%d km/h",
-                                  alt_w, spd_w, spd_d);
-        }
-    } else {
-        lv_label_set_text(s_lbl_alt, "ALT:   ---   SPD: ---");
-    }
-
-    // ── ATOMIC SYNC button enable/disable ────────────────────────────────────
-    // Enabled only when GPS has valid time AND not currently showing feedback.
+    // Sync button enable: needs valid time from GPS + not showing feedback.
     if (!s_showing_feedback) {
-        if (time_valid && st != SENSOR_DISABLED && st != SENSOR_OFFLINE) {
+        broker_gps_data_t d = {0};
+        broker_gps_read(&d);
+        if (d.time_valid && st != SENSOR_DISABLED && st != SENSOR_OFFLINE) {
             lv_obj_clear_state(s_btn_sync, LV_STATE_DISABLED);
         } else {
             lv_obj_add_state(s_btn_sync, LV_STATE_DISABLED);
         }
     }
 
-    // ── Sync feedback timeout ────────────────────────────────────────────────
+    // Sync feedback timeout.
     if (s_showing_feedback) {
         int64_t elapsed_ms = (esp_timer_get_time() - s_feedback_start_us) / 1000LL;
         if (elapsed_ms >= SYNC_FEEDBACK_MS) {
@@ -480,71 +473,28 @@ void gps_tile_update(void)
         }
     }
 
-    // ── Consume first_fix_notified ───────────────────────────────────────────
-    // The broker macro sets first_fix_notified on the write that crosses
-    // GPS_FIX_NONE → fix. We read it here and clear it so the NOTIF state
-    // only lasts one refresh cycle. We can't write to the broker from Core 1,
-    // but the driver (Core 0) manages this flag — the NOTIF status is one-shot
-    // by design in broker_gps_get_status() custom logic. No action needed here
-    // beyond acknowledging it for display purposes. LED already reflects it.
-
-    // ── Photo view refresh (only when active) ────────────────────────────────
-    // Same broker snapshot `d` from the top of this function. Refresh 1 Hz is
-    // fine because the LVGL task ticks at 5 Hz and this file is < 1 ms of
-    // string formatting; no separate timer needed.
-    if (s_view == GPS_TILE_VIEW_PHOTO) {
-        if (time_valid) {
-            lv_label_set_text_fmt(s_photo_time,
-                                  "%02u:%02u:%02u UTC · %04u-%02u-%02u",
-                                  d.utc_hour, d.utc_minute, d.utc_second,
-                                  d.utc_year, d.utc_month, d.utc_day);
-        } else {
-            lv_label_set_text(s_photo_time, "--:--:-- UTC · ----/--/--");
-        }
-
-        if (pos_valid || stale_pos) {
-            double lat = d.latitude;
-            char   ns  = (lat >= 0.0) ? 'N' : 'S';
-            if (lat < 0.0) lat = -lat;
-            int lat_w = (int)lat;
-            int lat_d = (int)((lat - lat_w) * 100000);
-            lv_label_set_text_fmt(s_photo_lat,
-                                  "%d.%05d\xc2\xb0 %c", lat_w, lat_d, ns);
-
-            double lon = d.longitude;
-            char   ew  = (lon >= 0.0) ? 'E' : 'W';
-            if (lon < 0.0) lon = -lon;
-            int lon_w = (int)lon;
-            int lon_d = (int)((lon - lon_w) * 100000);
-            lv_label_set_text_fmt(s_photo_lon,
-                                  "%d.%05d\xc2\xb0 %c", lon_w, lon_d, ew);
-
-            int alt_w = (int)d.altitude_m;
-            lv_label_set_text_fmt(s_photo_alt,
-                                  "ALT %d m · Sats %u%s",
-                                  alt_w, d.sats_in_use,
-                                  stale_pos ? " · (last known)" : "");
-        } else {
-            lv_label_set_text(s_photo_lat, "no fix");
-            lv_label_set_text(s_photo_lon, "");
-            lv_label_set_text(s_photo_alt, "waiting for GPS");
+    // MODE label kept in sync with max_m10s_get_dynmodel() so CLI-driven
+    // changes (GPS_DYNMODEL AUTO) also update the on-tile label.
+    if (s_lbl_mode) {
+        static max_m10s_dynmodel_t last_mode = (max_m10s_dynmodel_t)-1;
+        max_m10s_dynmodel_t cur = max_m10s_get_dynmodel();
+        if (cur != last_mode) {
+            lv_label_set_text_fmt(s_lbl_mode, "MODE\n%s",
+                                  max_m10s_dynmodel_name(cur));
+            last_mode = cur;
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// gps_tile_show_sync_result  — called from Core 0 after sync attempt
-// Must be called inside lvgl_port_lock().
+// gps_tile_show_sync_result -- called from Core 0 after sync attempt
 // ---------------------------------------------------------------------------
 void gps_tile_show_sync_result(bool success)
 {
     if (!s_lbl_btn_sync) return;
-    if (success) {
-        lv_label_set_text(s_lbl_btn_sync, "SYNC OK \xe2\x9c\x93");
-    } else {
-        lv_label_set_text(s_lbl_btn_sync, "SYNC FAIL \xe2\x9c\x97");
-    }
-    // Re-enable button so user can retry on failure
+    lv_label_set_text(s_lbl_btn_sync,
+                      success ? "SYNC OK \xe2\x9c\x93"
+                              : "SYNC FAIL \xe2\x9c\x97");
     lv_obj_clear_state(s_btn_sync, LV_STATE_DISABLED);
     s_showing_feedback   = true;
     s_feedback_start_us  = esp_timer_get_time();
@@ -556,23 +506,20 @@ void gps_tile_show_sync_result(bool success)
 // ---------------------------------------------------------------------------
 void gps_tile_apply_theme(ui_theme_t theme)
 {
-    (void)theme;  // theme_xxx() helpers read g_ui_theme internally
+    (void)theme;
     if (!s_parent) return;
-
     lv_obj_set_style_bg_color(s_parent,     theme_bg(),      0);
     lv_obj_set_style_bg_color(s_divider,    theme_divider(), 0);
     lv_obj_set_style_text_color(s_lbl_header, theme_text(),    0);
-    lv_obj_set_style_text_color(s_lbl_sats,   theme_subtext(), 0);
+    lv_obj_set_style_text_color(s_lbl_status, theme_text(),    0);
     lv_obj_set_style_text_color(s_lbl_time,   theme_subtext(), 0);
-    lv_obj_set_style_text_color(s_lbl_date,   theme_subtext(), 0);
     lv_obj_set_style_text_color(s_lbl_lat,    theme_subtext(), 0);
     lv_obj_set_style_text_color(s_lbl_lon,    theme_subtext(), 0);
-    lv_obj_set_style_text_color(s_lbl_alt,    theme_subtext(), 0);
-    // Button accent colour is constant — no theme dependency.
+    lv_obj_set_style_text_color(s_lbl_altspd, theme_subtext(), 0);
 }
 
 // ---------------------------------------------------------------------------
-// gps_subtile_init  — raw NMEA debug overlay
+// Sub-tile (raw NMEA debug view) -- kept poll-based; low-priority debug.
 // ---------------------------------------------------------------------------
 void gps_subtile_init(lv_obj_t *parent)
 {
@@ -581,93 +528,64 @@ void gps_subtile_init(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Header
     s_lbl_sub_hdr = lv_label_create(parent);
     lv_label_set_text(s_lbl_sub_hdr, "RAW NMEA DEBUG");
-    lv_obj_set_style_text_font(s_lbl_sub_hdr, UI_FONT_CHIP, 0);
+    lv_obj_set_style_text_font(s_lbl_sub_hdr, UI_FONT_LABEL, 0);
     lv_obj_set_style_text_color(s_lbl_sub_hdr, theme_text(), 0);
-    lv_obj_align(s_lbl_sub_hdr, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(s_lbl_sub_hdr, LV_ALIGN_TOP_MID, 0, GPS_PAD_V_UI);
 
-    // GGA sentence label — long_mode wrap so it wraps on screen
     s_lbl_gga = lv_label_create(parent);
-    lv_label_set_text(s_lbl_gga, "$GPGGA: ---");
+    lv_label_set_text(s_lbl_gga, "$GPGGA: --");
     lv_obj_set_style_text_font(s_lbl_gga, UI_FONT_CHIP, 0);
     lv_obj_set_style_text_color(s_lbl_gga, theme_subtext(), 0);
     lv_label_set_long_mode(s_lbl_gga, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_lbl_gga, 220);
-    lv_obj_align(s_lbl_gga, LV_ALIGN_TOP_LEFT, 10, 34);
+    lv_obj_set_width(s_lbl_gga, 290);
+    lv_obj_align(s_lbl_gga, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_PAD_V_UI + 60);
 
-    // RMC sentence label
     s_lbl_rmc = lv_label_create(parent);
-    lv_label_set_text(s_lbl_rmc, "$GPRMC: ---");
+    lv_label_set_text(s_lbl_rmc, "$GPRMC: --");
     lv_obj_set_style_text_font(s_lbl_rmc, UI_FONT_CHIP, 0);
     lv_obj_set_style_text_color(s_lbl_rmc, theme_subtext(), 0);
     lv_label_set_long_mode(s_lbl_rmc, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_lbl_rmc, 220);
-    lv_obj_align(s_lbl_rmc, LV_ALIGN_TOP_LEFT, 10, 120);
+    lv_obj_set_width(s_lbl_rmc, 290);
+    lv_obj_align(s_lbl_rmc, LV_ALIGN_TOP_LEFT, GPS_PAD_H_TEXT, GPS_PAD_V_UI + 200);
 
     ESP_LOGI(TAG, "GPS sub-tile init OK");
 }
 
-// ---------------------------------------------------------------------------
-// gps_subtile_update
-// ---------------------------------------------------------------------------
 void gps_subtile_update(void)
 {
     char gga[96] = {0};
     char rmc[96] = {0};
     max_m10s_get_debug_sentences(gga, sizeof(gga), rmc, sizeof(rmc));
-
-    // tu10f_get_debug_sentences() returns empty strings when stale (Bug 3 fix)
-    if (gga[0] != '\0') {
-        lv_label_set_text(s_lbl_gga, gga);
-    } else {
-        lv_label_set_text(s_lbl_gga, "-- no signal --");
-    }
-
-    if (rmc[0] != '\0') {
-        lv_label_set_text(s_lbl_rmc, rmc);
-    } else {
-        lv_label_set_text(s_lbl_rmc, "-- no signal --");
-    }
+    lv_label_set_text(s_lbl_gga, gga[0] ? gga : "-- no signal --");
+    lv_label_set_text(s_lbl_rmc, rmc[0] ? rmc : "-- no signal --");
 }
 
 // ---------------------------------------------------------------------------
-// Command surface (Module_Blueprint.md pass-1 for gps_tile)
+// Command surface -- delegates to ui_subjects view API.
+// Kept in the old namespace so existing CLI verb (GPS_VIEW) still resolves.
 // ---------------------------------------------------------------------------
-
 gps_tile_view_t gps_tile_cmd_view_get(void)
 {
-    return s_view;
+    return kw_ui_gps_view_get() ? GPS_TILE_VIEW_PHOTO : GPS_TILE_VIEW_NORMAL;
 }
 
 void gps_tile_cmd_view_set(gps_tile_view_t v)
 {
-    if (v == s_view) return;
-    s_view = v;
-
-    // Requires lvgl_port_lock — CLI dispatcher takes it before calling this;
-    // in-tile callbacks fire inside the LVGL task which already holds the mutex.
-    if (v == GPS_TILE_VIEW_PHOTO) {
-        set_normal_widgets_hidden(true);
-        if (s_photo) lv_obj_clear_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
-        ESP_LOGI(TAG, "view → PHOTO");
-    } else {
-        if (s_photo) lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
-        set_normal_widgets_hidden(false);
-        ESP_LOGI(TAG, "view → NORMAL");
-    }
-    // Force a repaint pass on next update tick; LVGL invalidates automatically
-    // when hidden flags change so nothing else to do.
+    bool photo = (v == GPS_TILE_VIEW_PHOTO);
+    kw_ui_gps_view_set(photo ? KW_GPS_VIEW_PHOTO : KW_GPS_VIEW_NORMAL);
+    ESP_LOGI(TAG, "view -> %s", photo ? "PHOTO" : "NORMAL");
 }
 
 void gps_tile_cmd_view_toggle(void)
 {
-    gps_tile_cmd_view_set((s_view == GPS_TILE_VIEW_NORMAL)
-                              ? GPS_TILE_VIEW_PHOTO
-                              : GPS_TILE_VIEW_NORMAL);
+    kw_ui_gps_view_toggle();
 }
 
+// ---------------------------------------------------------------------------
+// Tile descriptor
+// ---------------------------------------------------------------------------
 const tile_desc_t gps_tile_desc = {
     .init           = gps_tile_init,
     .update         = gps_tile_update,
@@ -676,6 +594,4 @@ const tile_desc_t gps_tile_desc = {
     .subtile_init   = gps_subtile_init,
     .subtile_update = gps_subtile_update,
     .main_dirs      = LV_DIR_LEFT | LV_DIR_RIGHT | LV_DIR_BOTTOM,
-    //                                              ^^^^^^^^^^^^
-    // LV_DIR_BOTTOM permits swipe-up to reach the debug sub-tile (row 1).
 };

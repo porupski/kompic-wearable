@@ -17,10 +17,12 @@
 #include "lis3mdl.h"
 #include "data_broker.h"
 #include "boot_hw_init.h"   // g_i2c_mutex
+#include "ui_subjects.h"    // Stage 32.1: g_mag_q for UI drain path
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include <math.h>
 #include <string.h>
 
@@ -285,10 +287,24 @@ void task_mag_fn(void *arg)
     (void)arg;
     ESP_LOGI(TAG, "Task started on Core %d", xPortGetCoreID());
 
+    // Stage 32.1: push at most one "disabled" snapshot per transition so
+    // the UI tile flips to "Disabled" without waiting for re-enable.
+    bool s_prev_pushed_disabled = false;
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(LIS3MDL_POLL_MS));
         if (!broker_mag_hw_alive())    continue;
-        if (!broker_mag_get_enabled()) continue;
+        if (!broker_mag_get_enabled()) {
+            if (!s_prev_pushed_disabled && g_mag_q) {
+                broker_mag_data_t off = {0};
+                broker_mag_read(&off);
+                off.enabled = false;
+                (void)xQueueOverwrite(g_mag_q, &off);
+                s_prev_pushed_disabled = true;
+            }
+            continue;
+        }
+        s_prev_pushed_disabled = false;
 
         broker_mag_data_t bd = {0};
         broker_mag_read(&bd);
@@ -315,6 +331,9 @@ void task_mag_fn(void *arg)
         bd.calibrated   = s_cal.calibrated;
         // bd.calibrating / cal_countdown owned by task_mag_cal_fn
         broker_mag_write(&bd);
+        if (g_mag_q) {
+            (void)xQueueOverwrite(g_mag_q, &bd);
+        }
     }
 }
 
@@ -340,6 +359,7 @@ void task_mag_cal_fn(void *arg)
         for (int s = total_s; s > 0; s--) {
             bd.cal_countdown = (uint8_t)s;
             broker_mag_write(&bd);
+            if (g_mag_q) (void)xQueueOverwrite(g_mag_q, &bd);
 
             int64_t t_end = esp_timer_get_time() + 1000000;
             while (esp_timer_get_time() < t_end) {
@@ -357,11 +377,13 @@ void task_mag_cal_fn(void *arg)
             bd.calibrating   = false;
             bd.cal_countdown = 0;
             broker_mag_write(&bd);
+            if (g_mag_q) (void)xQueueOverwrite(g_mag_q, &bd);
         } else {
             broker_mag_read(&bd);
             bd.calibrating   = false;
             bd.cal_countdown = 0;
             broker_mag_write(&bd);
+            if (g_mag_q) (void)xQueueOverwrite(g_mag_q, &bd);
         }
         continue;
 
@@ -370,5 +392,6 @@ cancel:
         bd.calibrating   = false;
         bd.cal_countdown = 0;
         broker_mag_write(&bd);
+        if (g_mag_q) (void)xQueueOverwrite(g_mag_q, &bd);
     }
 }

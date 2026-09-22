@@ -18,11 +18,12 @@
  * The broker_gps_data_t shape is preserved field-for-field so gps_tile.c
  * builds with only an include path swap and identity-call rename.
  *
- * Hardware (v7.2 §GPIO ASSIGNMENT, §UART):
+ * Hardware (master pinout v20 iv7.1 §GPIO ASSIGNMENT, §UART; validated on
+ * Mk1b iv8.0 bench 2026-09-20 via Arduino sketch 18c):
  *   Module   : u-blox MAX-M10S (NMEA + UBX on the same UART)
  *   UART     : UART_NUM_1, default 9600 baud (datasheet); reconfigure path TBD
- *   TX GPIO  : 17  (ESP -> GPS RX)
- *   RX GPIO  : 18  (GPS TX -> ESP)
+ *   TX GPIO  : 17  (U1TXD IOMUX, ESP -> GPS RXD)
+ *   RX GPIO  : 18  (U1RXD IOMUX, GPS TXD -> ESP)
  *   1PPS     : GPIO46 (TimePulse, edge ISR)
  *   No I2C address -- UART-only, excluded from I2C scan table.
  *
@@ -54,8 +55,14 @@ const char *max_m10s_get_chip_desc(void);   // returns "u-blox M10 GNSS"
 // 38400. Leaving 9600 as the start baud here; bench bring-up confirms.
 #define MAX_M10S_UART_NUM   UART_NUM_1
 #define MAX_M10S_BAUD_RATE  9600
-#define MAX_M10S_TX_PIN     17
-#define MAX_M10S_RX_PIN     18
+// Pin roles per master pinout (0_Kompic_Pinout_MASTER_v20_iv7.1.md):
+//   GPIO17 = U1TXD IOMUX -> ESP drives GPS RXD
+//   GPIO18 = U1RXD IOMUX -> ESP receives from GPS TXD
+// The earlier reversed defaults (TX=18, RX=17) shipped in this file AND
+// in Arduino sketches 18b/18c never matched the PCB. Bench-verified fix
+// captured in docs/build_info/Mk1b_build_reports/GPS_M10S_Fixing.md.
+#define MAX_M10S_TX_PIN     7 //17 bodged over to MAX_INT (GPIO07)
+#define MAX_M10S_RX_PIN     18 //Swapped TX RX from original circuit, bodged
 #define MAX_M10S_PPS_PIN    GPIO_NUM_46
 
 // -- Fix type enum ------------------------------------------------------------
@@ -140,6 +147,80 @@ void max_m10s_flush(void);
 /** @brief Copy the last raw GGA and RMC sentences for the debug overlay. */
 void max_m10s_get_debug_sentences(char *gga_buf, size_t gga_sz,
                                    char *rmc_buf, size_t rmc_sz);
+
+// -- Stage 31.4b: runtime UBX-CFG-VALSET writes ------------------------------
+//
+// Key IDs sourced from u-blox M10 Interface Description (UBX-21035062).
+// Only U1/E1 keys used today (single-byte payload).
+
+// Dynamic platform model (CFG-NAVSPG-DYNMODEL, key 0x20110021). WRIST/BIKE
+// are "not available in all products" per the manual; MAX-M10S may NAK them.
+typedef enum {
+    UBX_DYNMODEL_PORTABLE   = 0,
+    UBX_DYNMODEL_STATIONARY = 2,
+    UBX_DYNMODEL_PEDESTRIAN = 3,
+    UBX_DYNMODEL_AUTOMOTIVE = 4,
+    UBX_DYNMODEL_SEA        = 5,
+    UBX_DYNMODEL_AIR1G      = 6,
+    UBX_DYNMODEL_AIR2G      = 7,
+    UBX_DYNMODEL_AIR4G      = 8,
+    UBX_DYNMODEL_WRIST      = 9,
+    UBX_DYNMODEL_BIKE       = 10,
+} max_m10s_dynmodel_t;
+
+/** @brief Send CFG-NAVSPG-DYNMODEL VALSET to RAM. Non-blocking. */
+esp_err_t           max_m10s_set_dynmodel(max_m10s_dynmodel_t mode);
+const char         *max_m10s_dynmodel_name(max_m10s_dynmodel_t mode);
+max_m10s_dynmodel_t max_m10s_get_dynmodel(void);   // last one we sent
+
+// UBX-MON-RF (class 0x0A, id 0x38): antenna status + noise + AGC.
+// ant_status: 0=INIT, 1=DONTKNOW, 2=OK, 3=SHORT, 4=OPEN.
+// ant_power : 0=OFF,  1=ON,       2=DONTKNOW.
+typedef struct {
+    bool     valid;              // false until first UBX-MON-RF received
+    uint32_t last_update_ms;
+    uint8_t  ant_status;
+    uint8_t  ant_power;
+    uint16_t noise_per_ms;
+    uint16_t agc_cnt;            // 0..8191 -> 0..100 %
+} max_m10s_monrf_t;
+
+esp_err_t   max_m10s_enable_monrf(uint8_t rate);
+void        max_m10s_get_monrf(max_m10s_monrf_t *out);
+const char *max_m10s_ant_status_name(uint8_t ant_status);
+
+// -- NMEA GSV-derived signal-strength summary --------------------------------
+// Populated from NMEA GSV sentences (default output, no UBX config needed).
+// A satellite with an SNR entry ages out after ~2.5s so dropped sats stop
+// contributing to the bar.
+typedef struct {
+    uint8_t  sats_in_view;   // total distinct sats reported in the window
+    uint8_t  sats_with_snr;  // subset with a non-zero SNR field
+    uint8_t  max_cn0;        // dBHz, best single SNR in the window
+    uint8_t  top4_avg_cn0;   // dBHz, average of top-4 SNRs (0 if <1 sat)
+    uint32_t last_update_ms;
+} max_m10s_snr_summary_t;
+
+void max_m10s_get_snr_summary(max_m10s_snr_summary_t *out);
+
+// -- UBX diagnostics ----------------------------------------------------------
+// Counters incremented on every valid UBX frame received. Zero-cost when
+// unused; primary use is proving whether ESP->GPS TX physically works.
+typedef struct {
+    uint32_t total;      // any valid UBX frame
+    uint32_t mon_ver;    // UBX-MON-VER responses (from GPS_PING)
+    uint32_t mon_rf;     // UBX-MON-RF frames (when enabled)
+    uint32_t nav_timeutc;// UBX-NAV-TIMEUTC frames
+    uint32_t ack_ack;    // UBX-ACK-ACK responses to our CFG-VALSETs
+    uint32_t ack_nak;    // UBX-ACK-NAK responses
+} max_m10s_ubx_counters_t;
+
+void max_m10s_get_ubx_counters(max_m10s_ubx_counters_t *out);
+
+/** @brief Send UBX-MON-VER poll. Chip responds with a MON-VER frame within
+ *         ~10 ms if TX path is alive. Use as a "does ESP->GPS work?" probe.
+ *         Non-blocking; caller polls max_m10s_get_ubx_counters().mon_ver. */
+esp_err_t max_m10s_ping(void);
 
 /** @brief Extract last-known UTC time. Returns ESP_ERR_INVALID_STATE if
  *         time_valid is false. */

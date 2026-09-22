@@ -51,6 +51,7 @@
 #include "alarm_tile.h"
 #include "tile_registry.h"
 #include "ui_theme_colors.h"
+#include "ui_pane_styles.h"     // Stage 31.1: shared pane style flyweight
 #include "data_broker.h"
 #include "ui_event.h"
 #include "power_flags.h"        // g_wake_display, g_display_sleep, g_show_shutdown_overlay
@@ -71,6 +72,13 @@ static uint8_t s_last_theme = 0xFF;
 
 void apply_ui_theme(void)
 {
+    // Stage 31.1: shared pane style flyweight -- mutates bg + text
+    // colour once for every pane that added style_pane_root and
+    // invalidates the active screen. Per-tile fan-out below remains
+    // during the transition (Stage 33.3 deletes it once every tile is
+    // subject-bound + owns no local theme colours).
+    kw_ui_pane_styles_reapply_theme();
+
     settings_screen_apply_theme();
 
     tile_entry_t *tiles = tile_registry_get();
@@ -142,9 +150,17 @@ void lvgl_ui_init(const ui_settings_t *cfg)
     g_auto_brightness  = cfg->auto_brightness;
     s_last_theme       = cfg->theme;
 
+    // Stage 31.1: shared pane styles must exist BEFORE any pane's build
+    // routine tries to add them to a container. Idempotent -- second call
+    // is a no-op.
+    kw_ui_pane_styles_init();
+
     // -- Build screens --------------------------------------------------------
+    // Stage 31.3: settings is now a full-screen CHILD of the main screen
+    // (drawer sibling pane), not a top-level screen. Alarm is still a
+    // top-level screen (Stage 33.1 converts it to a sibling pane too).
     lv_obj_t *main_scr     = main_screen_build();
-    lv_obj_t *settings_scr = settings_screen_build();
+    lv_obj_t *settings_scr = main_scr ? settings_screen_build(main_scr) : NULL;
     lv_obj_t *alarm_scr    = alarm_screen_build();
 
     if (!main_scr || !settings_scr) {

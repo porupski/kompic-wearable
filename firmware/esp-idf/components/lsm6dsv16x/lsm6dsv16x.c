@@ -19,6 +19,7 @@
 #include "lsm6dsv16x.h"
 #include "data_broker.h"
 #include "ui_event.h"
+#include "ui_subjects.h"    // Stage 32.1: g_imu_q for UI drain path
 #include "driver/i2c.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -294,11 +295,27 @@ void task_imu_fn(void *arg)
     (void)arg;
     ESP_LOGI(TAG, "Task started on Core %d", xPortGetCoreID());
 
+    // Stage 32.1: push at most one "disabled" snapshot per transition so
+    // the UI tile flips to "Disabled" instantly without waiting for the
+    // next enabled cycle. Producer-side edge-detect on enabled matches
+    // the pattern max_m10s uses when the chip goes silent.
+    bool s_prev_pushed_disabled = false;
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(LSM6DSV16X_POLL_MS));
 
         if (!broker_imu_hw_alive())    continue;
-        if (!broker_imu_get_enabled()) continue;
+        if (!broker_imu_get_enabled()) {
+            if (!s_prev_pushed_disabled && g_imu_q) {
+                broker_imu_data_t off = {0};
+                broker_imu_read(&off);
+                off.enabled = false;
+                (void)xQueueOverwrite(g_imu_q, &off);
+                s_prev_pushed_disabled = true;
+            }
+            continue;
+        }
+        s_prev_pushed_disabled = false;
 
         broker_imu_data_t bd = {0};
         broker_imu_read(&bd);
@@ -333,6 +350,13 @@ void task_imu_fn(void *arg)
         bd.pitch_deg = s_pitch_deg;
 
         broker_imu_write(&bd);
+
+        // Stage 32.1: publish to UI drain queue in addition to broker.
+        // Overwrite semantics: producer never blocks; drain timer picks up
+        // the freshest sample every 200 ms on the LVGL task.
+        if (g_imu_q) {
+            (void)xQueueOverwrite(g_imu_q, &bd);
+        }
 
         // Stage 18 §3.4 wrist gesture: LPF chip-Z, publish to g_imu_gesture.
         // Consumers today: fc_cli GESTURE dump; future: rgb_policy wrist-off
