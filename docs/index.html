@@ -3,14 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kompic&#x304; MkI - Project Documentation</title>
+    <title>Kompic&#x304; — Open-Source Wearable</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 
     <meta name="google-site-verification" content="chL-XVolm1SuAvXFdi4GrWiDTAlDh8zo74V44r8aD-M" />
-    
+
+    <style>
+        /* --- nav dropdown: How To Manufacture --- */
+        .nav-links li.has-dropdown { position: relative; }
+        .nav-links .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 190px;
+            margin: 0;
+            padding: 0.5rem 0;
+            list-style: none;
+            background: rgba(20, 20, 24, 0.98);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 6px;
+            z-index: 50;
+        }
+        .nav-links li.has-dropdown:hover .dropdown-menu,
+        .nav-links li.has-dropdown:focus-within .dropdown-menu,
+        .nav-links li.has-dropdown.open .dropdown-menu {
+            display: block;
+        }
+        .dropdown-menu li { display: block; }
+        .dropdown-menu a { display: block; padding: 0.45rem 1.1rem; white-space: nowrap; }
+
+        /* --- missing-image placeholder (shown until the real photo is dropped in) --- */
+        .img-missing {
+            display: none;
+            min-height: 200px;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.25rem;
+            border: 1px dashed rgba(255,255,255,0.25);
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            color: rgba(255,255,255,0.45);
+        }
+        .img-missing span { display: block; margin-top: 0.35rem; color: rgba(255,255,255,0.6); }
+
+        /* --- How To Manufacture link cards --- */
+        .build-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        .build-card {
+            display: block;
+            padding: 1rem 1.1rem;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            text-decoration: none;
+        }
+        .build-card h4 { margin: 0 0 0.35rem; }
+        .build-card p { margin: 0; font-size: 0.9rem; opacity: 0.75; }
+    </style>
 </head>
 <body>
 
@@ -20,13 +79,17 @@
             <a href="#hero" class="nav-brand-link">Kompic&#x304;</a>
             <ul class="nav-links">
                 <li><a href="#overview">Overview</a></li>
-                <li><a href="circuit.html#hero">Circuit + PCB</a></li>
-                <li><a href="fabrication.html#hero">Fabrication</a></li>
-                <li><a href="#manual-assembly">Manual Assembly</a></li>
-                <li><a href="#models">3D Models</a></li>
+                <li class="has-dropdown">
+                    <a href="circuit.html#hero">How To Manufacture</a>
+                    <ul class="dropdown-menu">
+                        <li><a href="circuit.html#hero">Circuit + PCB</a></li>
+                        <li><a href="fabrication.html#hero">Fabrication</a></li>
+                        <li><a href="manual-assembly.html#hero">Manual Assembly</a></li>
+                        <li><a href="3dprinting.html#hero">3D Models</a></li>
+                    </ul>
+                </li>
                 <li><a href="#firmware">Firmware</a></li>
-                <li><a href="#application">Application &amp; Data</a></li>
-                <li><a href="#references">References</a></li>
+                <li><a href="development.html#hero">Development</a></li>
                 <li>
                     <a href="https://github.com/porupski/kompic-wearable" target="_blank" rel="noopener">
                         <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -43,24 +106,26 @@
     <section id="hero" class="hero">
         <div class="container">
             <h1><b>Kompic&#x304;</b></h1>
-            <p class="ipa-subtitle"><i>/&#712;kompit&#597;/</i></p>
-            <p class="version-mark">Mk&nbsp;I &middot; <code>iv7.1</code></p>
-            <p class="expansion">Compact Open Multisensor Platform &amp; Apparatus</p>
-            <p><b>A Fully Open-Source ML Wearable Sensor Platform</b></p>
-            <p>An offline-first, ML-capable wrist-mounted instrument.
-                <br>The hardware collects. The firmware infers. You own everything.</p>
+            <p class="ipa-subtitle"><i>/ˈkompitʃ/</i></p>
+            <p class="version-mark">Mk1b &middot; <code>iv8.0</code></p>
+            <p><b>An open-source, wrist-worn sensor platform.</b></p>
+            <p>Built to be standalone. Doesn't need a phone, an app, or the cloud — and never will.</p>
         </div>
         <div class="container">
             <div style="display: flex; gap: 2rem; justify-content: center; align-items: flex-start; margin: 2rem 0; flex-wrap: wrap;">
                 <figure style="flex: 1; min-width: 300px; max-width: 45%; margin: 0;">
-                    <img src="img/Kompic_3D_demo_Front_v1.jpeg" alt="Kompic front view"
-                         style="width: 100%; height: auto; border-radius: 8px;">
-                    <figcaption>Front &mdash; placeholder render</figcaption>
+                    <img src="img/Kompic_Mk1b_Front_v1.jpeg" alt="Kompic&#x304; Mk1b iv8.0, front"
+                         style="width: 100%; height: auto; border-radius: 8px;"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="img-missing">📷 img/1_hero-front.jpg<span>Mk1b iv8.0 on wrist, front</span></div>
+                    <figcaption>Front</figcaption>
                 </figure>
                 <figure style="flex: 1; min-width: 300px; max-width: 45%; margin: 0;">
-                    <img src="img/Kompic_3D_demo_Back_v1.jpeg" alt="Kompic back view"
-                         style="width: 100%; height: auto; border-radius: 8px;">
-                    <figcaption>Back &mdash; placeholder render</figcaption>
+                    <img src="img/Kompic_Mk1b_Back_v1.jpeg" alt="Kompic&#x304; Mk1b iv8.0, back"
+                         style="width: 100%; height: auto; border-radius: 8px;"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="img-missing">📷 img/2_hero-back.jpg<span>Mk1b iv8.0 on wrist, back</span></div>
+                    <figcaption>Back</figcaption>
                 </figure>
             </div>
         </div>
@@ -73,52 +138,28 @@
 
                     <!-- ==================== OVERVIEW ==================== -->
                     <section id="overview" class="content-section">
-                        <h2>Project Overview</h2>
+                        <h2>Overview</h2>
                         <p><span class="status-badge in-progress">In Active Development</span></p>
 
-                        <!-- ===== IMAGE TEMPLATE (copy/paste, drop files in docs/img/) =====
-                        Single image:
-                        <figure>
-                            <img src="img/FILENAME.jpg" alt="DESCRIPTION"
-                                 style="width: 100%; max-width: 800px; height: auto; border-radius: 8px;">
-                            <figcaption>Caption text here</figcaption>
-                        </figure>
+                        <p><b>Kompic&#x304;</b> is a wearable, open-source personal device. It carries a sensor
+                        array spanning ambient conditions to biosignals — motion, environment, heart rate,
+                        skin temperature, sound, position. It's built to be standalone: no phone, no app,
+                        no cloud, no subscription. It doesn't need any of that, and it never will.</p>
 
-                        Two side-by-side (e.g. front / back hero shots):
-                        <div style="display: flex; gap: 2rem; justify-content: center; align-items: flex-start; margin: 2rem 0; flex-wrap: wrap;">
-                            <figure style="flex: 1; min-width: 300px; max-width: 45%; margin: 0;">
-                                <img src="img/FRONT.jpg" alt="Kompic front"
-                                     style="width: 100%; height: auto; border-radius: 8px;">
-                                <figcaption>Front</figcaption>
-                            </figure>
-                            <figure style="flex: 1; min-width: 300px; max-width: 45%; margin: 0;">
-                                <img src="img/BACK.jpg" alt="Kompic back"
-                                     style="width: 100%; height: auto; border-radius: 8px;">
-                                <figcaption>Back</figcaption>
-                            </figure>
-                        </div>
-                        ================================================================ -->
-
-                        <p><b>Kompic&#x304;</b> is a <b>fully open-source, wrist-mounted sensor platform</b>
-                        built by an ML scientist for on-device inference. It pairs a sensor suite denser
-                        than any open-source watch with an ESP32-S3 compute platform powerful enough to run
-                        real neural networks on that data &mdash; sleep staging, sound classification,
-                        sensor fusion &mdash; all locally, all offline, all inspectable.</p>
+                        <p>Full control over the hardware. Full control over the data. This is something
+                        you make, not something you buy — and when it breaks, you fix it.</p>
 
                         <p>The name is Croatian street slang: <i>komp</i> ("computer") plus the diminutive
-                        <i>-ic&#x304;</i> &mdash; a "little computer," and the word you'd only use for an actual
-                        friend, not a stranger. Pronounced <i>/&#712;kompit&#643;/</i> (kompich).</p>
+                        <i>-ič</i> — a "little computer," the word you'd use for an actual friend, not a
+                        stranger. Pronounced <i>/ˈkompitʃ/</i> (kompich).</p>
+
+                        <p>Currently on its second hardware revision, <b>Mk1b (iv8.0)</b>: all ten I²C
+                        sensors bring up clean, the AMOLED display and touch panel run a working LVGL
+                        interface, and GPS streams live fixes. The bugs, the bodges, and how it got here
+                        are all on the <a href="development.html#hero">Development</a> page.</p>
 
                         <h3>Author</h3>
-                        <p><b>Hardware, firmware, case and webpage design by Ivan Porupski, 2026.</b></p>
-
-                        <h3>Philosophy</h3>
-                        <ul>
-                            <li><b>Open source</b> &mdash; hardware (KiCad), firmware, ML models, and case design (Onshape). Everything inspectable, modifiable, forkable.</li>
-                            <li><b>Offline first</b> &mdash; works fully standalone. No phone required, no cloud dependency, no subscription. BLE is a capability, not a requirement.</li>
-                            <li><b>Raw data access</b> &mdash; PPG waveforms, ECG traces, IMU streams, mic audio, environmental readings. Not just processed metrics.</li>
-                            <li><b>ML-native</b> &mdash; the ESP32-S3's compute surplus exists specifically to run on-device inference. The sensor suite is designed to feed models, not just display numbers.</li>
-                        </ul>
+                        <p>Hardware, firmware, case and webpage design by Ivan Porupski, 2026.</p>
 
                         <h3>Key Specs</h3>
                         <ul>
@@ -127,7 +168,8 @@
                             <li>2.06" rectangular AMOLED, 45.6 &times; 37.3 mm glass</li>
                             <li>Two 1.0 mm 4-layer PCBs: main board + skin-facing daughter board</li>
                             <li>Two-piece titanium case (SLM Ti-6Al-4V), ~48 &times; 40 &times; 12 mm</li>
-                            <li>~380 mAh LiPo, USB-C charging</li>
+                            <li>33 g watch body, 56 g with straps</li>
+                            <li>~300 mAh LiPo, USB-C charging</li>
                         </ul>
 
                         <h3>Sensor Suite</h3>
@@ -137,8 +179,8 @@
                             </thead>
                             <tbody>
                                 <tr><td>❤️ Optical HR / SpO2</td><td>MAX30101</td><td>Heart rate, HRV, blood oxygen, PPG waveforms</td></tr>
-                                <tr><td>🏃 IMU + ML Core</td><td>LSM6DSV16X</td><td>Accel, gyro, on-chip decision trees</td></tr>
-                                <tr><td>🫀 ECG (single-lead)</td><td>LSM6DSV16X Qvar</td><td>Lead-I heart rhythm via isolated electrodes</td></tr>
+                                <tr><td>🏃 IMU</td><td>LSM6DSV16X</td><td>Accel, gyro, on-chip decision trees</td></tr>
+                                <tr><td>🔋 Fuel gauge</td><td>MAX17048G</td><td>Battery state-of-charge, cell voltage</td></tr>
                                 <tr><td>🌡️ Skin temperature</td><td>TMP117</td><td>High-precision skin temp trending</td></tr>
                                 <tr><td>🧭 Magnetometer</td><td>LIS3MDLTR</td><td>Compass heading, magnetic anomaly</td></tr>
                                 <tr><td>🛰️ GPS</td><td>u-blox M10S</td><td>Position, velocity, atomic time sync</td></tr>
@@ -146,133 +188,69 @@
                                 <tr><td>💡 Ambient light</td><td>VEML6030</td><td>Lux level, display brightness</td></tr>
                                 <tr><td>🎤 MEMS microphone</td><td>MSM261DGT003</td><td>Audio capture, noise level, sound classification</td></tr>
                                 <tr><td>📳 Haptics</td><td>ELV1411A + DRV2605L</td><td>Vibration patterns, alerts, smart wake</td></tr>
+                                <tr><td>🔦 Flashlight</td><td>White LED + BC847C driver</td><td>Utility light</td></tr>
+                                <tr><td>🚦 Status LED</td><td>RGB LED</td><td>Notification / mode indicator</td></tr>
                             </tbody>
-                        </table>   
+                        </table>
 
                         <div class="disclaimer">
                             <h4>Safety Disclaimer</h4>
-                            <p>All work with these electronics is done entirely at your own discretion and risk.
-                            It is your sole responsibility to ensure you possess the necessary skills, knowledge,
-                            and safety equipment for working with electrical components and lithium batteries.
-                            Kompic&#x304; is not a medical device and is not intended to diagnose, treat, or
-                            prevent any condition. The author and any contributors are not liable for any direct,
-                            indirect, incidental, or consequential damages.</p>
+                            <p>All work with these electronics is done entirely at your own discretion and
+                            risk. It is your sole responsibility to ensure you possess the necessary skills,
+                            knowledge, and safety equipment for working with electrical components and
+                            lithium batteries. Kompic&#x304; is not a medical device and is not intended to
+                            diagnose, treat, or prevent any condition. The author and any contributors are
+                            not liable for any direct, indirect, incidental, or consequential damages.</p>
                         </div>
                     </section>
 
-                    <!-- ==================== CIRCUIT + PCB ==================== -->
-                    <section id="circuit" class="content-section">
-                        <h2>Circuit + PCB</h2>
-                        <h3 class="guide-link"><a href="circuit.html#hero">[Circuit + PCB Guide &rarr;]</a></h3>
-                        <p>Two 1.0 mm 4-layer PCBs designed in KiCad: a main top board carrying the ESP32-S3,
-                        display interface, power architecture, and most sensors, and a skin-facing daughter board
-                        carrying the MAX30101, TMP117, and haptic driver. Schematic capture is complete; routing
-                        is underway.</p>
-                        <ul>
-                            <li>Full power tree: BQ25619 charger &rarr; SYS &rarr; TPS62840 3.3 V buck &rarr; 1.8 V LDO, plus FW-gated 5 V boost</li>
-                            <li>Display: CO5300 AMOLED driver over QSPI; CST9217 capacitive touch</li>
-                            <li>Two I2C buses, controlled-impedance RF traces for BLE and GPS antennas</li>
-                            <li>KiCad schematic, PCB layout, and JLCPCB production files <i>(coming soon)</i></li>
-                        </ul>
-                    </section>
-
-                    <!-- ==================== FABRICATION + ASSEMBLY ==================== -->
-                    <section id="fabrication" class="content-section">
-                        <h2>Fabrication + Assembly</h2>
-                        <h3 class="guide-link"><a href="fabrication.html#hero">[Fabrication Guide &rarr;]</a></h3>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p>Boards are fabricated and partially assembled by JLCPCB &mdash; 0402 passives placed,
-                        with baked solder paste applied to the remaining IC and connector pads. ICs and connectors
-                        are then hand-placed and hot-plate reflowed by the builder. Full production .zip files and
-                        a picking list will live in the repo.</p>
-                        <div class="disclaimer">
-                            <h4>Manufacturer Recommendation Disclaimer</h4>
-                            <p>The recommended manufacturer is the one the author has used successfully. This is not
-                            an endorsement. Please choose a manufacturer based on your own research and needs.</p>
+                    <!-- ==================== HOW TO MANUFACTURE ==================== -->
+                    <section id="build" class="content-section">
+                        <h2>How To Manufacture</h2>
+                        <p>Everything needed to build your own — schematics, fab files, assembly steps,
+                        and the case.</p>
+                        <div class="build-grid">
+                            <div class="build-card">
+                                <h4><a href="circuit.html#hero">Circuit + PCB</a> <span class="status-badge in-progress">In Progress</span></h4>
+                                <p>Schematics, power tree, KiCad source.</p>
+                            </div>
+                            <div class="build-card">
+                                <h4><a href="fabrication.html#hero">Fabrication</a> <span class="status-badge in-progress">In Progress</span></h4>
+                                <p>JLCPCB process, BOM, production files.</p>
+                            </div>
+                            <div class="build-card">
+                                <h4><a href="manual-assembly.html#hero">Manual Assembly</a> <span class="status-badge planned">Planned</span></h4>
+                                <p>Hand-assembly walkthrough, reflow profile.</p>
+                            </div>
+                            <div class="build-card">
+                                <h4><a href="3dprinting.html#hero">3D Models</a> <span class="status-badge planned">Planned</span></h4>
+                                <p>Case design, print settings.</p>
+                                <p><a href="https://cad.onshape.com/documents/2e7ed980a6b60d585006763f/w/61a5aff226ec4b8dea793e41/e/49d622626b42dd5951f83a04?renderMode=0&amp;uiState=6ab1d153fa1f2d90dd14641c" target="_blank" rel="noopener">View on Onshape &rarr;</a> &mdash; case, crown; cleanup pending</p>
+                            </div>
                         </div>
-                    </section>
-
-                    <!-- ==================== MANUAL ASSEMBLY ==================== -->
-                    <section id="manual-assembly" class="content-section">
-                        <h2>Manual Assembly</h2>
-                        <h3 class="guide-link"><a href="manual-assembly.html#hero">[Assembly Guide &rarr;]</a></h3>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p>Step-by-step hand-assembly walkthrough: hot-plate reflow profile, stacking the display
-                        on the main PCB, seating the battery, mating the daughter board, wiring the 12-conductor
-                        silicone interconnect, and closing the two-piece case. MSL3 bake notes for the ESP32 module
-                        and GPS included.</p>
-                    </section>
-
-                    <!-- ==================== 3D MODELS + PRINTING ==================== -->
-                    <section id="models" class="content-section">
-                        <h2>3D Models &amp; Printing</h2>
-                        <h3 class="guide-link"><a href="3dprinting.html#hero">[3D Printing Guide &rarr;]</a></h3>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p><b>Single-piece case plus a separate crown.</b> The body is one 3D-printed
-                        titanium shell &mdash; no front-plate/back-body split and no assembly screws. Everything
-                        loads in from the open display side and is captured by the body's internal features;
-                        the display, attached on last with a 1&nbsp;mm double-sided tape, closes the case. The
-                        crown is the only separate machined part &mdash; ordered oversized and finished by hand.</p>
-                        <p>Prototypes are modeled in <b>Onshape</b> and printed in plastic on a <b>Bambu Lab A1
-                        mini</b> for fit testing; the production case is <b>SLM titanium (Ti-6Al-4V)</b>. Onshape
-                        source files and print settings <i>(coming soon)</i>.</p>
-                        <ul>
-                            <li>Fastener-free internal retention: side prongs hold the main PCB at height, a recess seats the USB-C jack, and a dedicated pocket holds the LRA</li>
-                            <li>Optical/RF windows (BLE, GPS, status LED, flashlight, ambient light): epoxy-filled through-holes &mdash; clear where light passes, opaque where it's only structural</li>
-                            <li>Mic + BME688 air port: a PTFE sticker inside, acoustic/gas permeable and water resistant</li>
-                            <li>Open-source case files <i>(coming soon)</i></li>
-                        </ul>
                     </section>
 
                     <!-- ==================== FIRMWARE ==================== -->
                     <section id="firmware" class="content-section">
                         <h2>Firmware</h2>
-                        <h3 class="guide-link"><a href="firmware.html#hero">[Firmware Guide &rarr;]</a></h3>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p>Dual-core firmware: one core handles hardware drivers and sensor acquisition, the other
-                        drives the LVGL UI on a DMA-based, double-buffered AMOLED pipeline in PSRAM. On-device ML
-                        runs on the ESP32-S3 for sleep staging, snore/sound classification, and sensor fusion.</p>
+                        <p><span class="status-badge in-progress">In Active Development</span></p>
+                        <p>Dual-core ESP-IDF firmware: one core runs hardware drivers and sensor
+                        acquisition, the other drives the AMOLED over a DMA-based, double-buffered
+                        pipeline in PSRAM.</p>
                         <ul>
-                            <li>Display pipeline &mdash; DMA double-buffer architecture</li>
-                            <li>Sensor drivers &mdash; validated raw-data quality across the full suite</li>
-                            <li>Sleep tracking &mdash; HR + temp + actigraphy &rarr; ML inference &rarr; smart wake</li>
-                            <li>Navigation &mdash; GPS + compass fusion &rarr; breadcrumb trail</li>
-                            <li>Audio &mdash; mic capture &rarr; snore detection &rarr; voice commands</li>
+                            <li>Working now &mdash; sensor drivers across the full I²C bus, LVGL 9 display + touch UI, GPS UBX/NMEA parsing with RTC time sync</li>
+                            <li>Planned &mdash; on-device sleep staging, snore/sound classification, GPS + compass sensor fusion for a breadcrumb trail</li>
                         </ul>
-                        <div class="code-block">// Firmware repository and build instructions coming soon
-// Core 0: hardware drivers + sensor acquisition
+                        <div class="code-block">// Core 0: hardware drivers + sensor acquisition
 // Core 1: LVGL UI, double-buffered framebuffer in PSRAM</div>
                     </section>
 
-                    <!-- ==================== APPLICATION + DATA ==================== -->
-                    <section id="application" class="content-section">
-                        <h2>Real-Life Application &amp; Data Analysis</h2>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p>The primary use case is sleep and recovery: three-signal fusion (HR/HRV, skin temp,
-                        actigraphy) for sleep-stage estimation, gentle haptic smart-wake during light sleep, and
-                        overnight environment scoring from the air-quality, light, and noise sensors. This section
-                        will collect real captured datasets, analysis notebooks, and notes on how the on-device
-                        models perform against the raw signals.</p>
-                        <ul>
-                            <li>Sleep staging &mdash; captured nights vs. model output</li>
-                            <li>HRV / recovery trends derived from raw PPG</li>
-                            <li>Environment logs &mdash; temperature, humidity, VOC, noise, light</li>
-                            <li>Navigation tracks &mdash; GPS + barometric altitude</li>
-                        </ul>
-                    </section>
-
-                    <!-- ==================== REFERENCES / BLOG / MISC ==================== -->
-                    <section id="references" class="content-section">
-                        <h2>References, Blog &amp; Misc</h2>
-                        <p><span class="status-badge planned">Planned</span></p>
-                        <p>Build logs, design-decision write-ups, datasheets, and the open-source landscape this
-                        project sits in (ZSWatch, Bangle.js, Watchy, PineTime and others) will be collected here.</p>
-                        <ol style="list-style: none; padding-left: 0;">
-                            <li id="ref1" style="margin-bottom: 0.5em;">[1] Project scope &amp; market position &mdash; <i>internal doc, v1.0</i></li>
-                            <li id="ref2" style="margin-bottom: 0.5em;">[2] ZSWatch &mdash; <a href="https://zswatch.dev" target="_blank" rel="noopener">zswatch.dev</a></li>
-                            <li id="ref3" style="margin-bottom: 0.5em;">[3] Bangle.js 2 &mdash; <a href="https://banglejs.com" target="_blank" rel="noopener">banglejs.com</a></li>
-                            <li id="ref4" style="margin-bottom: 0.5em;">[4] Watchy &mdash; <a href="https://watchy.sqfmi.com" target="_blank" rel="noopener">watchy.sqfmi.com</a></li>
-                        </ol>
+                    <!-- ==================== DEVELOPMENT ==================== -->
+                    <section id="dev-teaser" class="content-section">
+                        <h2>Development</h2>
+                        <p>The build log: bugs, bodges, and bring-up, stage by stage, from the first
+                        Mk1 (iv7.1) reflow to Mk1b (iv8.0) hitting a GPS lock.</p>
+                        <h3 class="guide-link"><a href="development.html#hero">[Read the build log &rarr;]</a></h3>
                     </section>
 
                 </div>
@@ -282,21 +260,16 @@
                     <div class="sidebar-section">
                         <h3>At a Glance</h3>
                         <p><b>Kompic&#x304;</b><br>
-                        <i>/&#712;kompit&#597;/</i><br>
-                        Compact Open Multisensor Platform &amp; Apparatus</p>
-                        <p>Open-source &middot; offline-first &middot; ML-native wrist sensor platform.</p>
+                        <i>/ˈkompitʃ/</i></p>
+                        <p>Open-source &middot; standalone &middot; wrist-worn sensor platform.</p>
                     </div>
                     <div class="sidebar-section">
                         <h3>Sections</h3>
                         <ul class="sidebar-list">
-                            <li><a href="#overview">Project Overview</a></li>
-                            <li><a href="#circuit">Circuit + PCB</a></li>
-                            <li><a href="#fabrication">Fabrication + Assembly</a></li>
-                            <li><a href="#manual-assembly">Manual Assembly</a></li>
-                            <li><a href="#models">3D Models &amp; Printing</a></li>
+                            <li><a href="#overview">Overview</a></li>
+                            <li><a href="#build">How To Manufacture</a></li>
                             <li><a href="#firmware">Firmware</a></li>
-                            <li><a href="#application">Application &amp; Data</a></li>
-                            <li><a href="#references">References / Blog / Misc</a></li>
+                            <li><a href="development.html#hero">Development</a></li>
                         </ul>
                     </div>
                     <div class="sidebar-section">
@@ -314,6 +287,17 @@
             </div>
         </div>
     </main>
+
+    <script>
+        document.querySelectorAll('.nav-links li.has-dropdown > a').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                if (window.matchMedia('(hover: none)').matches) {
+                    e.preventDefault();
+                    this.parentElement.classList.toggle('open');
+                }
+            });
+        });
+    </script>
 
 </body>
 </html>

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Development — Kompic&#x304;</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <meta name="google-site-verification" content="chL-XVolm1SuAvXFdi4GrWiDTAlDh8zo74V44r8aD-M" />
+
+    <style>
+        /* --- nav dropdown: How To Manufacture --- */
+        .nav-links li.has-dropdown { position: relative; }
+        .nav-links .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 190px;
+            margin: 0;
+            padding: 0.5rem 0;
+            list-style: none;
+            background: rgba(20, 20, 24, 0.98);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 6px;
+            z-index: 50;
+        }
+        .nav-links li.has-dropdown:hover .dropdown-menu,
+        .nav-links li.has-dropdown:focus-within .dropdown-menu,
+        .nav-links li.has-dropdown.open .dropdown-menu {
+            display: block;
+        }
+        .dropdown-menu li { display: block; }
+        .dropdown-menu a { display: block; padding: 0.45rem 1.1rem; white-space: nowrap; }
+
+        /* --- missing-image placeholder (shown until the real photo is dropped in) --- */
+        .img-missing {
+            display: none;
+            aspect-ratio: 1 / 1;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.25rem;
+            border: 1px dashed rgba(255,255,255,0.25);
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            color: rgba(255,255,255,0.45);
+        }
+        .img-missing span { display: block; margin-top: 0.35rem; color: rgba(255,255,255,0.6); }
+
+        .chapter-figure { margin: 1.5rem 0; }
+        .chapter-figure img {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: cover;
+            border-radius: 8px;
+            display: block;
+        }
+        .figure-row {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 1.5rem 0;
+            flex-wrap: wrap;
+        }
+        .figure-row .chapter-figure { flex: 1; min-width: 220px; max-width: 47%; margin: 0; }
+        .source-note {
+            margin-top: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ==================== NAVBAR ==================== -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html#hero" class="nav-brand-link">Kompic&#x304;</a>
+            <ul class="nav-links">
+                <li><a href="index.html#overview">Overview</a></li>
+                <li class="has-dropdown">
+                    <a href="circuit.html#hero">How To Manufacture</a>
+                    <ul class="dropdown-menu">
+                        <li><a href="circuit.html#hero">Circuit + PCB</a></li>
+                        <li><a href="fabrication.html#hero">Fabrication</a></li>
+                        <li><a href="manual-assembly.html#hero">Manual Assembly</a></li>
+                        <li><a href="3dprinting.html#hero">3D Models</a></li>
+                    </ul>
+                </li>
+                <li><a href="index.html#firmware">Firmware</a></li>
+                <li><a href="development.html#hero">Development</a></li>
+                <li>
+                    <a href="https://github.com/porupski/kompic-wearable" target="_blank" rel="noopener">
+                        <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        </svg>
+                        GitHub
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- ==================== HERO ==================== -->
+    <section id="hero" class="hero">
+        <div class="container">
+            <h1><b>Development</b></h1>
+            <p class="version-mark">Mk1 <code>iv7.1</code> &rarr; Mk1b <code>iv8.0</code></p>
+            <p><b>A hardware postmortem, logged as it happens.</b></p>
+            <p>Bring-up, bugs, bodges, and fixes — every stage appended here as it goes.</p>
+        </div>
+    </section>
+
+    <main class="main-content">
+        <div class="container">
+            <div class="content-grid">
+                <div class="main-column">
+
+                    <!-- ==================== CHAPTER 1 ==================== -->
+                    <section id="ch1" class="content-section">
+                        <h2>1. The First Reflow and Bench Bring-up (Mk1 iv7.1)</h2>
+                        <p>Assembly began with board revision <b>iv7.1</b> — a 4-layer, 1&nbsp;mm PCB with
+                        pre-baked SAC305 paste and 0402 passives assembled by JLCPCB. Main ICs were
+                        hand-soldered or hot-aired on the bench.</p>
+
+                        <div class="figure-row">
+                            <figure class="chapter-figure">
+                                <img src="img/development/1_mk1_pcbs.jpeg" alt="Bare iv7.1 PCBs fresh from JLCPCB"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 1_mk1_pcbs.jpeg<span>Bare iv7.1 PCBs, fresh from JLCPCB</span></div>
+                                <figcaption>Bare iv7.1 PCBs, fresh from JLCPCB</figcaption>
+                            </figure>
+                            <figure class="chapter-figure">
+                                <img src="img/development/2_reflow.jpeg" alt="iv7.1 on the hot-plate reflow station"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 2_reflow.jpeg<span>On the hot-plate reflow station</span></div>
+                                <figcaption>On the hot-plate reflow station</figcaption>
+                            </figure>
+                        </div>
+
+                        <p>Stage 1 proved the core power rails: the 3.19&nbsp;V main buck rail, the
+                        1.78&nbsp;V sensor LDO rail, and clean USB enumeration on the ESP32-S3. Initial
+                        testing surfaced the first trap: the <b>PCF85063A RTC</b> failed to respond on
+                        I²C Bus 1, because excess solder on its DFN-10 exposed center ground pad bridged
+                        to adjacent signal pins.</p>
+
+                        <p>Stage 2's localized hot-air reflow brought up the primary sensor array, and
+                        with it two early lessons in hardware debugging:</p>
+                        <ol>
+                            <li><b>The Phantom Dead Peripheral.</b> An "alive-but-stuck" MSM261 PDM
+                            microphone turned out not to be a dead mic chip, but a cold solder joint at
+                            the ESP32 controller pad. Reflowing the MCU pin brought the audio stream to
+                            life.</li>
+                            <li><b>Bench Magnetic Interference.</b> The LIS3MDLTR magnetometer showed a
+                            hard −4&nbsp;G full-scale saturation on its X-axis. Wave-testing with a small
+                            magnet proved the die was fine — the saturation came from magnetized bench
+                            tweezers and hot-air tools.</li>
+                        </ol>
+
+                        <p class="source-note">Sources: Stage_1_Build_Report.md, Stage_2_Build_Report.md, Schematic_Audit_Stage1_iv7.1_2026-06-18.md</p>
+                    </section>
+
+                    <!-- ==================== CHAPTER 2 ==================== -->
+                    <section id="ch2" class="content-section">
+                        <h2>2. The Bench Battles: 5 Critical Bugs of iv7.1</h2>
+                        <p>Stage 3 brought up the daughterboard (MAX30101 PPG + TMP117) and the microSD
+                        card slot — and the iv7.1 prototype hit a wall of critical board bugs.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/3_mk1_first_light.jpeg" alt="Mk1 iv7.1 in its case, RGB status light on"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 3_mk1_first_light.jpeg<span>Mk1 iv7.1 in the case, RGB on — note the flashlight leaking glow</span></div>
+                            <figcaption>Mk1 iv7.1 in the case, RGB status light on — note the flashlight already leaking glow</figcaption>
+                        </figure>
+
+                        <h4>Bug #1: The Source-Follower Flashlight</h4>
+                        <p>The flashlight LED was driven by a BSS138W N-FET, wired on the source side —
+                        a source-follower topology. Gate drive from the MCU could never exceed the LED
+                        forward voltage, so it never lit — instead, as above, it leaked a faint constant
+                        glow.</p>
+                        <p><b>Bench fix:</b> traces cut and jumpered to a low-side switch. A later batch
+                        of BSS138W FETs showed die-level sub-µA leakage causing the same glow all over
+                        again, so it was swapped for a BC847C NPN transistor.</p>
+
+                        <h4>Bug #2: The Great SDMMC "Phantom" Failure</h4>
+                        <p>SD card init consistently timed out on <code>send_scr</code> and
+                        <code>send_op_cond</code>. Weeks went into decoupling caps, ground bodges, and CLK
+                        series resistors before the real cause surfaced: a fresh 32&nbsp;GB SDHC FAT32
+                        card passed <b>65/65</b> at 20&nbsp;MHz on the original iv7.1 routing. The
+                        "unfixable bus fault" was a dying 64&nbsp;GB exFAT-formatted card.</p>
+
+                        <h4>Bugs #3–5: The Rail Killer and the Fried PPG</h4>
+                        <p>The XC6206 1.8&nbsp;V LDO's library symbol had V<sub>IN</sub>/V<sub>OUT</sub>
+                        swapped. At the same time, VDDIO for the LSM6DSV16X and BME688 was tied to the
+                        +1V8 rail while their I²C lines ran at +3.3&nbsp;V — internal ESD clamp diodes
+                        back-fed +3.3&nbsp;V into +1V8, spiking it to 2.3–2.8&nbsp;V and killing the
+                        MAX30101 (2.0&nbsp;V absolute max).</p>
+                        <p><b>Bench fix:</b> the LDO was unsoldered, rotated 180°, and re-landed. The
+                        +1V8 copper branch was cut over C29, sensor VDDIO jumpered to +3.3&nbsp;V, and a
+                        fresh MAX30101 fitted — it responded immediately at <code>0x57</code>.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/4_bodges.jpeg" alt="Bodge closeup around the 1V8 rail and flashlight fix"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 4_bodges.jpeg<span>Closeup — the 1V8 rail cut/jumper and the flashlight low-side conversion</span></div>
+                            <figcaption>Closeup — the 1V8 rail cut/jumper and the flashlight low-side conversion</figcaption>
+                        </figure>
+
+                        <h4>Bugs #6–7: Ship-Mode Loop &amp; USB-C Reversibility</h4>
+                        <p>The BQ25619's <code>/QON</code> pull-up (R12) was tied to +3.3&nbsp;V, so ship
+                        mode collapsed the rail to 0&nbsp;V and immediately re-woke the board. Lifting R12
+                        let the charger's internal 200&nbsp;kΩ V<sub>BAT</sub> pull-up handle ship-mode
+                        cleanly. Separately, iv7.1 only routed one D+/D− pair, breaking USB-C cable
+                        reversibility.</p>
+
+                        <p>The LIS3MDLTR also picked up an internal latched axis saturation — cleared
+                        without desoldering by rotating a neodymium magnet in a decaying circular pattern
+                        near the chip.</p>
+
+                        <p class="source-note">Sources: Stage_3–5_Build_Report.md, SDMMC_Rescue_Plan_iv7.1.md, 2026-07-09_flashlight_led_leak_diagnostic.md, 2026-07-09_magnetometer_dead_channel_diagnostic.md</p>
+                    </section>
+
+                    <!-- ==================== CHAPTER 3 ==================== -->
+                    <section id="ch3" class="content-section">
+                        <h2>3. Firmware Expansion and the Fatal Display Flaw</h2>
+                        <p>With iv7.1's hardware stabilized via bodges, focus moved to software — porting
+                        from Arduino sketches to a modular ESP-IDF framework.</p>
+
+                        <div class="code-block">┌─────────────────────────────────────────────────────────────────────────┐
+│                      ESP32-S3 Core Firmware Architecture               │
+├───────────────────┬─────────────────────┬───────────────────────────────┤
+│ Power Management  │ Sensor Pipelines    │ User Interface &amp; Storage      │
+│  - Dynamic Freq   │  - PPG+BCG Twin     │  - LVGL 9 Tile Engine         │
+│  - VBUS Light-Slp │  - Mic Capture      │  - SDMMC CSV/WAV Logging      │
+│  - Ship-Mode Gate │  - 240Hz IMU Stream │  - 4s Hold Safety Watchdog    │
+└───────────────────┴─────────────────────┴───────────────────────────────┘</div>
+
+                        <p>Dynamic Frequency Scaling and VBUS-aware light-sleep dropped idle draw from
+                        106&nbsp;mA to 81&nbsp;mA — a +47% runtime gain (2h 44m continuous logging). A
+                        twin PPG+BCG heart-rate pipeline landed, along with raw 200&nbsp;Hz PPG/BCG
+                        recording.</p>
+
+                        <h4>Stage 16: The Showstopper</h4>
+                        <p>The CO5300 2.06" AMOLED display and its 24-pin FPC receptacle arrived.
+                        Soldered on, panel plugged in, test sketch flashed —</p>
+                        <p>The screen stayed pitch black.</p>
+
+                        <p>Post-mortem: the receptacle footprint on iv7.1 was drawn <b>mirrored</b>. Panel
+                        FPC Pin 13 (GND) landed on PCB Pin 1 (QSPI_RESET). Rotating either part by 180°
+                        didn't help — the flex cable had single-sided contacts. Flying 14 fine wires for
+                        40&nbsp;MHz QSPI signals was ruled too fragile. Display bring-up on iv7.1 was a
+                        dead end. Time to spin <b>Mk1b iv8.0</b>.</p>
+
+                        <p class="source-note">Sources: Stage_11–13, Stage_16_AMOLED_Receptacle_Mirror.md, Stage_17_Firmware_Polish_Prep.md</p>
+                    </section>
+
+                    <!-- ==================== CHAPTER 4 ==================== -->
+                    <section id="ch4" class="content-section">
+                        <h2>4. Re-Blueprinting: the Birth of Mk1b (iv8.0)</h2>
+
+                        <p>The board wasn't the only thing back at the drawing board. The case has been
+                        going through its own run of iterations in parallel with the PCB redesign — a
+                        titanium two-piece shell with zero assembly screws and full internal retention
+                        turns out to be its own multi-week project, on its own timeline.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/5_3d_print_iterations.jpeg" alt="A row of printed case iterations"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 5_3d_print_iterations.jpeg<span>Printed case iterations, side by side</span></div>
+                            <figcaption>Printed case iterations, side by side</figcaption>
+                        </figure>
+
+                        <p>Every lesson from iv7.1 also went into a pre-fab checklist and schematic audit
+                        for Mk1b:</p>
+
+                        <table class="spec-table">
+                            <thead>
+                                <tr><th>Feature / Issue</th><th>Mk1 (iv7.1)</th><th>Mk1b (iv8.0) fix</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>AMOLED footprint</td><td>Mirrored (GND↔RST)</td><td>Flipped &amp; verified by 1:1 physical lay-across</td></tr>
+                                <tr><td>XC6206 LDO symbol</td><td>V<sub>IN</sub>/V<sub>OUT</sub> inverted</td><td>Symbol pinout corrected in KiCad library</td></tr>
+                                <tr><td>Sensor VDDIO</td><td>Tied to +1V8 (back-fed)</td><td>Routed to +3.3&nbsp;V (matches I²C bus)</td></tr>
+                                <tr><td>Battery telemetry</td><td>Raw voltage via BQ25619</td><td>MAX17048G fuel gauge added on I²C Bus 2</td></tr>
+                                <tr><td>Flashlight driver</td><td>BSS138W N-FET (die leak)</td><td>BC847C NPN + 3&nbsp;kΩ base resistor</td></tr>
+                                <tr><td>USB-C data lines</td><td>Single D+/D− pair</td><td>Dual D+/D− pairs tied (A6↔B6, A7↔B7)</td></tr>
+                                <tr><td>Assembly discipline</td><td>Multiple hot-air rework rounds</td><td>JLCPCB 0402 assembly + single-pass IC reflow</td></tr>
+                            </tbody>
+                        </table>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/7_mk1b_3d_render.jpeg" alt="KiCad 3D render of Mk1b iv8.0"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 7_mk1b_3d_render.jpeg<span>KiCad 3D render — fixed display connector, clean ground plane, fuel gauge</span></div>
+                            <figcaption>KiCad 3D render of Mk1b iv8.0</figcaption>
+                        </figure>
+
+                        <p>In parallel, the UI was rebuilt on <b>LVGL 9</b>: a 10-tile horizontal carousel
+                        (Home, GPS, Health, Environment, Compass, IMU, and more), a dual-mode GPS tile
+                        with an "Under-the-Hood" NMEA view and a high-contrast "Photo View," and Space
+                        Grotesk typography throughout.</p>
+
+                        <p class="source-note">Sources: Mk1b_fix_list.md, Mk1b_schematic_audit_iv8.0.md, pre_fab_checklist.md, Stage_18, Stage_21</p>
+                    </section>
+
+                    <!-- ==================== CHAPTER 5 ==================== -->
+                    <section id="ch5" class="content-section">
+                        <h2>5. Mk1b Bring-up, Display Triumph, and the GPS Silence Mystery</h2>
+                        <p>The Mk1b PCBs arrived. Assembly followed a strict order: power path → ESP32
+                        SoC → topside I²C sensors → peripherals → AMOLED → GPS.</p>
+
+                        <p>Footprint constraints on this revision meant the skin-facing daughter board
+                        (MAX30101 + TMP117) had to be flying-wired on with 0.1&nbsp;mm enamel magnet
+                        wire — the same treatment the GPS module would need further down the line.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/6_daughter_board.jpeg" alt="Daughter board attached via 0.1mm enamel wire"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 6_daughter_board.jpeg<span>Daughter board, attached via 0.1mm enamel wire</span></div>
+                            <figcaption>Daughter board, attached via 0.1&nbsp;mm enamel wire</figcaption>
+                        </figure>
+
+                        <p>A minor USB D+/D− trace short on the test pads was resolved, restoring USB
+                        CDC-JTAG enumeration. Then the critical test: flash the display firmware, mate
+                        the AMOLED.</p>
+
+                        <p>The CST9217 touch controller ACKed at <code>0x5A</code>, the CO5300
+                        initialized over QSPI in 690&nbsp;ms, and the screen lit up.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/8_amoled_working.jpeg" alt="The AMOLED lit up on Mk1b for the first time"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 8_amoled_working.jpeg<span>2.06" AMOLED lit up on Mk1b — Space Grotesk clock face</span></div>
+                            <figcaption>2.06" AMOLED lit up on Mk1b — Space Grotesk clock face</figcaption>
+                        </figure>
+
+                        <p>The BQ25619 charger and the new MAX17048 fuel gauge came up next, correctly
+                        reporting cell voltage and state-of-charge over I²C Bus 2.</p>
+
+                        <h4>The Great GPS Silence Mystery</h4>
+                        <p>The u-blox MAX-M10S was bodged on with 0.1&nbsp;mm enamel magnet wire and a
+                        1&nbsp;cm 50&nbsp;Ω coax pigtail to an external patch antenna.</p>
+
+                        <figure class="chapter-figure">
+                            <img src="img/development/9_gps_bodge.jpeg" alt="MAX-M10S GNSS module bodged onto Mk1b"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="img-missing">📷 9_gps_bodge.jpeg<span>MAX-M10S bodged with 0.1mm enamel wire and coax pigtail</span></div>
+                            <figcaption>MAX-M10S bodged with 0.1&nbsp;mm enamel wire and a coax pigtail</figcaption>
+                        </figure>
+
+                        <p>Powered up: complete silence. The scope showed clean 9600-baud squarewaves
+                        out of the module's TX pin. The same module on an ESP32-C3 SuperMini decoded
+                        NMEA perfectly. On both the Mk1 and Mk1b ESP32-S3 boards, the UART peripheral
+                        registered zero bytes.</p>
+
+                        <p>The cause, buried in <code>max_m10s.h</code>:</p>
+                        <div class="code-block">// Incorrect configuration in firmware header:
+#define MAX_M10S_TX_PIN  18  // ESP32 GPIO18
+#define MAX_M10S_RX_PIN  17  // ESP32 GPIO17</div>
+
+                        <p>TX and RX were completely inverted relative to the Master Pinout spec —
+                        GPIO17 is <code>U1TXD</code> (ESP → GPS RX), GPIO18 is <code>U1RXD</code> (ESP ←
+                        GPS TX). With the header swapped, <code>uart_set_pin()</code> configured GPIO18
+                        as an output and drove it straight into the GPS module's own TX pin. Every
+                        previous "swap the wires" test had moved physical wires without recompiling the
+                        inverted firmware defaults — so no combination could ever have worked.</p>
+
+                        <p>Fixing the pin definitions unblocked it instantly:</p>
+                        <div class="code-block">[STAT] total=947 B  window=289 B/s (last 1000 ms)  NMEA=28 UBX=0 err=0
+       idle=418 ms  rx=GPIO18 tx=GPIO17 baud=9600 clk=APB
+[NMEA] $GNRMC,,V,,,,,,,,,,N,V*37
+[NMEA] $GNVTG,,,,,,,,,N*2E
+[NMEA] $GNGGA,,,,,,0,00,99.99,,,,,,*56
+[NMEA] $GNGSA,A,1,,,,,,,,,,,,,99.99,99.99,99.99,1*33</div>
+
+                        <p>Clean NMEA at ~289–370&nbsp;B/s, no hardware trace cuts or pin bodges needed
+                        on the GPS UART.</p>
+
+                        <p class="source-note">Sources: Stage_24–27, GPS_M10S_Fixing.md</p>
+                    </section>
+
+                    <!-- ==================== CHAPTER 6 ==================== -->
+                    <section id="ch6" class="content-section">
+                        <h2>6. Current Status</h2>
+                        <p><b>Kompic&#x304; Mk1b (iv8.0)</b> is a fully operational wearable prototype:</p>
+                        <ul>
+                            <li>All 10 I²C devices ACK cleanly: <code>0x10</code> VEML, <code>0x1C</code>
+                            LIS, <code>0x36</code> MAX17048, <code>0x48</code> TMP, <code>0x51</code> PCF,
+                            <code>0x57</code> MAX30101, <code>0x5A</code> CST/DRV, <code>0x6A</code> BQ,
+                            <code>0x6B</code> LSM</li>
+                            <li>2.06" CO5300 AMOLED + CST9217 touch drive a smooth LVGL 9 UI — auto-sleep
+                            after 15s, touch/button wake gates, Space Grotesk typography</li>
+                            <li>MAX-M10S GPS runs reliably on UART1 (TX=17, RX=18, 1PPS=46), processing
+                            UBX-NAV-PVT frames, logging UBX-MON-RF, dynamic nav-model switching, and
+                            syncing UTC to the PCF85063A RTC on satellite lock</li>
+                        </ul>
+
+                        <div class="figure-row">
+                            <figure class="chapter-figure">
+                                <img src="img/development/10_mk1b_layout_a.jpeg" alt="Mk1b layout, just before it went into the case"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 10_mk1b_layout_a.jpeg<span>Just before the case, top side</span></div>
+                                <figcaption>Just before the case, side one</figcaption>
+                            </figure>
+                            <figure class="chapter-figure">
+                                <img src="img/development/11_mk1b_layout_b.jpeg" alt="Mk1b layout, just before it went into the case, other side"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 11_mk1b_layout_b.jpeg<span>Just before the case, bottom side</span></div>
+                                <figcaption>Just before the case, side two</figcaption>
+                            </figure>
+                        </div>
+
+                        <div class="figure-row">
+                            <figure class="chapter-figure">
+                                <img src="img/development/12_mk1b_packed.jpeg" alt="Mk1b, fully packed final layout"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 12_mk1b_packed.jpeg<span>Packed and ready — final layout before the case closes</span></div>
+                                <figcaption>Packed and ready — final layout before the case closes</figcaption>
+                            </figure>
+                            <figure class="chapter-figure">
+                                <img src="img/development/13_adding_display.jpeg" alt="Taping the AMOLED display onto Mk1b, closing off the device"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <div class="img-missing">📷 13_adding_display.jpeg<span>Taping the AMOLED display onto Mk1b, closing off the device</span></div>
+                                <figcaption>Taping the AMOLED display onto Mk1b, closing off the device</figcaption>
+                            </figure>
+                        </div>
+
+                        <div class="code-block">  [Mk1 iv7.1 PCB] ──► [5 Critical Bugs] ──► [AMOLED Footprint Mirror]
+                                                    │
+                                                    ▼
+  [Mk1b iv8.0 PCB] ◄── [Re-Blueprinting] ◄── [Pre-Fab Audit]
+         │
+         ├──► [CO5300 AMOLED &amp; CST9217 Touch Alive]
+         ├──► [MAX17048 Fuel Gauge Integrated]
+         └──► [GPS RX/TX Inversion Fixed ──► GPS Firmware Active]</div>
+
+                        <p>With GPS active and hardware verified end-to-end, the project moves to outdoor
+                        field trials, tile sweeps, and fitting the enclosure. More stages get appended
+                        here as they happen.</p>
+
+                        <p class="source-note">Sources: Stage_31–32, GPS_M10S_Fixing.md</p>
+                    </section>
+
+                </div>
+
+                <!-- ==================== SIDEBAR ==================== -->
+                <aside class="sidebar">
+                    <div class="sidebar-section">
+                        <h3>About This Log</h3>
+                        <p>Parsed from 40+ build-log and diagnostic markdown files kept during the build.
+                        Updated as new stages happen.</p>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>Chapters</h3>
+                        <ul class="sidebar-list">
+                            <li><a href="#ch1">1. First Reflow (iv7.1)</a></li>
+                            <li><a href="#ch2">2. Five Critical Bugs</a></li>
+                            <li><a href="#ch3">3. The Fatal Display Flaw</a></li>
+                            <li><a href="#ch4">4. Re-Blueprinting Mk1b</a></li>
+                            <li><a href="#ch5">5. Bring-up &amp; GPS Mystery</a></li>
+                            <li><a href="#ch6">6. Current Status</a></li>
+                        </ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>Repository</h3>
+                        <ul class="sidebar-list">
+                            <li><a href="https://github.com/porupski/kompic-wearable" target="_blank" rel="noopener">kompic-wearable</a></li>
+                            <li><a href="https://github.com/porupski/kompic-wearable/tree/main/docs" target="_blank" rel="noopener">/docs</a></li>
+                        </ul>
+                    </div>
+                </aside>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.querySelectorAll('.nav-links li.has-dropdown > a').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                if (window.matchMedia('(hover: none)').matches) {
+                    e.preventDefault();
+                    this.parentElement.classList.toggle('open');
+                }
+            });
+        });
+    </script>
+
+</body>
+</html>
