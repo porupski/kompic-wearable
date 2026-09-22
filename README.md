@@ -1,4 +1,4 @@
-# Kompic̄ &nbsp;·&nbsp; Mk I
+# Kompic̄ &nbsp;·&nbsp; Mk1b
 
 **Compact Open Multisensor Platform & Apparatus**
 
@@ -6,10 +6,9 @@
 
 A fully open-source, offline-first, ML-capable wrist-mounted sensor platform. The hardware collects. The firmware infers. You own everything.
 
-> **Internal hardware version:** `iv7.0` — tracked in the docs to keep the two PCBs matched across revisions.
+> **Internal hardware version:** `iv8.0` — tracked in the docs to keep the PCBs matched across revisions.
 
-Page:
-https://porupski.github.io/kompic-wearable/
+Page: [https://porupski.github.io/kompic-wearable/](https://porupski.github.io/kompic-wearable/)
 
 ---
 
@@ -17,13 +16,15 @@ https://porupski.github.io/kompic-wearable/
 
 Kompic̄ is a wrist-mounted sensor platform built around an **ESP32-S3** (dual-core, 8 MB PSRAM, 16 MB flash) with a sensor suite denser than any open-source watch, and enough on-device compute to run real neural networks on that data — sleep staging, sound classification, sensor fusion — all locally, all offline, all inspectable.
 
+Currently on its second hardware revision, **Mk1b (`iv8.0`)**: all ten I²C sensors bring up clean, the AMOLED display and touch panel run a working LVGL interface, and GPS streams live fixes.
+
 It is **not** a companion in the AI sense and **not** a phone accessory. It runs standalone. BLE is a capability, not a requirement. There is no cloud, no subscription, no account.
 
 ### Philosophy
 
 - **Open source** — hardware (KiCad), firmware, ML models, and case design. Everything inspectable, modifiable, forkable.
 - **Offline first** — works fully standalone. No phone, no cloud, no subscription.
-- **Raw data access** — PPG waveforms, ECG traces, IMU streams, mic audio, environmental readings. Not just processed metrics.
+- **Raw data access** — PPG waveforms, IMU streams, mic audio, environmental readings. Not just processed metrics.
 - **ML-native** — the compute surplus exists specifically to run on-device inference.
 
 ---
@@ -36,43 +37,66 @@ It is **not** a companion in the AI sense and **not** a phone accessory. It runs
 | Storage | MicroSD (128 GB+) |
 | Connectivity | BLE 5.x |
 | Display | 2.06" rectangular AMOLED, 45.6 × 37.3 mm glass, QSPI |
-| PCBs | Two 0.8 mm 4-layer boards: main + skin-facing daughter |
+| PCBs | Two 1.0 mm 4-layer boards: main board + skin-facing daughter board |
 | Case | Two-piece SLM titanium (Ti-6Al-4V), ~48 × 40 × 12 mm |
-| Power | ~380 mAh LiPo, USB-C charging |
+| Weight | 33 g watch body, 56 g with straps |
+| Power | ~300 mAh LiPo, USB-C charging, fuel gauge |
 
 ### Sensor suite
 
-Optical HR/SpO2 (MAX30101) · 6-axis IMU with on-chip ML core (LSM6DSV16X) · single-lead ECG (LSM6DSV16X Qvar) · skin temperature (TMP117) · magnetometer (LIS3MDLTR) · GPS (u-blox M10S) · environmental T/P/H/VOC (BME688) · ambient light (VEML6030) · MEMS microphone (MSM261DGT003) · LRA haptics (ELV1411A + DRV2605L).
+| Sensor | Part | Measures |
+|--------|------|----------|
+| ❤️ Optical HR / SpO2 | MAX30101 | Heart rate, HRV, blood oxygen, PPG waveforms |
+| 🏃 IMU | LSM6DSV16X | Accel, gyro, on-chip decision trees |
+| 🔋 Fuel gauge | MAX17048G | Battery state-of-charge, cell voltage |
+| 🌡️ Skin temperature | TMP117 | High-precision skin temp trending |
+| 🧭 Magnetometer | LIS3MDLTR | Compass heading, magnetic anomaly |
+| 🛰️ GPS | u-blox M10S | Position, velocity, atomic time sync |
+| 🌍 Environmental | BME688 | Temp, pressure, humidity, VOC / air quality |
+| 💡 Ambient light | VEML6030 | Lux level, display brightness |
+| 🎤 MEMS microphone | MSM261DGT003 | Audio capture, noise level, sound classification |
+| 📳 Haptics | ELV1411A + DRV2605L | Vibration patterns, alerts, smart wake |
+| 🔦 Flashlight | White LED + BC847C driver | Utility light |
+| 🚦 Status LED | RGB LED | Notification / mode indicator |
 
 ---
 
 ## Repository layout
 
+
 ```
+
 kompic-wearable/
 ├── hardware/    KiCad schematics, PCB layout, production files   [CERN-OHL-S v2]
 ├── firmware/    ESP32-S3 dual-core firmware, ML models           [GPLv3]
 ├── case/        Onshape / 3D-printable case models               [CC BY-SA 4.0]
 └── docs/        Documentation site (GitHub Pages) + images       [CC BY-SA 4.0]
+
 ```
 
 ---
 
 ## Project status
 
-Active development. Schematic capture complete; PCB routing underway; first fabrication (Mk I, `iv7.0`) in preparation.
+In active development. Hardware bring-up and verification underway for **Mk1b (`iv8.0`)**.
 
 | Area | Status |
 |------|--------|
-| Circuit + PCB | In progress (routing) |
-| Fabrication + assembly | Planned |
-| 3D models + case | Planned |
-| Firmware | Planned |
-| Application & data analysis | Planned |
+| Circuit + PCB | In progress (schematics, power tree, KiCad source) |
+| Fabrication + assembly | In progress (JLCPCB process, BOM, production files) |
+| Manual assembly | Planned |
+| 3D models + case | Planned ([View on Onshape](https://cad.onshape.com/documents/2e7ed980a6b60d585006763f/w/61a5aff226ec4b8dea793e41/e/49d622626b42dd5951f83a04?renderMode=0&uiState=6ab1d153fa1f2d90dd14641c)) |
+| Firmware | In progress (I²C drivers, LVGL 9 display + touch UI, GPS UBX/NMEA parsing) |
 
-Documentation: **https://porupski.github.io/kompic-wearable/**
+Documentation: **[https://porupski.github.io/kompic-wearable/](https://porupski.github.io/kompic-wearable/)**
 
 ---
+
+## Author & License
+
+Hardware, firmware, case, and webpage design by **Ivan Porupski**, 2026.
+
+```
 
 ## License
 
