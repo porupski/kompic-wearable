@@ -82,11 +82,13 @@ In active development. Hardware bring-up and verification underway for **Mk1b (`
 
 | Area | Status |
 |------|--------|
-| Circuit + PCB | In progress (schematics, power tree, KiCad source) |
-| Fabrication + assembly | In progress (JLCPCB process, BOM, production files) |
+| Circuit + PCB | Mk1 done (schematics, power tree, KiCad source) - needs update to Mk1b |
+| Fabrication + assembly | Mk1 done (JLCPCB process, BOM, production files) - needs update to Mk1b |
 | Manual assembly | Planned |
 | 3D models + case | Planned ([View on Onshape](https://cad.onshape.com/documents/2e7ed980a6b60d585006763f/w/61a5aff226ec4b8dea793e41/e/49d622626b42dd5951f83a04?renderMode=0&uiState=6ab1d153fa1f2d90dd14641c)) |
 | Firmware | In progress (I²C drivers, LVGL 9 display + touch UI, GPS UBX/NMEA parsing) |
+
+Check the Development page for info on current stage of the project.
 
 Documentation: **[https://porupski.github.io/kompic-wearable/](https://porupski.github.io/kompic-wearable/)**
 
@@ -96,7 +98,6 @@ Documentation: **[https://porupski.github.io/kompic-wearable/](https://porupski.
 
 Hardware, firmware, case, and webpage design by **Ivan Porupski**, 2026.
 
-```
 
 ## License
 
