@@ -190,9 +190,6 @@ void boot_hw_init(const app_calibration_t *cal)
     g_i2c2_mutex = xSemaphoreCreateMutex();
     configASSERT(g_i2c_mutex && g_i2c2_mutex);
 
-    // -- I2C bringup ----------------------------------------------------------
-    bringup_bus0();
-    bringup_bus1();
 
     // -- Non-I2C peripherals --------------------------------------------------
     // encoder_init() intentionally NOT called: field_capture polls the pins
@@ -220,6 +217,10 @@ void boot_hw_init(const app_calibration_t *cal)
     if (flashlight_init() == ESP_OK) ESP_LOGI(TAG, "flashlight OK");
     if (sdcard_init()     == ESP_OK) ESP_LOGI(TAG, "sdcard   mutex up (mount deferred)");
     if (mic_pdm_init()    == ESP_OK) ESP_LOGI(TAG, "mic PDM  channel installed");
+
+    // -- I2C bringup ----------------------------------------------------------
+    bringup_bus0();
+    bringup_bus1();
 
     // -- Sensor enable policy -------------------------------------------------
     // Always-on: RTC (timestamps), battery (ship-mode + monitor), haptic

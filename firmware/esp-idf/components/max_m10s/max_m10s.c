@@ -60,6 +60,7 @@ volatile bool g_gps_sync_requested = false;
 #define MAX_M10S_POLL_MS      200    // Poll UART at 5 Hz; GPS emits at 1 Hz
 #define NMEA_BUF_SIZE         128
 #define UART_RX_BUF_SIZE      2048
+#define UART_TX_BUF_SIZE      2048
 #define BULK_READ_SIZE        512
 #define UBX_MAX_PAYLOAD       128
 #define NMEA_DEBUG_STALE_MS   5000U
@@ -491,10 +492,45 @@ static esp_err_t ubx_send_valset_u1(uint8_t layers, uint32_t key_id, uint8_t val
                  w, sizeof(frame));
         return ESP_FAIL;
     }
+
+    // Force ring buffer flush onto physical TX pin
+    uart_wait_tx_done(MAX_M10S_UART_NUM, pdMS_TO_TICKS(100));
+
     ESP_LOGD(TAG, "ubx_send_valset_u1: key=0x%08lx val=%u layers=0x%02x",
              (unsigned long)key_id, value, layers);
     return ESP_OK;
 }
+// static esp_err_t ubx_send_valset_u1(uint8_t layers, uint32_t key_id, uint8_t value)
+// {
+//     // Payload: version(1) + layers(1) + reserved0(2) + keyID(4) + value(1) = 9 B
+//     uint8_t frame[6 + 9 + 2];
+//     frame[0] = UBX_SYNC1;
+//     frame[1] = UBX_SYNC2;
+//     frame[2] = 0x06;                 // CLASS = CFG
+//     frame[3] = 0x8A;                 // ID    = VALSET
+//     frame[4] = 9;                    // LEN lo
+//     frame[5] = 0;                    // LEN hi
+//     frame[6] = 0x00;                 // version
+//     frame[7] = layers;               // layers bitmask
+//     frame[8] = 0x00;                 // reserved0[0]
+//     frame[9] = 0x00;                 // reserved0[1]
+//     frame[10] = (uint8_t)(key_id >>  0);
+//     frame[11] = (uint8_t)(key_id >>  8);
+//     frame[12] = (uint8_t)(key_id >> 16);
+//     frame[13] = (uint8_t)(key_id >> 24);
+//     frame[14] = value;
+//     ubx_fletcher(&frame[2], 4 + 9, &frame[15], &frame[16]);   // CLASS..value
+
+//     int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
+//     if (w != (int)sizeof(frame)) {
+//         ESP_LOGW(TAG, "ubx_send_valset_u1: uart_write short (%d/%zu)",
+//                  w, sizeof(frame));
+//         return ESP_FAIL;
+//     }
+//     ESP_LOGD(TAG, "ubx_send_valset_u1: key=0x%08lx val=%u layers=0x%02x",
+//              (unsigned long)key_id, value, layers);
+//     return ESP_OK;
+// }
 
 // -- Public API ---------------------------------------------------------------
 
@@ -563,9 +599,27 @@ esp_err_t max_m10s_ping(void)
         ESP_LOGW(TAG, "ping: uart_write short (%d/%zu)", w, sizeof(frame));
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued");
+
+    // Force ring buffer flush onto physical TX pin
+    uart_wait_tx_done(MAX_M10S_UART_NUM, pdMS_TO_TICKS(100));
+
+    ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued and flushed");
     return ESP_OK;
 }
+// esp_err_t max_m10s_ping(void)
+// {
+//     static const uint8_t frame[8] = {
+//         0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00,
+//         0x0E, 0x34,   // pre-computed Fletcher for (0A 04 00 00)
+//     };
+//     int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
+//     if (w != (int)sizeof(frame)) {
+//         ESP_LOGW(TAG, "ping: uart_write short (%d/%zu)", w, sizeof(frame));
+//         return ESP_FAIL;
+//     }
+//     ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued");
+//     return ESP_OK;
+// }
 
 static void ubx_reset(void)
 {
@@ -728,7 +782,8 @@ esp_err_t max_m10s_init(void)
     // (IDF v4.4) but on v5.x install can reset peripheral state, silently
     // losing the earlier config -- symptom is RX-works / TX-queues-but-
     // never-clocks-out. Diagnosed 2026-09-21 vs. sketch 18c on same pins.
-    esp_err_t ret = uart_driver_install(MAX_M10S_UART_NUM, UART_RX_BUF_SIZE, 0, 0, NULL, 0);
+    esp_err_t ret = uart_driver_install(MAX_M10S_UART_NUM, UART_RX_BUF_SIZE, UART_TX_BUF_SIZE, 0, NULL, 0);
+    //esp_err_t ret = uart_driver_install(MAX_M10S_UART_NUM, UART_RX_BUF_SIZE, 0, 0, NULL, 0);
     if (ret != ESP_OK) { ESP_LOGE(TAG, "UART install: %s", esp_err_to_name(ret)); return ret; }
 
     ret = uart_param_config(MAX_M10S_UART_NUM, &cfg);
@@ -746,18 +801,27 @@ esp_err_t max_m10s_init(void)
     //   2) enable output + idle-high (UART idle state)
     //   3) route U1TXD_OUT_IDX through the matrix to this pin
     //   4) same for RX side (input) for symmetry
-    gpio_num_t tx_pin = (gpio_num_t)MAX_M10S_TX_PIN;
-    gpio_num_t rx_pin = (gpio_num_t)MAX_M10S_RX_PIN;
-    esp_rom_gpio_pad_select_gpio(tx_pin);
-    gpio_set_direction(tx_pin, GPIO_MODE_OUTPUT);
-    gpio_set_level    (tx_pin, 1);
-    esp_rom_gpio_connect_out_signal(tx_pin, U1TXD_OUT_IDX, false, false);
 
-    esp_rom_gpio_pad_select_gpio(rx_pin);
-    gpio_set_direction(rx_pin, GPIO_MODE_INPUT);
-    esp_rom_gpio_connect_in_signal (rx_pin, U1RXD_IN_IDX,  false);
-    ESP_LOGI(TAG, "GPIO matrix forced: U1TXD->GPIO%d, U1RXD<-GPIO%d",
-             MAX_M10S_TX_PIN, MAX_M10S_RX_PIN);
+// NOTE: Do NOT manually force GPIO direction/matrix via gpio_set_direction() 
+    // or esp_rom_gpio_connect_out_signal() here.
+    // In ESP-IDF v5.x, gpio_set_direction(GPIO_MODE_OUTPUT) latches the pin enable
+    // to the GPIO output register, overriding the UART peripheral's output enable.
+    // This leaves the TX pin stuck HIGH (idle) while UART bytes queue and fail to transmit.
+    // uart_set_pin() above handles the GPIO matrix configuration correctly.
+
+    // gpio_num_t tx_pin = (gpio_num_t)MAX_M10S_TX_PIN;
+    // gpio_num_t rx_pin = (gpio_num_t)MAX_M10S_RX_PIN;
+    // esp_rom_gpio_pad_select_gpio(tx_pin);
+    // gpio_set_direction(tx_pin, GPIO_MODE_OUTPUT);
+    // gpio_set_level    (tx_pin, 1);
+    // esp_rom_gpio_connect_out_signal(tx_pin, U1TXD_OUT_IDX, false, false);
+
+    // esp_rom_gpio_pad_select_gpio(rx_pin);
+    // gpio_set_direction(rx_pin, GPIO_MODE_INPUT);
+    // esp_rom_gpio_connect_in_signal (rx_pin, U1RXD_IN_IDX,  false);
+    // ESP_LOGI(TAG, "GPIO matrix forced: U1TXD->GPIO%d, U1RXD<-GPIO%d",
+    //          MAX_M10S_TX_PIN, MAX_M10S_RX_PIN);
+//
 
     gpio_pullup_en(MAX_M10S_RX_PIN);
 
