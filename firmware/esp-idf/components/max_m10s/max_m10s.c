@@ -452,6 +452,49 @@ const char *max_m10s_ant_status_name(uint8_t ant_status)
     }
 }
 
+// -- Stage 31.4c: UBX-MON-VER (0x0A 0x04) parser ------------------------------
+// Frame layout:
+//   swVer (30 B)  ASCII string
+//   hwVer (10 B)  ASCII string
+//   extension     N x 30 B ASCII strings (optional)
+static max_m10s_ver_t s_monver = {0};
+
+static void handle_ubx_mon_ver(const uint8_t *p, uint16_t len)
+{
+    if (len < 40) return; // 30 B swVer + 10 B hwVer
+
+    memset(&s_monver, 0, sizeof(s_monver));
+
+    // Copy swVer (30 bytes max)
+    memcpy(s_monver.sw_version, p, 30);
+    s_monver.sw_version[29] = '\0';
+
+    // Copy hwVer (10 bytes max)
+    memcpy(s_monver.hw_version, p + 30, 10);
+    s_monver.hw_version[9] = '\0';
+
+    // Copy extensions (if any)
+    uint16_t ext_bytes = len - 40;
+    uint8_t ext_count = ext_bytes / 30;
+    if (ext_count > 10) ext_count = 10;
+
+    for (uint8_t i = 0; i < ext_count; i++) {
+        memcpy(s_monver.extension[i], p + 40 + (i * 30), 30);
+        s_monver.extension[i][29] = '\0';
+    }
+
+    s_monver.extension_count = ext_count;
+    s_monver.last_update_ms  = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    s_monver.valid           = true;
+}
+
+void max_m10s_get_version_info(max_m10s_ver_t *out)
+{
+    if (out) {
+        *out = s_monver;
+    }
+}
+
 // ─── Stage 31.4b: UBX-CFG-VALSET frame builder ─────────────────────────────
 // Fletcher-8 checksum over CLASS+ID+LEN_lo+LEN_hi+payload bytes.
 static void ubx_fletcher(const uint8_t *buf, size_t n, uint8_t *ck_a, uint8_t *ck_b)
@@ -590,17 +633,19 @@ void max_m10s_get_ubx_counters(max_m10s_ubx_counters_t *out)
 // if it's alive and hears the request. Use to prove ESP->GPS TX works.
 esp_err_t max_m10s_ping(void)
 {
+    // UBX-MON-VER poll (Class 0x0A, ID 0x04, Len 0)
     static const uint8_t frame[8] = {
         0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00,
-        0x0E, 0x34,   // pre-computed Fletcher for (0A 04 00 00)
+        0x0E, 0x34   // Fletcher-16 checksum for (0A 04 00 00)
     };
+
     int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
     if (w != (int)sizeof(frame)) {
         ESP_LOGW(TAG, "ping: uart_write short (%d/%zu)", w, sizeof(frame));
         return ESP_FAIL;
     }
 
-    // Force ring buffer flush onto physical TX pin
+    // Force bits out to physical GPIO 07
     uart_wait_tx_done(MAX_M10S_UART_NUM, pdMS_TO_TICKS(100));
 
     ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued and flushed");
@@ -678,18 +723,22 @@ void max_m10s_feed_ubx_byte(uint8_t b)
                 handle_ubx_mon_rf(s_ubx.payload, s_ubx.len);
             }
             else if (s_ubx.cls == UBX_CLASS_MON && s_ubx.id == 0x04) {
-                // UBX-MON-VER: response to PING. Log SW/HW strings if long
-                // enough, so bench can see chip identity + confirm TX path.
                 s_ubx_ctr.mon_ver++;
-                if (s_ubx.len >= 40) {
-                    char sw[31] = {0}, hw[11] = {0};
-                    memcpy(sw, s_ubx.payload,      30);
-                    memcpy(hw, s_ubx.payload + 30, 10);
-                    ESP_LOGI(TAG, "MON-VER SW='%s' HW='%s' (TX path OK)", sw, hw);
-                } else {
-                    ESP_LOGI(TAG, "MON-VER (short, %u B) received", s_ubx.len);
-                }
+                handle_ubx_mon_ver(s_ubx.payload, s_ubx.len);
             }
+            // else if (s_ubx.cls == UBX_CLASS_MON && s_ubx.id == 0x04) {
+            //     // UBX-MON-VER: response to PING. Log SW/HW strings if long
+            //     // enough, so bench can see chip identity + confirm TX path.
+            //     s_ubx_ctr.mon_ver++;
+            //     if (s_ubx.len >= 40) {
+            //         char sw[31] = {0}, hw[11] = {0};
+            //         memcpy(sw, s_ubx.payload,      30);
+            //         memcpy(hw, s_ubx.payload + 30, 10);
+            //         ESP_LOGI(TAG, "MON-VER SW='%s' HW='%s' (TX path OK)", sw, hw);
+            //     } else {
+            //         ESP_LOGI(TAG, "MON-VER (short, %u B) received", s_ubx.len);
+            //     }
+            // }
             else if (s_ubx.cls == UBX_CLASS_ACK && s_ubx.len >= 2) {
                 bool ack = (s_ubx.id == UBX_ID_ACK_ACK);
                 if (ack) s_ubx_ctr.ack_ack++; else s_ubx_ctr.ack_nak++;

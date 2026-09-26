@@ -1207,127 +1207,12 @@ firmware defaults, so no combination ever aligned. Full debug trail:
   install → param → set_pin, which IDF v5.x tolerates but is not the
   documented order).
 
-**Ivan's note:** GPIO07 (MAX30101_INT) is rather handy, as its a pad 
-for the daughter board, meaning I just bodge over to it, no mods needed. 
-
-
-LAST LEAD:
-```
-Let me check what UART_RX_BUF_SIZE is and change TX buffer size — passing 0 for tx_buffer_size may be broken on IDF v5.5.
-
-📊 Tokens: 7 • 326,351 cache created
-🔧
-Bash
-command: grep -n "UART_RX_BUF_SIZE\|BULK_READ_SIZE" /home/ivan/Projekti/Elektronika/Kompic-Wearable/kompic-wearable/firmware/esp-idf/components/max_m10s/max_m10s.c | head -5 collapse
-description: Check UART buf size defines
-✅
-Result
-62:#define UART_RX_BUF_SIZE      2048
-63:#define BULK_READ_SIZE        512
-731:    esp_err_t ret = uart_driver_install(MAX_M10S_UART_NUM, UART_RX_BUF_SIZE, 0, 0, NULL, 0);
-816:    uint8_t chunk[BULK_READ_SIZE];
-819:        int to_read = (avail > BULK_READ_SIZE) ? BULK_READ_SIZE : avail;
-```
-sep23 2:20am:
-Fixed with Gemini:
-Here is a detailed, technical summary of the diagnostic and fix process for your documentation or git commit notes:
-
----
-
-### Summary: Resolving MAX-M10S UART TX Failure & Re-Enabling UBX Command Path
-
-#### 1. Root Cause Analysis
-
-During hardware bringup, the u-blox MAX-M10S GNSS module was successfully transmitting NMEA sentences to the ESP32 (confirming a functional RX line), but all outgoing UBX configuration commands and polls failed to receive a response. This stemmed from two interrelated issues:
-
-* **Peripheral Pin Interference:** GPIO 07—re-routed as the UART TX pin in the hardware Mk I revision—was originally assigned as the active-low interrupt line (`INT`) for the MAX30101 pulse oximeter. During early boot initialization, the MAX30101 driver's call to `gpio_config()` or `gpio_set_direction()` was reconfiguring GPIO 07 back to a standard GPIO input, severing the ESP32's UART peripheral output matrix to the GPS module.
-* **UART Driver Ring Buffer Stalling:** When using `uart_driver_install()` with an active TX ring buffer, `uart_write_bytes()` places output frames into memory without waiting for the physical shift register to shift the bits onto the wire. At 9600 baud (where 1 byte takes ~1 ms), short binary UBX command frames remained buffered or were preempted before completing transmission over the hardware FIFO.
-
-#### 2. Technical Solution & Implementation
-
-To resolve the peripheral pin takeover and ensure reliable frame delivery:
-
-1. **Commented Out Interrupt Directives on GPIO 07:** The MAX30101 sensor interrupt routing on GPIO 07 was removed/commented out from both driver configuration headers and boot logic (`boot_hw_init.c`), preserving GPIO 07 exclusively for the UART TX signal matrix.
-2. **Explicit Ring Buffer Flush (`uart_wait_tx_done`):** Low-level UBX frame submission routines—including `max_m10s_ping()` and `ubx_send_valset_u1()`—were updated to call `uart_wait_tx_done()` immediately following `uart_write_bytes()`. This forces the FreeRTOS task to block until all queued bytes are physically clocked out of the UART FIFO onto GPIO 07.
-
-```c
-// Example: Flushing the UART TX buffer after writing UBX commands
-esp_err_t max_m10s_ping(void)
-{
-    static const uint8_t frame[8] = {
-        0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00,
-        0x0E, 0x34,   // pre-computed Fletcher checksum for UBX-MON-VER
-    };
-
-    int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
-    if (w != (int)sizeof(frame)) {
-        ESP_LOGW(TAG, "ping: uart_write short (%d/%zu)", w, sizeof(frame));
-        return ESP_FAIL;
-    }
-
-    // Force the ring buffer to flush all bits out to the physical TX pin at 9600 baud
-    esp_err_t err = uart_wait_tx_done(MAX_M10S_UART_NUM, pdMS_TO_TICKS(100));
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ping: UART TX flush timeout");
-        return err;
-    }
-
-    ESP_LOGI(TAG, "PING -> UBX-MON-VER poll queued and flushed");
-    return ESP_OK;
-}
-
-```
-
-```c
-// Example: Reliable UBX-CFG-VALSET transmission with buffer drain
-static esp_err_t ubx_send_valset_u1(uint8_t layers, uint32_t key_id, uint8_t value)
-{
-    uint8_t frame[6 + 9 + 2];
-    frame[0] = UBX_SYNC1;
-    frame[1] = UBX_SYNC2;
-    frame[2] = 0x06;                 // CLASS = CFG
-    frame[3] = 0x8A;                 // ID    = VALSET
-    frame[4] = 9;                    // LEN lo
-    frame[5] = 0;                    // LEN hi
-    frame[6] = 0x00;                 // version
-    frame[7] = layers;               // layers bitmask
-    frame[8] = 0x00;                 // reserved0[0]
-    frame[9] = 0x00;                 // reserved0[1]
-    frame[10] = (uint8_t)(key_id >>  0);
-    frame[11] = (uint8_t)(key_id >>  8);
-    frame[12] = (uint8_t)(key_id >> 16);
-    frame[13] = (uint8_t)(key_id >> 24);
-    frame[14] = value;
-    ubx_fletcher(&frame[2], 4 + 9, &frame[15], &frame[16]);
-
-    int w = uart_write_bytes(MAX_M10S_UART_NUM, frame, sizeof(frame));
-    if (w != (int)sizeof(frame)) {
-        ESP_LOGW(TAG, "ubx_send_valset_u1: uart_write short (%d/%zu)", w, sizeof(frame));
-        return ESP_FAIL;
-    }
-
-    // Ensure UBX configuration key reaches MAX-M10S before returning
-    uart_wait_tx_done(MAX_M10S_UART_NUM, pdMS_TO_TICKS(100));
-
-    ESP_LOGD(TAG, "ubx_send_valset_u1: key=0x%08lx val=%u layers=0x%02x",
-             (unsigned long)key_id, value, layers);
-    return ESP_OK;
-}
-
-```
-
-#### 3. Verification & Diagnostic Output
-
-Following the implementation of `uart_wait_tx_done()`, bidirectionality was confirmed in the system logs. Upon sending configuration messages (e.g., `max_m10s_enable_monrf(1)`), the u-blox MAX-M10S successfully acknowledged commands and began streaming binary telemetry back to the driver. The console output confirmed nominal RF parameters (`antStatus = OK`, `antPower = ON`, `noise/ms = 63`, `AGC count = 4092 (~49%)`), verifying that full two-way UART communication is operational.
-
-
-Claude, tidy up this log.
-
-
+**Ivan's note:** GPIO07 (MAX30101_INT) is rather handy, as its a pad
+for the daughter board, meaning I just bodge over to it, no mods needed.
 
 ### Reference: what "GPS alive" looks like on the bench
 Sketch 18c, Mk1b iv8.0, GPS on GPIO17/18 per master pinout, no antenna,
-indoors — stream is ~289–370 B/s, zero errors, no fix (indoors is
+indoors -- stream is ~289-370 B/s, zero errors, no fix (indoors is
 expected):
 ```
 [STAT] total=947 B  window=289 B/s (last 1000 ms)  NMEA=28 UBX=0 err=0
@@ -1338,19 +1223,78 @@ expected):
 [NMEA] $GNGSA,A,1,,,,,,,,,,,,,99.99,99.99,99.99,1*33
 ```
 With the antenna wired on the tape-and-flying-wire Mk1b build, we
-expect the same stream plus a non-zero fix count in GGA and a `V→A`
+expect the same stream plus a non-zero fix count in GGA and a `V->A`
 flip in RMC field 2 within tens of seconds to a couple of minutes of
 cold acquisition outdoors.
 
-### Follow-ups for this appendum
-- After first successful bench flash: capture the IDF `[GPS] ...` log
-  lines during first fix and paste back here (or in
-  `GPS_M10S_Fixing.md`) as the "IDF-side alive" reference.
-- If bytes still don't arrive despite the pin swap + APB pin + nuke
-  block, the next thing to check is that no earlier component in the
-  boot sequence claimed GPIO17/18 for another peripheral before
-  `max_m10s_init()` runs — grep for `gpio_config` and `gpio_set_direction`
-  on 17/18.
-- Once GPS is confirmed alive on IDF, port the `PROBE` CLI verb from
-  18c so we can detach any peripheral pin at runtime and read it as
-  raw GPIO — the single tool that would have found this in one line.
+---
+
+## Appendum -- 2026-09-23 -- MAX-M10S GPS UART TX now bidirectional
+
+Follow-up to the 2026-09-20 pin-swap appendum. That fix restored RX
+(the ESP32 saw NMEA at ~290 B/s) but every outbound UBX command still
+hit a wall -- the chip received nothing, no ACK, no MON-RF, no ACK-NAK.
+Two faults were stacked on the TX path; both are now resolved and
+the driver has bidirectional UART. Root cause + fix walked with
+Gemini's help; the diagnostic thread lives in `GPS_M10S_Fixing.md`.
+
+### Root cause (two faults on TX)
+
+1. **GPIO 07 pin steal.** On Mk1b, GPIO 07 is re-routed as UART1 TX
+   to the GPS but was previously assigned as the MAX30101 PPG INT.
+   The MAX30101 driver's boot-time `gpio_config()` re-owned GPIO 07
+   as a standard input, silently severing the UART peripheral matrix
+   after `max_m10s_init()` had wired it. Downstream: `uart_write_bytes`
+   returned success, the ring buffer accepted the frame, but the
+   physical pin never toggled.
+
+2. **UART TX ring buffer not draining.** Even with the pin restored,
+   short UBX frames (8-19 bytes at 9600 baud = 8-19 ms of airtime)
+   could sit in the TX ring buffer without hitting the wire before
+   the FreeRTOS scheduler preempted the task. `uart_write_bytes`
+   copies into the buffer and returns; without a drain sync point
+   the hardware FIFO may never clock the bytes out if the task
+   yields.
+
+### Fixes
+
+- **MAX30101 INT `gpio_config` commented out.** Removed from
+  `max30101/max30101.c` and the corresponding boot-side wiring in
+  `boot_hw_init.c`. Preserves GPIO 07 exclusively for the UART TX
+  signal matrix. Loses MAX30101 interrupt-driven FIFO drain (the
+  PPG driver falls back to polling) -- acceptable trade because
+  MAX30101 is on the stub list for Stage 35 anyway.
+
+- **`uart_wait_tx_done()` after every UBX write.** Added inside
+  `max_m10s_ping()` and `ubx_send_valset_u1()` immediately after
+  `uart_write_bytes()`, with a 100 ms timeout. Forces the calling
+  task to block until the hardware FIFO drains, guaranteeing the
+  frame reaches the chip before the next call proceeds. Cost is
+  ~8-19 ms per UBX frame at 9600 baud, all of which is TX-side
+  wait time we would have blocked on anyway.
+
+### Verification
+
+MON-RF snapshot now populates on the bench once enabled:
+- `antStatus = OK`, `antPower = ON`
+- `noise/ms = 63`, `AGC count = 4092 (~49%)`
+
+`GPS_DYNMODEL AIR1G` from CLI returns `ESP_OK` and DEBUG log shows
+`UBX-ACK-ACK cls=0x06 id=0x8a`. `GPS_MONRF` dumps the live snapshot
+instead of "no snapshot yet". Two-way UART confirmed.
+
+### Follow-ups (carry into future stages)
+
+- Capture the IDF `[GPS] ...` log lines during first outdoor fix and
+  paste back into `GPS_M10S_Fixing.md` as the "IDF-side alive"
+  reference. Needs bench-fix per [[project_max_m10s_wiring]] plus a
+  real antenna cap plus open sky.
+- Port the sketch 18c `PROBE` CLI verb: detach any peripheral pin at
+  runtime and read raw GPIO. Would have caught the GPIO 07 steal in
+  one command. Slot for whenever CLI touches a natural batch.
+- MAX30101 stays without hardware INT; when we un-stub it (Stage 36
+  or later), route INT to a different GPIO or accept the poll cost.
+
+Next open front: Stage 35 -- sensor-surface trim + `i2c_master` API
+migration (kills the chronic `i2c_hw_fsm_reset` IRQ WDT crashes).
+See `Stage_35_Mk1b_I2C_Master_And_Sensor_Trim.md`.

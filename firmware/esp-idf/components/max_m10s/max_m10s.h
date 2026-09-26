@@ -217,6 +217,19 @@ typedef struct {
 
 void max_m10s_get_ubx_counters(max_m10s_ubx_counters_t *out);
 
+// -- UBX MON-VER payload structure --------------------------------------------
+typedef struct {
+    bool     valid;              // true once first UBX-MON-VER response parsed
+    uint32_t last_update_ms;
+    char     sw_version[30];     // Software version string (e.g., "EXT CORE 1.00...")
+    char     hw_version[10];     // Hardware version string (e.g., "00100000")
+    char     extension[10][30];  // Up to 10 extension lines (PROTVER, GNSS, etc.)
+    uint8_t  extension_count;    // Number of extension lines populated
+} max_m10s_ver_t;
+
+/** @brief Copy internal MON-VER version info struct. */
+void max_m10s_get_version_info(max_m10s_ver_t *out);
+
 /** @brief Send UBX-MON-VER poll. Chip responds with a MON-VER frame within
  *         ~10 ms if TX path is alive. Use as a "does ESP->GPS work?" probe.
  *         Non-blocking; caller polls max_m10s_get_ubx_counters().mon_ver. */

@@ -1207,29 +1207,67 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         printf("      AGC count  = %u (~%d%%)\n", rf.agc_cnt, agc_pct);
         return;
     }
+
     if (startswith_ci(line, "GPS_PING")) {
         max_m10s_ubx_counters_t before = {0};
         max_m10s_get_ubx_counters(&before);
+
         esp_err_t r = max_m10s_ping();
         if (r != ESP_OK) {
             printf("[GPS] PING send failed: %s\n", esp_err_to_name(r));
             return;
         }
-        // Chip typically responds in ~5-10 ms; poll for up to 300 ms.
-        for (int i = 0; i < 30; i++) {
+
+        // Wait up to 1000 ms for MON-VER response frame
+        for (int i = 0; i < 100; i++) {
             vTaskDelay(pdMS_TO_TICKS(10));
             max_m10s_ubx_counters_t now = {0};
             max_m10s_get_ubx_counters(&now);
+
             if (now.mon_ver > before.mon_ver) {
-                printf("[GPS] PING -> MON-VER response received (TX path OK)\n");
+                max_m10s_ver_t ver = {0};
+                max_m10s_get_version_info(&ver);
+
+                printf("\n[GPS] PING -> UBX-MON-VER Response Received!\n");
+                printf("      HW Version : %s\n", ver.hw_version);
+                printf("      SW Version : %s\n", ver.sw_version);
+                
+                for (uint8_t j = 0; j < ver.extension_count; j++) {
+                    printf("      Ext [%d]    : %s\n", j, ver.extension[j]);
+                }
+                printf("      Status     : Communication & Parsing Verified OK\n\n");
                 return;
             }
         }
-        printf("[GPS] PING: NO response in 300 ms.\n");
-        printf("      TX path to GPS is broken, OR chip is not powered / not booted.\n");
-        printf("      NMEA still flowing? Then RX works, only TX side is dead.\n");
+
+        printf("[GPS] PING: NO UBX-MON-VER response in 1000 ms.\n");
         return;
     }
+
+
+    // if (startswith_ci(line, "GPS_PING")) {
+    //     max_m10s_ubx_counters_t before = {0};
+    //     max_m10s_get_ubx_counters(&before);
+    //     esp_err_t r = max_m10s_ping();
+    //     if (r != ESP_OK) {
+    //         printf("[GPS] PING send failed: %s\n", esp_err_to_name(r));
+    //         return;
+    //     }
+    //     // Chip typically responds in ~5-10 ms; poll for up to 300 ms.
+    //     for (int i = 0; i < 30; i++) {
+    //         vTaskDelay(pdMS_TO_TICKS(10));
+    //         max_m10s_ubx_counters_t now = {0};
+    //         max_m10s_get_ubx_counters(&now);
+    //         if (now.mon_ver > before.mon_ver) {
+    //             printf("[GPS] PING -> MON-VER response received (TX path OK)\n");
+    //             return;
+    //         }
+    //     }
+    //     printf("[GPS] PING: NO response in 300 ms.\n");
+    //     printf("      TX path to GPS is broken, OR chip is not powered / not booted.\n");
+    //     printf("      NMEA still flowing? Then RX works, only TX side is dead.\n");
+    //     return;
+    // }
     if (startswith_ci(line, "GPS_UBX_STATS")) {
         max_m10s_ubx_counters_t c = {0};
         max_m10s_get_ubx_counters(&c);
