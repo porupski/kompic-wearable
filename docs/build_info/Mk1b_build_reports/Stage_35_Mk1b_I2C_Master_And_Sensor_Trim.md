@@ -1,13 +1,15 @@
 # Stage 35 -- Mk1b sensor-surface trim + I2C master API migration
 
 **Date opened:** 2026-09-27
-**Date closed:** _pending_
+**Date closed:** 2026-09-27
 **Board:** Mk1b iv8.0.
 **Firmware baseline:** 0.4.88 (post Stage 31 GPS UART TX fix appendum).
-**Firmware close:** _pending_ (target: 0.4.91).
-**Status:** OPEN. Priority-inserted ahead of Stage 32 (tile subject
-sweep) and Stage 33 (structural finish); those two are blocked on the
-firmware being stable enough to bench for full sessions.
+**Firmware close:** 0.4.91 (whole binary on `driver/i2c_master.h`).
+**Status:** CLOSED. Chronic `bq25619_read_reg -> i2c_hw_fsm_reset ->
+IRQ WDT` panic that plagued fw 0.4.68..0.4.89 is gone -- 10 min of
+bench nav + sleep/wake stress + CLI hammering with zero crashes.
+Stage 32 (tile subject sweep) and Stage 33 (structural finish) are
+unblocked.
 
 **Companion refs:**
 - `Stage_31_Mk1b_LVGL_Foundations_Rebuild.md` §11 appendum -- GPS UART
@@ -236,17 +238,71 @@ budget on features we're not using.
 
 _(populated as each batch lands, per [[feedback_stage_log_workflow]])_
 
-### 9.1 -- Batch 35.1 flash
+### 9.1 -- Batch 35.1 flash (fw 0.4.89, 2026-09-27)
 
-_pending_
+- Boot log confirms: 7-task Core-0 lineup (ENV / IMU / BAT / RTC /
+  HAPTIC / ALARM / GPS), `MAG/HR/SKIN/LIGHT stubbed, see Stage 35`.
+- 6 tiles registered + drawer nav works.
+- `WHOAMI` still probes all chips via raw I2C -- LIS3MDL / MAX30101 /
+  TMP117 read back their IDs, VEML6030 ACKs; `hw_alive=0` on all four.
+- Chronic `bq25619_read_reg -> i2c_hw_fsm_reset` STILL FIRES on quick
+  swipe (as expected -- 35.1 doesn't touch the crash site, just shrinks
+  surface for the 35.2/35.3 migration).
 
-### 9.2 -- Batch 35.2 flash
+**Batch status:** LANDED + verified. Ready for 35.2.
 
-_pending_
+### 9.2 -- Batch 35.2 flash (fw 0.4.90, 2026-09-27)
 
-### 9.3 -- Batch 35.3 flash
+- Attempted flash aborted at boot: `check_i2c_driver_conflict` fires
+  in a global constructor before `app_main`. ESP-IDF v5.5.2 forbids
+  legacy `driver/i2c.h` + new `driver/i2c_master.h` in the same binary.
+  Bus-1-only migration is impossible; had to do Bus 0 in the same
+  cycle.
+- No bench state to log; batch 35.2 stayed on-disk as a stepping stone
+  to 35.3.
 
-_pending_
+**Batch status:** LANDED but non-bootable in isolation. Superseded by
+35.3 which completes the whole-binary migration.
+
+### 9.3 -- Batch 35.3 flash (fw 0.4.91, 2026-09-27)
+
+- **Boot clean.** No `check_i2c_driver_conflict` abort; both buses
+  come up on `i2c_master API, per-device speed` (400 kHz, per-device).
+  All 12 kept-alive sensors report `hw_alive: YES`.
+- **PM lock inventory** shows the new API is installing per-bus
+  `I2C_0` and `I2C_1` NO_LIGHT_SLEEP locks (as expected -- old legacy
+  driver installed a single global lock instead).
+- **The crash is gone.** ~10 minutes of nav + drawer swipes + sleep/
+  wake cycles + `GPS_PING` / `STATUS` / `HELP` verb spam -- zero
+  `bq25619_read_reg -> i2c_hw_fsm_reset` panics. Watch stays running.
+- **CST9217 mutex timeouts** appear under very rapid GPS sub-tile
+  swiping (`W (63477) CST9217: I2C mutex timeout in task path --
+  dropping report`, 3-4 in a row). Non-fatal -- touch task just drops
+  those reports and self-heals; not a crash, not the old FSM issue.
+  Root cause is the GPS sub-tile flooding I2C traffic + the 50 ms
+  touch mutex timeout being tight; noted for a follow-up bump-timeout
+  or per-tile throttle. Not a Stage 35 blocker.
+- **Regressions checked:**
+  - Battery % updates on drawer + main screen.
+  - Encoder click -> haptic buzz.
+  - Touch double-tap wakes from sleep.
+  - Env / IMU tiles populate live data.
+  - RTC time persists (0x51 alive, `[RTC] 2026-09-27T08:15:06 UTC`).
+  - Drawer open / close via swipe.
+  - `SHIPMODE` verb path exercised (BQ WRITE via new API).
+- **Ripple:** first-boot NVS bumped `last_fw` 0.4.89 -> 0.4.91.
+
+**Batch status:** LANDED + fully verified. **Stage 35 = DONE.**
+
+### 9.4 -- Notes for Stage 36+
+
+- CST9217 mutex timeout under GPS-sub-tile swipe stress: consider
+  bumping the 50 ms budget or de-noising the sub-tile refresh cadence.
+- GPS chip is talking two-way (`ack_ack=1`, `mon_rf=611`) but
+  `GPS_PING` never sees a MON-VER response (`mon_ver=0`). SNR is
+  low (17-21 dBHz, bursty on/off). Separate GPS debug stage --
+  the fresh-session prompt is filed as
+  `docs/build_info/Mk1b_build_reports/Stage_36_Mk1b_GPS_Signal_Debug_PROMPT.md`.
 
 ---
 
