@@ -14,6 +14,8 @@
  */
 
 #include "max17048.h"
+#include "boot_hw_init.h"        // g_i2c1_bus_handle (Stage 35.2 i2c_master migration)
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -21,6 +23,9 @@
 extern SemaphoreHandle_t g_i2c2_mutex;
 
 static const char *TAG = "MAX17048";
+
+// -- I2C device handle (Stage 35.2) -------------------------------------------
+static i2c_master_dev_handle_t s_max_dev = NULL;
 
 // -- Identity -----------------------------------------------------------------
 const char *max17048_get_chip_name(void) { return "MAX17048"; }
@@ -31,20 +36,12 @@ const char *max17048_get_chip_desc(void) { return "1-cell Li-ion fuel gauge"; }
 // =============================================================================
 esp_err_t max17048_read16(i2c_port_t i2c_num, uint8_t reg, uint16_t *out)
 {
+    (void)i2c_num;
     if (!out) return ESP_ERR_INVALID_ARG;
-    uint8_t hi = 0, lo = 0;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (MAX17048_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (MAX17048_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, &hi, I2C_MASTER_ACK);
-    i2c_master_read_byte(cmd, &lo, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    if (ret == ESP_OK) *out = ((uint16_t)hi << 8) | lo;
+    if (!s_max_dev) return ESP_ERR_INVALID_STATE;
+    uint8_t rx[2] = {0};
+    esp_err_t ret = i2c_master_transmit_receive(s_max_dev, &reg, 1, rx, 2, 20);
+    if (ret == ESP_OK) *out = ((uint16_t)rx[0] << 8) | rx[1];
     return ret;
 }
 
@@ -80,6 +77,22 @@ esp_err_t max17048_read_soc_pct100(i2c_port_t i2c_num, uint16_t *soc_pct100_out)
 esp_err_t max17048_init(i2c_port_t i2c_num)
 {
     ESP_LOGI(TAG, "driver v%s", MAX17048_DRIVER_VERSION);
+
+    // Stage 35.2: add self to the i2c_master bus.
+    if (!g_i2c1_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c1_bus_handle NULL -- bringup_bus1 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = MAX17048_ADDR,
+        .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(g_i2c1_bus_handle, &dev_cfg, &s_max_dev);
+    if (add != ESP_OK) {
+        ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+        return add;
+    }
 
     esp_err_t ret = ESP_FAIL;
     if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {

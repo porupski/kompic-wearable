@@ -22,7 +22,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"       // Stage 35.3: sole I2C API
 #include "driver/temperature_sensor.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -30,6 +30,7 @@
 #include "data_broker.h"
 #include "ws2812.h"
 #include "haptic.h"
+#include "lsm6dsv16x.h"              // lsm6dsv16x_get_dev_handle()
 // qvar_ecg.h include removed 2026-09-10: dead stub component deleted per
 // feedback_no_ecg_on_kompic. This file's QVAR/FCM_ECG path uses inline
 // register defines below, not the deleted header's symbols.
@@ -54,19 +55,20 @@ static const char *TAG = "FC_MODES";
 #define ECG_CTRL1_HP_240HZ      0x07
 
 static esp_err_t qvar_reg_write(uint8_t reg, uint8_t val) {
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
     uint8_t b[2] = { reg, val };
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;
-    esp_err_t r = i2c_master_write_to_device(I2C_NUM_0, ECG_LSM_ADDR,
-                                             b, 2, pdMS_TO_TICKS(20));
+    esp_err_t r = i2c_master_transmit(dev, b, 2, 20);
     xSemaphoreGive(g_i2c_mutex);
     return r;
 }
 static esp_err_t qvar_reg_read_word(uint8_t reg_lo, int16_t *out) {
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
     uint8_t rx[2] = {0};
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;
-    esp_err_t r = i2c_master_write_read_device(I2C_NUM_0, ECG_LSM_ADDR,
-                                               &reg_lo, 1, rx, 2,
-                                               pdMS_TO_TICKS(20));
+    esp_err_t r = i2c_master_transmit_receive(dev, &reg_lo, 1, rx, 2, 20);
     xSemaphoreGive(g_i2c_mutex);
     if (r == ESP_OK) *out = (int16_t)((uint16_t)rx[1] << 8 | rx[0]);
     return r;
@@ -439,53 +441,23 @@ void run_ecg_session(void) {
 #define MAX_MODE_SHDN         0x80
 
 float read_lsm_die_temp(void) {
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return -273.15f;
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return -273.15f;
     uint8_t rx[2] = {0};
     uint8_t reg = LSM_REG_OUT_TEMP_L;
-    esp_err_t r = i2c_master_write_read_device(I2C_NUM_0, LSM_ADDR,
-                                               &reg, 1, rx, 2, pdMS_TO_TICKS(20));
+    esp_err_t r = i2c_master_transmit_receive(dev, &reg, 1, rx, 2, 20);
     xSemaphoreGive(g_i2c_mutex);
     if (r != ESP_OK) return -273.15f;
     int16_t raw = (int16_t)((uint16_t)rx[1] << 8 | rx[0]);
     return 25.0f + (float)raw / 256.0f;
 }
 
+// Stage 35.3: MAX30101 stubbed at Stage 35.1; the die-temp readback path
+// went with it. Return sentinel so temperature-aggregator callers see an
+// invalid value and skip.
 float read_max_die_temp(void) {
-    // Wake with LED currents zeroed, trigger one-shot, read TINT/TFRAC,
-    // return to shutdown.
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
-    uint8_t buf_led1[] = { MAX_REG_LED1_PA, 0x00 };
-    uint8_t buf_led2[] = { MAX_REG_LED2_PA, 0x00 };
-    uint8_t buf_led3[] = { MAX_REG_LED3_PA, 0x00 };
-    uint8_t buf_wake[] = { MAX_REG_MODE_CONFIG, MAX_MODE_HR };
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led1, 2, pdMS_TO_TICKS(20));
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led2, 2, pdMS_TO_TICKS(20));
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_led3, 2, pdMS_TO_TICKS(20));
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_wake, 2, pdMS_TO_TICKS(20));
-    xSemaphoreGive(g_i2c_mutex);
-
-    vTaskDelay(pdMS_TO_TICKS(5));
-
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
-    uint8_t buf_trig[] = { MAX_REG_TEMP_CONFIG, 0x01 };
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_trig, 2, pdMS_TO_TICKS(20));
-    xSemaphoreGive(g_i2c_mutex);
-
-    vTaskDelay(pdMS_TO_TICKS(35));
-
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -273.15f;
-    int8_t  tint  = 0;
-    uint8_t tfrac = 0;
-    uint8_t reg;
-    reg = MAX_REG_TEMP_INT;
-    i2c_master_write_read_device(I2C_NUM_0, MAX_ADDR, &reg, 1, (uint8_t *)&tint, 1, pdMS_TO_TICKS(20));
-    reg = MAX_REG_TEMP_FRAC;
-    i2c_master_write_read_device(I2C_NUM_0, MAX_ADDR, &reg, 1, &tfrac, 1, pdMS_TO_TICKS(20));
-    uint8_t buf_shdn[] = { MAX_REG_MODE_CONFIG, MAX_MODE_SHDN };
-    i2c_master_write_to_device(I2C_NUM_0, MAX_ADDR, buf_shdn, 2, pdMS_TO_TICKS(20));
-    xSemaphoreGive(g_i2c_mutex);
-
-    return (float)tint + (float)(tfrac & 0x0F) * 0.0625f;
+    return -273.15f;
 }
 
 void run_temp_session(void) {

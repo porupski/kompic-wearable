@@ -8,6 +8,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         driver
+        esp_driver_i2c     # Stage 35: sole I2C API (i2c_master.h)
         freertos
         esp_pm             # Stage 11 Item D Block A -- esp_pm_configure
         esp_timer
@@ -16,13 +17,11 @@ idf_component_register(
         app_logic
         cross_driver
         nvs_flash
-        # I2C drivers
+        # I2C drivers (Stage 35: MAG/HR/SKIN/LIGHT drivers dropped from REQUIRES;
+        # their inits are gone and stripping the REQUIRES frees the linker from
+        # pulling their legacy driver/i2c.h symbols into the binary.)
         bme688
         lsm6dsv16x
-        lis3mdl
-        veml6030
-        max30101
-        tmp117
         pcf85063
         drv2605
         bq25619

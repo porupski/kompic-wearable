@@ -6,12 +6,13 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         driver
+        esp_driver_i2c    # Stage 35.2: i2c_master API for the FSM crash fix
         freertos
         esp_timer
         data_broker
         lvgl
         esp_lvgl_port
-        boot_logic        # g_display_sleep -- battery poll skips while display asleep
+        boot_logic        # g_display_sleep + g_i2c1_bus_handle
         max17048          # BQ REG_VBAT ADC unusable on iv8.0; use fuel gauge VCELL/SOC
     WHOLE_ARCHIVE  # bq25619_cmd.c has no intra-archive caller; force link so
                    # fc_cli.c's BQ verb resolves against the new command surface.

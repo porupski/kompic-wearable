@@ -22,7 +22,8 @@
 
 #include "pcf85063.h"
 #include "data_broker.h"
-#include "boot_hw_init.h"   // g_i2c_mutex
+#include "boot_hw_init.h"   // g_i2c_mutex + g_i2c0_bus_handle (Stage 35.3)
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"       // IRAM_ATTR
@@ -33,6 +34,9 @@
 #include <time.h>
 
 static const char *TAG = "PCF85063";
+
+// -- I2C device handle (Stage 35.3) -------------------------------------------
+static i2c_master_dev_handle_t s_pcf_dev = NULL;
 
 // -- Module config --------------------------------------------------------------
 #define PCF85063_POLL_MS  1000   // 1 Hz -- RTC has second resolution
@@ -81,18 +85,26 @@ static uint8_t day_of_week(uint16_t y, uint8_t m, uint8_t d)
 
 esp_err_t pcf85063_init(i2c_port_t i2c_num)
 {
+    (void)i2c_num;
     ESP_LOGI(TAG, "driver v%s", PCF85063_DRIVER_VERSION);
-    uint8_t test = 0;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, REG_SECONDS, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, &test, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(50));
-    i2c_cmd_link_delete(cmd);
+
+    if (!g_i2c0_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c0_bus_handle NULL -- bringup_bus0 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = PCF85063_ADDR,
+        .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(g_i2c0_bus_handle, &dev_cfg, &s_pcf_dev);
+    if (add != ESP_OK) {
+        ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+        return add;
+    }
+
+    uint8_t reg = REG_SECONDS, test = 0;
+    esp_err_t ret = i2c_master_transmit_receive(s_pcf_dev, &reg, 1, &test, 1, 50);
 
     if (ret == ESP_OK) {
         if (test & 0x80) {
@@ -116,18 +128,12 @@ void pcf85063_deinit(void)
 
 esp_err_t pcf85063_get_time(i2c_port_t i2c_num, pcf85063_time_t *t)
 {
+    (void)i2c_num;
     uint8_t data[7] = {0};
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, REG_SECONDS, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read(cmd, data, 7, I2C_MASTER_LAST_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(50));
-    i2c_cmd_link_delete(cmd);
+    uint8_t reg = REG_SECONDS;
+    esp_err_t ret = s_pcf_dev
+        ? i2c_master_transmit_receive(s_pcf_dev, &reg, 1, data, 7, 50)
+        : ESP_ERR_INVALID_STATE;
 
     if (ret == ESP_OK) {
         t->second  = bcd_to_dec(data[0] & 0x7F);
@@ -148,7 +154,9 @@ esp_err_t pcf85063_get_time(i2c_port_t i2c_num, pcf85063_time_t *t)
 
 esp_err_t pcf85063_set_time(i2c_port_t i2c_num, const pcf85063_time_t *t)
 {
-    uint8_t data[7] = {
+    (void)i2c_num;
+    uint8_t buf[1 + 7] = {
+        REG_SECONDS,
         dec_to_bcd(t->second),
         dec_to_bcd(t->minute),
         dec_to_bcd(t->hour),
@@ -157,15 +165,9 @@ esp_err_t pcf85063_set_time(i2c_port_t i2c_num, const pcf85063_time_t *t)
         dec_to_bcd(t->month),
         dec_to_bcd(t->year),
     };
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, REG_SECONDS, true);
-    i2c_master_write(cmd, data, 7, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(50));
-    i2c_cmd_link_delete(cmd);
+    esp_err_t ret = s_pcf_dev
+        ? i2c_master_transmit(s_pcf_dev, buf, sizeof(buf), 50)
+        : ESP_ERR_INVALID_STATE;
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "RTC set: %02d:%02d:%02d %04d-%02d-%02d (wd=%d)",
@@ -291,30 +293,17 @@ static volatile bool s_alarm_isr_installed = false;
 
 static esp_err_t i2c_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t val)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, val, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    (void)i2c_num;
+    if (!s_pcf_dev) return ESP_ERR_INVALID_STATE;
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(s_pcf_dev, buf, 2, 20);
 }
 
 static esp_err_t i2c_read_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t *val)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, val, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    (void)i2c_num;
+    if (!s_pcf_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_pcf_dev, &reg, 1, val, 1, 20);
 }
 
 static void IRAM_ATTR pcf85063_alarm_isr(void *arg)
@@ -421,22 +410,13 @@ esp_err_t pcf85063_ram_byte_read(i2c_port_t i2c_num, uint8_t *out)
 esp_err_t pcf85063_read_regs_raw(i2c_port_t i2c_num, uint8_t reg,
                                   uint8_t *out, size_t len)
 {
+    (void)i2c_num;
     if (out == NULL || len == 0) return ESP_ERR_INVALID_ARG;
+    if (!s_pcf_dev) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PCF85063_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read(cmd, out, len, I2C_MASTER_LAST_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(50));
-    i2c_cmd_link_delete(cmd);
-
+    esp_err_t ret = i2c_master_transmit_receive(s_pcf_dev, &reg, 1, out, len, 50);
     xSemaphoreGive(g_i2c_mutex);
     return ret;
 }

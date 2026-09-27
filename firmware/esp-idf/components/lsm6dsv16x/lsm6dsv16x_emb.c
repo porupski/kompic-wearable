@@ -15,12 +15,13 @@
  */
 
 #include "lsm6dsv16x.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 extern SemaphoreHandle_t g_i2c_mutex;
+extern i2c_master_dev_handle_t lsm6dsv16x_get_dev_handle(void);
 
 static const char *TAG = "LSM_EMB";
 
@@ -46,23 +47,24 @@ static bool     s_pedo_seeded     = false;
 // ---------------------------------------------------------------------------
 static esp_err_t write_reg_locked(uint8_t reg, uint8_t val)
 {
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
     uint8_t buf[2] = { reg, val };
-    return i2c_master_write_to_device(I2C_NUM_0, LSM6DSV16X_I2C_ADDR,
-                                      buf, 2, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    return i2c_master_transmit(dev, buf, 2, I2C_TIMEOUT_MS);
 }
 
 static esp_err_t read_reg_locked(uint8_t reg, uint8_t *out)
 {
-    return i2c_master_write_read_device(I2C_NUM_0, LSM6DSV16X_I2C_ADDR,
-                                        &reg, 1, out, 1,
-                                        pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(dev, &reg, 1, out, 1, I2C_TIMEOUT_MS);
 }
 
 static esp_err_t read_buf_locked(uint8_t reg, uint8_t *out, size_t n)
 {
-    return i2c_master_write_read_device(I2C_NUM_0, LSM6DSV16X_I2C_ADDR,
-                                        &reg, 1, out, n,
-                                        pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    i2c_master_dev_handle_t dev = lsm6dsv16x_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(dev, &reg, 1, out, n, I2C_TIMEOUT_MS);
 }
 
 // ---------------------------------------------------------------------------

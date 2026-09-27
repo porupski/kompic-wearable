@@ -20,7 +20,8 @@
 #include "data_broker.h"
 #include "ui_event.h"
 #include "ui_subjects.h"    // Stage 32.1: g_imu_q for UI drain path
-#include "driver/i2c.h"
+#include "boot_hw_init.h"   // g_i2c0_bus_handle (Stage 35.3)
+#include "driver/i2c_master.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -33,6 +34,10 @@
 extern SemaphoreHandle_t g_i2c_mutex;
 
 static const char *TAG = "LSM6DSV16X";
+
+// -- I2C device handle (Stage 35.3) -------------------------------------------
+static i2c_master_dev_handle_t s_lsm_dev = NULL;
+i2c_master_dev_handle_t lsm6dsv16x_get_dev_handle(void) { return s_lsm_dev; }
 
 // ---------------------------------------------------------------------------
 // Complementary filter state (Core 0 only)
@@ -80,21 +85,24 @@ const char *lsm6dsv16x_get_chip_desc(void) { return "6-axis IMU + sensor fusion"
 // ---------------------------------------------------------------------------
 static esp_err_t write_reg(i2c_port_t port, uint8_t reg, uint8_t val)
 {
+    (void)port;
+    if (!s_lsm_dev) return ESP_ERR_INVALID_STATE;
     uint8_t buf[2] = { reg, val };
-    return i2c_master_write_to_device(port, LSM6DSV16X_I2C_ADDR,
-                                      buf, 2, pdMS_TO_TICKS(20));
+    return i2c_master_transmit(s_lsm_dev, buf, 2, 20);
 }
 
 static esp_err_t read_reg(i2c_port_t port, uint8_t reg, uint8_t *out)
 {
-    return i2c_master_write_read_device(port, LSM6DSV16X_I2C_ADDR,
-                                        &reg, 1, out, 1, pdMS_TO_TICKS(20));
+    (void)port;
+    if (!s_lsm_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_lsm_dev, &reg, 1, out, 1, 20);
 }
 
 static esp_err_t read_regs(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t len)
 {
-    return i2c_master_write_read_device(port, LSM6DSV16X_I2C_ADDR,
-                                        &reg, 1, buf, len, pdMS_TO_TICKS(20));
+    (void)port;
+    if (!s_lsm_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_lsm_dev, &reg, 1, buf, len, 20);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +110,24 @@ static esp_err_t read_regs(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t le
 // ---------------------------------------------------------------------------
 esp_err_t lsm6dsv16x_init(i2c_port_t i2c_num)
 {
+    (void)i2c_num;
     ESP_LOGI(TAG, "driver v%s", LSM6DSV16X_DRIVER_VERSION);
+
+    if (!g_i2c0_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c0_bus_handle NULL -- bringup_bus0 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = LSM6DSV16X_I2C_ADDR,
+        .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(g_i2c0_bus_handle, &dev_cfg, &s_lsm_dev);
+    if (add != ESP_OK) {
+        ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+        return add;
+    }
+
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }

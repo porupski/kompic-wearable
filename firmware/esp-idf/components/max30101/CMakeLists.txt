@@ -1,14 +1,11 @@
 idf_component_register(
+    # Stage 35: max30101.c + health_tile.c dropped (they use legacy driver/i2c.h
+    # which is incompatible with the new i2c_master API this binary now uses).
+    # Stub file provides only chip identity strings.
     SRCS
-        "max30101.c"
-        "health_tile.c"
+        "max30101_stub.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
-        lvgl
-        lvgl_ui
         data_broker
-        cross_driver
-        drv2605            # health_tile.c needs haptic_play() / haptic_get_ui_effect()
-        boot_logic         # g_i2c_mutex
 )

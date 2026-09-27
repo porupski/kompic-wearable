@@ -295,6 +295,12 @@ typedef struct {
  */
 esp_err_t lsm6dsv16x_init(i2c_port_t i2c_num);
 
+// Stage 35.3: exposes the module-static i2c_master device handle so
+// external consumers (fc_modes.c LSM temp readback, lsm6dsv16x_emb) can
+// transact without duplicating add-device. Returns NULL until init runs.
+#include "driver/i2c_master.h"
+i2c_master_dev_handle_t lsm6dsv16x_get_dev_handle(void);
+
 /**
  * @brief FreeRTOS task. Pinned to Core 0 via boot_tasks.c.
  *        Polls at LSM6DSV16X_POLL_MS interval, applies complementary filter,

@@ -6,11 +6,13 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         driver
+        esp_driver_i2c   # Stage 35.3: i2c_master API
         freertos
         esp_timer
         data_broker
         lvgl
         esp_lvgl_port
+        boot_logic       # g_i2c_mutex + g_i2c0_bus_handle
     PRIV_REQUIRES
         boot_logic
     WHOLE_ARCHIVE  # rtc_tile is read-only; nothing intra-archive references

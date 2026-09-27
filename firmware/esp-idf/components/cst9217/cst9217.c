@@ -12,6 +12,8 @@
  */
 
 #include "cst9217.h"
+#include "boot_hw_init.h"       // g_i2c0_bus_handle (Stage 35.3)
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -19,13 +21,12 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
-// boot_hw_init.h declares g_i2c_mutex once it exists in this tree; until then
-// drivers either pull it in via that header or extern-declare it. We follow
-// the bme280_drv.c / max30102.c pattern (extern declaration) so the component
-// compiles standalone for the test harness.
 extern SemaphoreHandle_t g_i2c_mutex;
 
 static const char *TAG = "CST9217";
+
+// -- I2C device handle (Stage 35.3) -------------------------------------------
+static i2c_master_dev_handle_t s_cst_dev = NULL;
 
 // ---------------------------------------------------------------------------
 // Public lock-free output queue (depth 1).
@@ -87,21 +88,11 @@ static void IRAM_ATTR cst9217_isr(void *arg)
 static esp_err_t i2c_read_16bit_reg(i2c_port_t i2c_num, uint16_t reg,
                                     uint8_t *buf, size_t len)
 {
+    (void)i2c_num;
     if (!buf || len == 0) return ESP_ERR_INVALID_ARG;
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (CST9217_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, (uint8_t)(reg >> 8), true);   // reg MSB
-    i2c_master_write_byte(cmd, (uint8_t)(reg & 0xFF), true); // reg LSB
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (CST9217_I2C_ADDR << 1) | I2C_MASTER_READ, true);
-    if (len > 1) i2c_master_read(cmd, buf, len - 1, I2C_MASTER_ACK);
-    i2c_master_read_byte(cmd, buf + len - 1, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    if (!s_cst_dev) return ESP_ERR_INVALID_STATE;
+    uint8_t reg_be[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
+    return i2c_master_transmit_receive(s_cst_dev, reg_be, 2, buf, len, 20);
 }
 
 esp_err_t cst9217_probe_ack(i2c_port_t i2c_num, uint8_t *ack_out)
@@ -112,13 +103,10 @@ esp_err_t cst9217_probe_ack(i2c_port_t i2c_num, uint8_t *ack_out)
 
 esp_err_t cst9217_ack_probe(i2c_port_t i2c_num)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (CST9217_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return err;
+    (void)i2c_num;
+    // Zero-byte write via the new API isn't directly supported; use the bus
+    // probe helper against our device address. Called only in init.
+    return i2c_master_probe(g_i2c0_bus_handle, CST9217_I2C_ADDR, pdMS_TO_TICKS(20));
 }
 
 esp_err_t cst9217_read_report(i2c_port_t i2c_num,
@@ -184,7 +172,26 @@ static esp_err_t cst9217_int_install(void)
 // ---------------------------------------------------------------------------
 esp_err_t cst9217_init(i2c_port_t i2c_num)
 {
+    (void)i2c_num;
     int64_t t0 = esp_timer_get_time();
+
+    // Stage 35.3: add self to the i2c_master bus.
+    if (!g_i2c0_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c0_bus_handle NULL -- bringup_bus0 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_cst_dev) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = CST9217_I2C_ADDR,
+            .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+        };
+        esp_err_t add = i2c_master_bus_add_device(g_i2c0_bus_handle, &dev_cfg, &s_cst_dev);
+        if (add != ESP_OK) {
+            ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+            return add;
+        }
+    }
 
     // 1. Output queue
     if (g_touch_q == NULL) {
@@ -257,15 +264,10 @@ void cst9217_deinit(void)
 // ---------------------------------------------------------------------------
 static esp_err_t cst9217_touch_ack(i2c_port_t i2c_num)
 {
-    const uint8_t payload[3] = { 0xD0, 0x00, 0xAB };
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (CST9217_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write(cmd, payload, sizeof(payload), true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return err;
+    (void)i2c_num;
+    if (!s_cst_dev) return ESP_ERR_INVALID_STATE;
+    static const uint8_t payload[3] = { 0xD0, 0x00, 0xAB };
+    return i2c_master_transmit(s_cst_dev, payload, sizeof(payload), 20);
 }
 
 // ---------------------------------------------------------------------------

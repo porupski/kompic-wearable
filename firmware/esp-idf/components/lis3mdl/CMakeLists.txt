@@ -1,16 +1,10 @@
 idf_component_register(
+    # Stage 35: lis3mdl.c + compass_tile.c dropped -- legacy driver/i2c.h
+    # incompatible with new i2c_master API. Stub provides identity.
     SRCS
-        "lis3mdl.c"
-        "compass_tile.c"
-    INCLUDE_DIRS
-        "."
+        "lis3mdl_stub.c"
+    INCLUDE_DIRS "."
     REQUIRES
         driver
-        freertos
         data_broker
-        lvgl
-        esp_lvgl_port
-        lvgl_ui
-    PRIV_REQUIRES
-        boot_logic
 )

@@ -18,8 +18,9 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "driver/usb_serial_jtag.h"
+#include "boot_hw_init.h"       // g_i2c0_bus_handle / g_i2c1_bus_handle
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -34,7 +35,7 @@
 #include "bq25619.h"
 #include "bq25619_cmd.h"
 #include "max17048.h"
-#include "veml6030_cmd.h"
+// STUBBED Stage 35: veml6030_cmd.h include removed (LIGHT verb stubbed).
 #include "pcf85063_cmd.h"
 #include "encoder_cmd.h"
 #include "ws2812_cmd.h"
@@ -136,7 +137,7 @@ static const char *k_help_lines[] = {
     "GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)",
     "HAPTIC [EN|PLAY <n>|CAL|SWEEP START|STOP|UI [<n>]]  (no arg = dump)",
     "HELP                             this list",
-    "LIGHT [EN|AUTO|BLUE [ON|OFF] | BR [<0..100>]]       (no arg = dump)",
+    "LIGHT ...                        (stubbed at Stage 35 -- VEML6030 driver off)",
     "LOGLEVEL [OFF|E|W|I|D|V|AUTO]    runtime esp_log level (no arg = show current)",
     "LVGL_FORCE [ON|OFF]              force LVGL up on next boot even without a panel (no arg = state)",
     "LVGL_SCREENSHOT                  capture active screen -> /sd/lvgl_fb/*.png",
@@ -150,7 +151,7 @@ static const char *k_help_lines[] = {
     "SET_TIME YYYY-MM-DDTHH:MM:SS     write UTC + persist to NVS + PCF RAM_byte",
     "SHIPMODE                         drop BATFET now (escape when button stuck)",
     "STATUS                           one-shot state dump (uptime, sensors, batt, heap)",
-    "TEMP_DUMP                        read every onboard temp source (waits for stable, non-zero)",
+    "TEMP_DUMP                        (stubbed at Stage 35 -- TMP117/MAX30101 drivers off)",
     "TILE [list | <n> | <name>]       jump tileview to a tile (bench-testable under LVGL_FORCE)",
     "TOUCH                            dump CST9217 touch state (last x/y, event count, pressed)",
     "WHOAMI                           I2C sensor identification + hw_alive status",
@@ -262,23 +263,32 @@ static void rtc_cli_dump_status(void) {
            nvs_cfg_sys_get_lvgl_force_on() ? 1 : 0);
 }
 
-// ── WHOAMI helpers ──────────────────────────────────────────────────────────
+// ── WHOAMI helpers (Stage 35.3: i2c_master transient device) ────────────────
+// Each probe adds a device to the bus handle, transacts once, removes it.
+// One-shot cost is acceptable for the WHOAMI verb; keeps a clean pattern
+// without permanent handles for every chip we might probe.
 static uint8_t whoami_read_reg8(i2c_port_t port, uint8_t addr, uint8_t reg,
                                  esp_err_t *out_err) {
+    (void)port;
     uint8_t val = 0xFF;
     esp_err_t r = ESP_FAIL;
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, reg, true);
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
-        i2c_master_read_byte(cmd, &val, I2C_MASTER_NACK);
-        i2c_master_stop(cmd);
-        r = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(50));
-        i2c_cmd_link_delete(cmd);
-        xSemaphoreGive(g_i2c_mutex);
+    SemaphoreHandle_t mtx = (port == I2C_NUM_1) ? g_i2c2_mutex : g_i2c_mutex;
+    i2c_master_bus_handle_t bus = (port == I2C_NUM_1)
+                                    ? g_i2c1_bus_handle : g_i2c0_bus_handle;
+    if (!bus) { if (out_err) *out_err = ESP_ERR_INVALID_STATE; return val; }
+    if (xSemaphoreTake(mtx, pdMS_TO_TICKS(200)) == pdTRUE) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = addr,
+            .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+        };
+        i2c_master_dev_handle_t dev = NULL;
+        r = i2c_master_bus_add_device(bus, &dev_cfg, &dev);
+        if (r == ESP_OK) {
+            r = i2c_master_transmit_receive(dev, &reg, 1, &val, 1, 50);
+            (void)i2c_master_bus_rm_device(dev);
+        }
+        xSemaphoreGive(mtx);
     }
     if (out_err) *out_err = r;
     return val;
@@ -286,24 +296,29 @@ static uint8_t whoami_read_reg8(i2c_port_t port, uint8_t addr, uint8_t reg,
 
 static uint16_t whoami_read_reg16be(i2c_port_t port, uint8_t addr, uint8_t reg,
                                      esp_err_t *out_err) {
-    uint8_t hi = 0xFF, lo = 0xFF;
+    (void)port;
+    uint8_t rx[2] = { 0xFF, 0xFF };
     esp_err_t r = ESP_FAIL;
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, reg, true);
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
-        i2c_master_read_byte(cmd, &hi, I2C_MASTER_ACK);
-        i2c_master_read_byte(cmd, &lo, I2C_MASTER_NACK);
-        i2c_master_stop(cmd);
-        r = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(50));
-        i2c_cmd_link_delete(cmd);
-        xSemaphoreGive(g_i2c_mutex);
+    SemaphoreHandle_t mtx = (port == I2C_NUM_1) ? g_i2c2_mutex : g_i2c_mutex;
+    i2c_master_bus_handle_t bus = (port == I2C_NUM_1)
+                                    ? g_i2c1_bus_handle : g_i2c0_bus_handle;
+    if (!bus) { if (out_err) *out_err = ESP_ERR_INVALID_STATE; return 0xFFFF; }
+    if (xSemaphoreTake(mtx, pdMS_TO_TICKS(200)) == pdTRUE) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = addr,
+            .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+        };
+        i2c_master_dev_handle_t dev = NULL;
+        r = i2c_master_bus_add_device(bus, &dev_cfg, &dev);
+        if (r == ESP_OK) {
+            r = i2c_master_transmit_receive(dev, &reg, 1, rx, 2, 50);
+            (void)i2c_master_bus_rm_device(dev);
+        }
+        xSemaphoreGive(mtx);
     }
     if (out_err) *out_err = r;
-    return ((uint16_t)hi << 8) | lo;
+    return ((uint16_t)rx[0] << 8) | rx[1];
 }
 
 static void rtc_cli_dump_whoami(void) {
@@ -373,90 +388,10 @@ static void rtc_cli_dump_whoami(void) {
 }
 
 // ── TEMP_DUMP ───────────────────────────────────────────────────────────────
-static void rtc_cli_dump_temps(void) {
-    printf("[TEMP_DUMP] waking sensors, polling for stable readings...\n");
-
-    // Snapshot enabled state so we only park what we woke.
-    bool had_env  = broker_env_get_enabled();
-    bool had_imu  = broker_imu_get_enabled();
-    bool had_skin = broker_skin_get_enabled();
-
-    if (!had_env)  broker_env_set_enabled(true);
-    if (!had_imu)  broker_imu_set_enabled(true);
-    if (!had_skin) broker_skin_set_enabled(true);
-
-    esp_ts_ensure_init();
-
-    const int   TICK_MS        = 500;
-    const int   TIMEOUT_MS     = 15000;
-    const float STABLE_DELTA_C = 0.5f;
-    const int   STABLE_HITS    = 2;
-
-    float t_tmp = 0, t_bme = 0, t_lsm = 0, t_max = 0, t_esp = 0;
-    float p_tmp = 999, p_bme = 999, p_lsm = 999, p_max = 999, p_esp = 999;
-    int   hits = 0;
-    int   elapsed_ms = 0;
-    bool  timed_out = true;
-
-    vTaskDelay(pdMS_TO_TICKS(300));
-
-    while (elapsed_ms <= TIMEOUT_MS) {
-        broker_env_data_t  e; broker_env_read(&e);
-        broker_skin_data_t s; broker_skin_read(&s);
-
-        t_tmp = s.skin_temp_c;
-        t_bme = e.temperature_c;
-        t_lsm = read_lsm_die_temp();
-        t_max = read_max_die_temp();
-        t_esp = esp_ts_read_c();
-
-        #define VALID_C(v) ((v) > -40.0f && (v) < 120.0f && (v) != 0.0f)
-        bool all_valid = VALID_C(t_tmp) && VALID_C(t_bme) &&
-                         VALID_C(t_lsm) && VALID_C(t_max) && VALID_C(t_esp);
-        #undef VALID_C
-
-        bool all_stable =
-            fabsf(t_tmp - p_tmp) < STABLE_DELTA_C &&
-            fabsf(t_bme - p_bme) < STABLE_DELTA_C &&
-            fabsf(t_lsm - p_lsm) < STABLE_DELTA_C &&
-            fabsf(t_max - p_max) < STABLE_DELTA_C &&
-            fabsf(t_esp - p_esp) < STABLE_DELTA_C;
-
-        if (all_valid && all_stable) {
-            if (++hits >= STABLE_HITS) { timed_out = false; break; }
-        } else {
-            hits = 0;
-        }
-
-        p_tmp = t_tmp; p_bme = t_bme; p_lsm = t_lsm;
-        p_max = t_max; p_esp = t_esp;
-
-        vTaskDelay(pdMS_TO_TICKS(TICK_MS));
-        elapsed_ms += TICK_MS;
-    }
-
-    if (timed_out) {
-        printf("[TEMP_DUMP] TIMEOUT after %d ms -- printing last read anyway:\n",
-               TIMEOUT_MS);
-    } else {
-        printf("[TEMP_DUMP] settled in %d ms\n", elapsed_ms);
-    }
-    printf("  skin (TMP117)      = %6.2f C\n", t_tmp);
-    printf("  air  (BME688)      = %6.2f C\n", t_bme);
-    printf("  imu  (LSM6DSV16X)  = %6.2f C\n", t_lsm);
-    printf("  ppg  (MAX30101)    = %6.2f C\n", t_max);
-    printf("  esp  (ESP32-S3)    = %6.2f C\n", t_esp);
-    {
-        // BQ25619 has no numeric TS ADC -- it only reports the JEITA zone.
-        broker_battery_data_t bd_now; broker_battery_read(&bd_now);
-        printf("  bq   (BQ25619 TS)  = %s (JEITA zone, no numeric °C on this chip)\n",
-               bq25619_ntc_status_str(bd_now.fault));
-    }
-
-    if (!had_env)  broker_env_set_enabled(false);
-    if (!had_imu)  broker_imu_set_enabled(false);
-    if (!had_skin) broker_skin_set_enabled(false);
-}
+// STUBBED Stage 35: the function mixed TMP117 + MAX30101 (now stubbed)
+// with BME688 + LSM + ESP32-S3 temps; the stubbed sources fail
+// VALID_C and force a timeout, so the verb no longer works cleanly.
+// Un-stub by restoring the driver init + this function.
 
 // ── Filesystem helpers ──────────────────────────────────────────────────────
 static void rtc_cli_fs_ls(const char *path) {
@@ -586,7 +521,10 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
     if (startswith_ci(line, "HELP"))      { rtc_cli_print_help();  return; }
     if (startswith_ci(line, "STATUS"))    { rtc_cli_dump_status(); return; }
     if (startswith_ci(line, "WHOAMI"))    { rtc_cli_dump_whoami(); return; }
-    if (startswith_ci(line, "TEMP_DUMP")) { rtc_cli_dump_temps();  return; }
+    if (startswith_ci(line, "TEMP_DUMP")) {
+        printf("[TEMP_DUMP] stubbed at Stage 35 -- TMP117 + MAX30101 drivers off; see Stage_35 doc.\n");
+        return;
+    }
     if (startswith_ci(line, "PM_DUMP"))   { boot_pm_dump_locks();  return; }
     if (startswith_ci(line, "RTC_DUMP"))  { pcf85063_cmd_dump(); return; }
     if (startswith_ci(line, "ENC")) {
@@ -981,92 +919,8 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         return;
     }
     if (startswith_ci(line, "LIGHT")) {
-        const char *arg = line + 5;
-        while (*arg == ' ' || *arg == '\t') arg++;
-
-        if (*arg == 0) {
-            char sum[96];
-            veml6030_cmd_status_summary(sum, sizeof(sum));
-            printf("[LIGHT] %s\n", sum);
-            veml6030_cmd_dump();
-            return;
-        }
-        // Match longer prefixes before shorter ones (BLUE before BR, AUTO
-        // before nothing, etc.). "EN" is only 2 chars and could ambiguate
-        // with a hypothetical "EFFECT" someday -- guard with a trailing
-        // space/EOL check.
-        if (startswith_ci(arg, "AUTO")) {
-            const char *val = arg + 4;
-            while (*val == ' ' || *val == '\t') val++;
-            if (*val == 0) {
-                printf("[LIGHT] auto_brightness = %d\n",
-                       veml6030_cmd_auto_brightness_get() ? 1 : 0);
-            } else if (startswith_ci(val, "ON")) {
-                veml6030_cmd_auto_brightness_set(true);
-                printf("[LIGHT] auto=1 (saved async)\n");
-            } else if (startswith_ci(val, "OFF")) {
-                veml6030_cmd_auto_brightness_set(false);
-                printf("[LIGHT] auto=0 (saved async)\n");
-            } else {
-                printf("[LIGHT] usage: LIGHT AUTO [ON|OFF]\n");
-            }
-            return;
-        }
-        if (startswith_ci(arg, "BLUE")) {
-            const char *val = arg + 4;
-            while (*val == ' ' || *val == '\t') val++;
-            if (*val == 0) {
-                printf("[LIGHT] blue_light_filter = %d\n",
-                       veml6030_cmd_blue_light_get() ? 1 : 0);
-            } else if (startswith_ci(val, "ON")) {
-                veml6030_cmd_blue_light_set(true);
-                printf("[LIGHT] blue=1 (overlay flips on next tile update)\n");
-            } else if (startswith_ci(val, "OFF")) {
-                veml6030_cmd_blue_light_set(false);
-                printf("[LIGHT] blue=0\n");
-            } else {
-                printf("[LIGHT] usage: LIGHT BLUE [ON|OFF]\n");
-            }
-            return;
-        }
-        if (startswith_ci(arg, "BR")) {
-            const char *val = arg + 2;
-            while (*val == ' ' || *val == '\t') val++;
-            if (*val == 0) {
-                printf("[LIGHT] brightness = %u%%\n",
-                       (unsigned)veml6030_cmd_brightness_get());
-            } else {
-                int n = atoi(val);
-                if (n < 1 || n > 100) {
-                    printf("[LIGHT] usage: LIGHT BR <1..100>\n");
-                } else {
-                    esp_err_t r = veml6030_cmd_brightness_set((uint8_t)n);
-                    printf("[LIGHT] brightness=%d%% (%s%s)\n", n,
-                           esp_err_to_name(r),
-                           veml6030_cmd_auto_brightness_get()
-                             ? ", auto still on (saved; visible on AUTO OFF)" : "");
-                }
-            }
-            return;
-        }
-        if (startswith_ci(arg, "EN")) {
-            const char *val = arg + 2;
-            while (*val == ' ' || *val == '\t') val++;
-            if (*val == 0) {
-                printf("[LIGHT] sensor enable = %d\n",
-                       veml6030_cmd_enable_get() ? 1 : 0);
-            } else if (startswith_ci(val, "ON")) {
-                veml6030_cmd_enable_set(true);
-                printf("[LIGHT] enable=1\n");
-            } else if (startswith_ci(val, "OFF")) {
-                veml6030_cmd_enable_set(false);
-                printf("[LIGHT] enable=0\n");
-            } else {
-                printf("[LIGHT] usage: LIGHT EN [ON|OFF]\n");
-            }
-            return;
-        }
-        printf("[LIGHT] usage: LIGHT [EN|AUTO|BLUE [ON|OFF] | BR [<0..100>]]  (no arg = dump)\n");
+        // STUBBED Stage 35: VEML6030 driver off; see Stage_35 doc for un-stub.
+        printf("[LIGHT] stubbed at Stage 35 -- VEML6030 driver not in current build.\n");
         return;
     }
     if (startswith_ci(line, "BATT_TEST")) {

@@ -23,7 +23,9 @@
 #include "bq25619.h"
 #include "data_broker.h"
 #include "max17048.h"
+#include "boot_hw_init.h"    // g_i2c1_bus_handle (Stage 35.2 i2c_master migration)
 #include "boot_power.h"      // g_display_sleep -- skip poll while display off
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -34,6 +36,12 @@
 extern SemaphoreHandle_t g_i2c2_mutex;
 
 static const char *TAG = "BQ25619";
+
+// -- I2C device handle (Stage 35.2) -------------------------------------------
+// Added to g_i2c1_bus_handle in bq25619_init(); all subsequent register I/O
+// goes through this handle. The i2c_port_t param on the public API is kept
+// for signature compatibility but ignored inside the driver.
+static i2c_master_dev_handle_t s_bq_dev = NULL;
 
 #define BATTERY_POLL_MS  1000   // 1 Hz -- spec is "polled via I2C"; faster wastes the bus
 
@@ -47,31 +55,18 @@ const char *bq25619_get_chip_desc(void) { return "Li-ion charger + PMID boost"; 
 
 esp_err_t bq25619_read_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t *val)
 {
+    (void)i2c_num;
     if (!val) return ESP_ERR_INVALID_ARG;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (BQ25619_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (BQ25619_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, val, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    if (!s_bq_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_bq_dev, &reg, 1, val, 1, 20);
 }
 
 esp_err_t bq25619_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t val)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (BQ25619_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, val, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    (void)i2c_num;
+    if (!s_bq_dev) return ESP_ERR_INVALID_STATE;
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(s_bq_dev, buf, 2, 20);
 }
 
 esp_err_t bq25619_read_vbat_mv(i2c_port_t i2c_num, uint16_t *vbat_mv_out)
@@ -184,6 +179,24 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
 {
     ESP_LOGI(TAG, "driver v%s", BQ25619_DRIVER_VERSION);
     int64_t t0 = esp_timer_get_time();
+
+    // Stage 35.2: add self to the i2c_master bus. Bus handle set up by
+    // boot_hw_init's bringup_bus1() before this call. Reject if missing --
+    // that would indicate a bringup-order regression.
+    if (!g_i2c1_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c1_bus_handle NULL -- bringup_bus1 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = BQ25619_ADDR,
+        .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(g_i2c1_bus_handle, &dev_cfg, &s_bq_dev);
+    if (add != ESP_OK) {
+        ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+        return add;
+    }
 
     // Register bit positions used only in init (documented inline, so we don't
     // pollute the header with rarely-used masks):

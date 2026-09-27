@@ -27,9 +27,10 @@
 #include "data_broker.h"
 #include "cross_driver.h"
 #include "ui_subjects.h"       // Stage 31.2: g_env_q for UI drain path
+#include "boot_hw_init.h"      // g_i2c0_bus_handle (Stage 35.3)
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -39,6 +40,9 @@
 static const char *TAG = "BME688";
 
 extern SemaphoreHandle_t g_i2c_mutex;
+
+// -- I2C device handle (Stage 35.3) -------------------------------------------
+static i2c_master_dev_handle_t s_bme_dev = NULL;
 
 // ── Bosch driver instance (file-static) ───────────────────────────────────────
 static struct bme68x_dev   s_dev;
@@ -65,39 +69,25 @@ const char *bme688_get_chip_desc(void) { return "T/H/P/Gas"; }
 static BME68X_INTF_RET_TYPE bme_i2c_read(uint8_t reg_addr, uint8_t *data,
                                           uint32_t len, void *intf_ptr)
 {
-    uint8_t dev_addr = *(uint8_t *)intf_ptr;
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (uint8_t)((dev_addr << 1) | I2C_MASTER_WRITE), true);
-    i2c_master_write_byte(cmd, reg_addr, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (uint8_t)((dev_addr << 1) | I2C_MASTER_READ), true);
-    if (len > 1) {
-        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
-    }
-    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-
-    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
+    (void)intf_ptr;
+    if (!s_bme_dev) return BME68X_E_COM_FAIL;
+    esp_err_t ret = i2c_master_transmit_receive(s_bme_dev, &reg_addr, 1,
+                                                 data, len, 100);
     return (ret == ESP_OK) ? BME68X_INTF_RET_SUCCESS : BME68X_E_COM_FAIL;
 }
 
 static BME68X_INTF_RET_TYPE bme_i2c_write(uint8_t reg_addr, const uint8_t *data,
                                            uint32_t len, void *intf_ptr)
 {
-    uint8_t dev_addr = *(uint8_t *)intf_ptr;
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (uint8_t)((dev_addr << 1) | I2C_MASTER_WRITE), true);
-    i2c_master_write_byte(cmd, reg_addr, true);
-    i2c_master_write(cmd, (uint8_t *)data, len, true);
-    i2c_master_stop(cmd);
-
-    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
+    (void)intf_ptr;
+    if (!s_bme_dev) return BME68X_E_COM_FAIL;
+    // Prepend reg address to payload -- new API needs a single contiguous write.
+    // BME68x writes are typically 1-4 registers so a small stack buffer suffices.
+    uint8_t buf[1 + 16];
+    if (len > sizeof(buf) - 1) return BME68X_E_COM_FAIL;
+    buf[0] = reg_addr;
+    memcpy(&buf[1], data, len);
+    esp_err_t ret = i2c_master_transmit(s_bme_dev, buf, len + 1, 100);
     return (ret == ESP_OK) ? BME68X_INTF_RET_SUCCESS : BME68X_E_COM_FAIL;
 }
 
@@ -116,7 +106,22 @@ static void bme_delay_us(uint32_t period_us, void *intf_ptr)
 esp_err_t bme688_drv_init(int i2c_port)
 {
     ESP_LOGI(TAG, "driver v%s", BME688_DRIVER_VERSION);
-    (void)i2c_port;   // I2C_NUM_0 hardcoded inside callbacks (legacy pattern)
+    (void)i2c_port;
+
+    if (!g_i2c0_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c0_bus_handle NULL -- bringup_bus0 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = s_i2c_addr,
+        .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(g_i2c0_bus_handle, &dev_cfg, &s_bme_dev);
+    if (add != ESP_OK) {
+        ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+        return add;
+    }
 
     s_dev.intf      = BME68X_I2C_INTF;
     s_dev.intf_ptr  = &s_i2c_addr;

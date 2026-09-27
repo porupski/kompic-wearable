@@ -7,13 +7,13 @@ idf_component_register(
     INCLUDE_DIRS 
     "."
     REQUIRES
-        data_broker 
+        data_broker
         lvgl
         lvgl_ui
-        esp_lvgl_port 
-        driver 
-        freertos 
-        esp_timer 
-    PRIV_REQUIRES 
-        boot_logic
+        esp_lvgl_port
+        driver
+        esp_driver_i2c   # Stage 35.2: i2c_master API
+        freertos
+        esp_timer
+        boot_logic       # g_i2c1_bus_handle -- exposed via drv2605.h to consumers
 )

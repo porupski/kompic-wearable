@@ -148,6 +148,12 @@ esp_err_t drv2605_stop(i2c_port_t i2c_num);
 esp_err_t drv2605_set_period(i2c_port_t i2c_num, uint8_t period_reg);
 esp_err_t drv2605_sweep_step(i2c_port_t i2c_num, uint8_t period_reg);
 
+// Stage 35.2: exposes the module-static i2c_master device handle so
+// haptic.c's direct RTP-amp write can transact without duplicating the
+// add-device dance. Returns NULL until drv2605_init runs.
+#include "driver/i2c_master.h"
+i2c_master_dev_handle_t drv2605_get_dev_handle(void);
+
 // ── Identity ──────────────────────────────────────────────────────────────────
 const char *haptic_get_chip_name(void);
 const char *haptic_get_chip_desc(void);

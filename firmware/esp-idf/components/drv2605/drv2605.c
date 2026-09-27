@@ -24,12 +24,22 @@
  */
 
 #include "drv2605.h"
+#include "boot_hw_init.h"        // g_i2c1_bus_handle (Stage 35.2 i2c_master migration)
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "DRV2605";
+
+// -- I2C device handle (Stage 35.2) -------------------------------------------
+// Populated by drv2605_init() on first call; all reg I/O flows through this.
+static i2c_master_dev_handle_t s_drv_dev = NULL;
+
+// Public getter so haptic.c can drive RTP amplitude writes directly instead
+// of duplicating the add-device dance. Returns NULL until drv2605_init runs.
+i2c_master_dev_handle_t drv2605_get_dev_handle(void) { return s_drv_dev; }
 
 // ---------------------------------------------------------------------------
 // Identity
@@ -44,16 +54,17 @@ const char *haptic_get_chip_desc(void) { return "LRA haptic driver"; }
 
 static esp_err_t write_reg(i2c_port_t port, uint8_t reg, uint8_t val)
 {
+    (void)port;
+    if (!s_drv_dev) return ESP_ERR_INVALID_STATE;
     uint8_t buf[2] = { reg, val };
-    return i2c_master_write_to_device(port, DRV2605_I2C_ADDR,
-                                      buf, 2, pdMS_TO_TICKS(20));
+    return i2c_master_transmit(s_drv_dev, buf, 2, 20);
 }
 
 static esp_err_t read_reg(i2c_port_t port, uint8_t reg, uint8_t *out)
 {
-    return i2c_master_write_read_device(port, DRV2605_I2C_ADDR,
-                                        &reg, 1, out, 1,
-                                        pdMS_TO_TICKS(20));
+    (void)port;
+    if (!s_drv_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_drv_dev, &reg, 1, out, 1, 20);
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +75,24 @@ esp_err_t drv2605_init(i2c_port_t port)
 {
     ESP_LOGI(TAG, "driver v%s", DRV2605_DRIVER_VERSION);
     esp_err_t ret;
+
+    // Stage 35.2: add self to the i2c_master bus once (idempotent-guarded).
+    if (!s_drv_dev) {
+        if (!g_i2c1_bus_handle) {
+            ESP_LOGE(TAG, "init: g_i2c1_bus_handle NULL -- bringup_bus1 must run first");
+            return ESP_ERR_INVALID_STATE;
+        }
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = DRV2605_I2C_ADDR,
+            .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+        };
+        esp_err_t add = i2c_master_bus_add_device(g_i2c1_bus_handle, &dev_cfg, &s_drv_dev);
+        if (add != ESP_OK) {
+            ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+            return add;
+        }
+    }
 
     // Sketch-verbatim sequence from 7_demo_field_capture:
     //   MODE=AUTOCAL first (so subsequent config lands inside cal mode),

@@ -8,7 +8,7 @@
 #include "haptic.h"
 #include "data_broker.h"
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"   // Stage 35.2: replaces legacy driver/i2c.h
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
@@ -77,24 +77,16 @@ static const struct { uint8_t reg; const char *name; } k_dump_regs[] = {
     { DRV2605_REG_LRA_PERIOD, "LRA_PERIOD" },
 };
 
-// Local minimal register reader -- drv2605.c doesn't expose a public
-// read_reg helper, and adding one would touch the driver. Duplicating
-// the 6-line I2C read is cheaper than growing the driver surface for
-// a bench-only dump. Migrates to the new API in Batch 1b.
+// Local minimal register reader for the bench dump. Stage 35.2 migrated
+// to i2c_master via drv2605_get_dev_handle() so the whole binary stays on
+// the new API (mixing legacy + new trips ESP-IDF's check_i2c_driver_conflict
+// abort at boot).
 static esp_err_t dump_read_reg(uint8_t reg, uint8_t *val)
 {
     if (!val) return ESP_ERR_INVALID_ARG;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (DRV2605_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (DRV2605_I2C_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, val, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(DRV_I2C_PORT, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    i2c_master_dev_handle_t dev = drv2605_get_dev_handle();
+    if (!dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(dev, &reg, 1, val, 1, 20);
 }
 
 void drv2605_cmd_dump(void)

@@ -1,9 +1,10 @@
 idf_component_register(
+    # Stage 35: tmp117.c dropped -- legacy driver/i2c.h incompatible with new
+    # i2c_master API. Stub provides identity.
     SRCS
-        "tmp117.c"
+        "tmp117_stub.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
         data_broker
-        boot_logic         # g_i2c_mutex
 )

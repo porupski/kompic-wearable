@@ -1,12 +1,10 @@
 idf_component_register(
-    SRCS "veml6030_cmd.c" "veml6030.c" "light_tile.c"
+    # Stage 35: veml6030.c + veml6030_cmd.c + light_tile.c dropped -- legacy
+    # driver/i2c.h incompatible with new i2c_master API. Stub provides identity.
+    SRCS
+        "veml6030_stub.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
-        freertos
         data_broker
-        lvgl
-        lvgl_ui
-    PRIV_REQUIRES
-        boot_logic
 )

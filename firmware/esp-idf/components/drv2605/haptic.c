@@ -35,7 +35,7 @@
 #include "drv2605.h"
 #include "data_broker.h"
 #include "boot_hw_init.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"   // Stage 35.2: replaces legacy driver/i2c.h
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -404,9 +404,11 @@ void task_haptic_fn(void *arg)
                 case HAPTIC_CMD_RTP_AMP:
                     if (!broker_haptic_hw_alive()) break;
                     if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(30)) == pdTRUE) {
-                        uint8_t data[2] = { DRV2605_REG_RTP, cmd.param };
-                        i2c_master_write_to_device(I2C_NUM_1, DRV2605_I2C_ADDR,
-                                                   data, 2, pdMS_TO_TICKS(20));
+                        i2c_master_dev_handle_t dev = drv2605_get_dev_handle();
+                        if (dev) {
+                            uint8_t data[2] = { DRV2605_REG_RTP, cmd.param };
+                            (void)i2c_master_transmit(dev, data, 2, 20);
+                        }
                         xSemaphoreGive(g_i2c2_mutex);
                     }
                     break;

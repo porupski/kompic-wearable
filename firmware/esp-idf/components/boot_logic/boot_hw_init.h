@@ -21,6 +21,7 @@
 #define BOOT_LOGIC_DRIVER_VERSION  "0.4.1"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "driver/i2c_master.h"
 #include "app_nvs.h"
 
 #ifdef __cplusplus
@@ -35,8 +36,18 @@ extern "C" {
 #define BOOT_I2C_FREQ_HZ     400000
 
 // -- I2C mutex handles (defined in boot_hw_init.c) ----------------------------
+// The mutexes stay after the Stage 35 i2c_master migration -- they enforce
+// atomicity across multi-transaction sequences (e.g. BQ+MAX17048 burst).
+// The new API fixes FSM state; the mutex covers concurrency semantics.
 extern SemaphoreHandle_t g_i2c_mutex;
 extern SemaphoreHandle_t g_i2c2_mutex;
+
+// -- I2C master bus handles (Stage 35 migration) ------------------------------
+// Both buses migrated to driver/i2c_master.h in Batches 35.2 / 35.3. The
+// legacy driver/i2c.h codepath is entirely gone (mixing the two on one
+// binary trips a global-ctor abort per ESP-IDF v5.5's `check_i2c_driver_conflict`).
+extern i2c_master_bus_handle_t g_i2c0_bus_handle;
+extern i2c_master_bus_handle_t g_i2c1_bus_handle;
 
 /**
  * @brief Full hardware bringup.
