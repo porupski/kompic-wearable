@@ -29,11 +29,9 @@ static const char *TAG = "BOOT_TASKS";
 // Core 0 - sensor tasks (iv7.1 chip set)
 extern void task_env_fn(void *arg);          // bme688/bme688_drv.c
 extern void task_imu_fn(void *arg);          // lsm6dsv16x/lsm6dsv16x.c
-extern void task_mag_fn(void *arg);          // lis3mdl/lis3mdl.c
-extern void task_mag_cal_fn(void *arg);      // lis3mdl/lis3mdl.c
-extern void task_hr_fn(void *arg);           // max30101/max30101.c
-extern void task_skin_fn(void *arg);         // tmp117/tmp117.c
-extern void task_light_fn(void *arg);        // veml6030/veml6030.c
+// STUBBED Stage 35: task_mag / task_mag_cal / task_hr / task_skin /
+// task_light externs removed alongside their init calls in boot_hw_init.
+// Component sources still build; only the boot-time task spawn is gone.
 extern void task_battery_fn(void *arg);      // bq25619/bq25619.c
 extern void task_rtc_fn(void *arg);          // pcf85063/pcf85063.c
 extern void task_haptic_fn(void *arg);       // drv2605/haptic.c
@@ -75,13 +73,10 @@ typedef struct {
 static const task_entry_t task_table[] = {
 
     // -- CORE 0 - Sensor acquisition ------------------------------------------
+    // STUBBED Stage 35: task_mag/task_magcal/task_hr/task_skin/task_light
+    // rows removed. Un-stub by restoring the extern above + this row.
     { "task_env",    task_env_fn,    4096, 2, 0 },
     { "task_imu",    task_imu_fn,    4096, 4, 0 },
-    { "task_mag",    task_mag_fn,    4096, 4, 0 },
-    { "task_magcal", task_mag_cal_fn,4096, 2, 0 },
-    { "task_hr",     task_hr_fn,     4096, 2, 0 },
-    { "task_skin",   task_skin_fn,   3072, 3, 0 },
-    { "task_light",  task_light_fn,  3072, 3, 0 },
     { "task_bat",    task_battery_fn,3072, 3, 0 },
     { "task_rtc",    task_rtc_fn,    4096, 4, 0 },
     { "task_haptic", task_haptic_fn, 4096, 3, 0 },
@@ -144,7 +139,7 @@ void boot_tasks_start(QueueHandle_t settings_save_q)
     }
 
     ESP_LOGI(TAG, "All tasks created:");
-    ESP_LOGI(TAG, "  Core 0: ENV | IMU | MAG | MAG_CAL | HR | SKIN | LIGHT | BAT | RTC | HAPTIC | ALARM | GPS");
+    ESP_LOGI(TAG, "  Core 0: ENV | IMU | BAT | RTC | HAPTIC | ALARM | GPS  (MAG/HR/SKIN/LIGHT stubbed, see Stage 35)");
     ESP_LOGI(TAG, "  Core 1: FIELD_CAPTURE");
     ESP_LOGI(TAG, "  Unpinned: SHUTDOWN_WATCHER (priority double-click ship mode) | RTC_CLI (stdin SET_TIME/GET_TIME)");
 }

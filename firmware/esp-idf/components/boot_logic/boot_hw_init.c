@@ -12,10 +12,9 @@
 // Driver headers -- each provides an _init(i2c_port_t) or _init(void).
 #include "bme688_drv.h"
 #include "lsm6dsv16x.h"
-#include "lis3mdl.h"
-#include "veml6030.h"
-#include "max30101.h"
-#include "tmp117.h"
+// STUBBED Stage 35: lis3mdl / veml6030 / max30101 / tmp117 drivers not
+// initialised. Component sources still build; boot-time activation only.
+// See Stage_35_Mk1b_I2C_Master_And_Sensor_Trim.md.
 #include "pcf85063.h"
 #include "drv2605.h"
 #include "bq25619.h"
@@ -29,7 +28,7 @@
 #include "mic_pdm.h"
 #include "max_m10s.h"
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"   // Stage 35: sole I2C API for this binary
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -40,57 +39,50 @@ static const char *TAG = "BOOT_HW";
 SemaphoreHandle_t g_i2c_mutex  = NULL;
 SemaphoreHandle_t g_i2c2_mutex = NULL;
 
+// -- I2C master bus handles (Stage 35 migration) ------------------------------
+i2c_master_bus_handle_t g_i2c0_bus_handle = NULL;
+i2c_master_bus_handle_t g_i2c1_bus_handle = NULL;
+
 // backlight_set_brightness() now lives in boot_display.c and forwards to the
 // real CO5300 WRDISBV register when the panel is present. No-op otherwise.
 // lvgl_ui / settings-screen callers see the same API.
 
-// -- I2C bus install helper ---------------------------------------------------
-static esp_err_t install_i2c_bus(i2c_port_t port, int sda, int scl)
+// -- I2C address probe (Bus 0 helper, Stage 35.3) ----------------------------
+static bool i2c0_probe_master(uint8_t addr)
 {
-    i2c_config_t cfg = {
-        .mode             = I2C_MODE_MASTER,
-        .sda_io_num       = sda,
-        .scl_io_num       = scl,
-        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = BOOT_I2C_FREQ_HZ,
-    };
-    esp_err_t err = i2c_param_config(port, &cfg);
-    if (err != ESP_OK) return err;
-    return i2c_driver_install(port, cfg.mode, 0, 0, 0);
-}
-
-// -- I2C address probe (single-byte write, ACK check) -------------------------
-static bool i2c_probe(i2c_port_t port, uint8_t addr)
-{
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(20));
-    i2c_cmd_link_delete(cmd);
-    return err == ESP_OK;
+    return i2c_master_probe(g_i2c0_bus_handle, addr, pdMS_TO_TICKS(20)) == ESP_OK;
 }
 
 // -- Bus 0 (I2C_NUM_0): sensors + RTC on GPIO1/2 -----------------------------
+// Stage 35.3: migrated to driver/i2c_master.h alongside Bus 1. Legacy
+// driver/i2c.h is gone from the whole binary now.
 static void bringup_bus0(void)
 {
-    if (install_i2c_bus(I2C_NUM_0, BOOT_I2C0_SDA_GPIO, BOOT_I2C0_SCL_GPIO) != ESP_OK) {
-        ESP_LOGE(TAG, "I2C0 install failed");
+    i2c_master_bus_config_t bus_cfg = {
+        .clk_source                    = I2C_CLK_SRC_DEFAULT,
+        .i2c_port                      = I2C_NUM_0,
+        .scl_io_num                    = BOOT_I2C0_SCL_GPIO,
+        .sda_io_num                    = BOOT_I2C0_SDA_GPIO,
+        .glitch_ignore_cnt             = 7,
+        .flags.enable_internal_pullup  = true,
+    };
+    esp_err_t err = i2c_new_master_bus(&bus_cfg, &g_i2c0_bus_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C0 install failed (i2c_master): %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(TAG, "I2C0 up on SDA=%d SCL=%d @%d Hz",
-             BOOT_I2C0_SDA_GPIO, BOOT_I2C0_SCL_GPIO, BOOT_I2C_FREQ_HZ);
+    ESP_LOGI(TAG, "I2C0 up on SDA=%d SCL=%d (i2c_master API, per-device speed)",
+             BOOT_I2C0_SDA_GPIO, BOOT_I2C0_SCL_GPIO);
 
     // ---- Probe + init each chip on bus 0 ------------------------------------
-    if (i2c_probe(I2C_NUM_0, 0x76)) {  // BME688
+    if (i2c0_probe_master(0x76)) {  // BME688
         if (bme688_drv_init(I2C_NUM_0) == ESP_OK) {
             broker_env_set_hw_status(true);
             ESP_LOGI(TAG, "  BME688  0x76 OK");
         } else ESP_LOGW(TAG, "  BME688 init failed");
     } else ESP_LOGW(TAG, "  BME688  0x76 NAK (absent or bus fault)");
 
-    if (i2c_probe(I2C_NUM_0, 0x6B)) {  // LSM6DSV16X
+    if (i2c0_probe_master(0x6B)) {  // LSM6DSV16X
         if (lsm6dsv16x_init(I2C_NUM_0) == ESP_OK) {
             broker_imu_set_hw_status(true);
             // Advanced features live on the same chip -- once init passes,
@@ -107,38 +99,12 @@ static void bringup_bus0(void)
         } else ESP_LOGW(TAG, "  LSM6DSV init failed");
     } else ESP_LOGW(TAG, "  LSM6DSV 0x6B NAK (absent or bus fault)");
 
-    if (i2c_probe(I2C_NUM_0, 0x1C)) {  // LIS3MDLTR
-        if (lis3mdl_init(I2C_NUM_0) == ESP_OK) {
-            broker_mag_set_hw_status(true);
-            ESP_LOGI(TAG, "  LIS3MDL 0x1C OK");
-        } else ESP_LOGW(TAG, "  LIS3MDL init failed");
-    } else ESP_LOGW(TAG, "  LIS3MDL 0x1C NAK (absent or bus fault)");
+    // STUBBED Stage 35: LIS3MDL (0x1C), VEML6030 (0x10), MAX30101 (0x57),
+    // TMP117 (0x48/0x49) drivers not initialised. Chips remain on the bus;
+    // WHOAMI still probes them. Un-stub by restoring the init blocks +
+    // task entries + tile registrations. See Stage_35 doc.
 
-    if (i2c_probe(I2C_NUM_0, 0x10)) {  // VEML6030
-        if (veml6030_init(I2C_NUM_0) == ESP_OK) {
-            broker_light_set_hw_status(true);
-            ESP_LOGI(TAG, "  VEML6030 0x10 OK");
-        } else ESP_LOGW(TAG, "  VEML6030 init failed");
-    } else ESP_LOGW(TAG, "  VEML6030 0x10 NAK (absent or bus fault)");
-
-    if (i2c_probe(I2C_NUM_0, 0x57)) {  // MAX30101
-        if (max30101_init(I2C_NUM_0) == ESP_OK) {
-            broker_hr_set_hw_status(true);
-            ESP_LOGI(TAG, "  MAX30101 0x57 OK");
-        } else ESP_LOGW(TAG, "  MAX30101 init failed");
-    } else ESP_LOGW(TAG, "  MAX30101 0x57 NAK (absent or bus fault)");
-
-    // TMP117 at 0x48 or 0x49 (ADDR strap dependent)
-    uint8_t tmp_addr = i2c_probe(I2C_NUM_0, 0x48) ? 0x48
-                      : (i2c_probe(I2C_NUM_0, 0x49) ? 0x49 : 0);
-    if (tmp_addr) {
-        if (tmp117_init(I2C_NUM_0) == ESP_OK) {
-            broker_skin_set_hw_status(true);
-            ESP_LOGI(TAG, "  TMP117  0x%02X OK", tmp_addr);
-        } else ESP_LOGW(TAG, "  TMP117 init failed");
-    } else ESP_LOGW(TAG, "  TMP117  0x48/0x49 NAK (absent or bus fault)");
-
-    if (i2c_probe(I2C_NUM_0, 0x51)) {  // PCF85063A RTC
+    if (i2c0_probe_master(0x51)) {  // PCF85063A RTC
         if (pcf85063_init(I2C_NUM_0) == ESP_OK) {
             broker_rtc_set_hw_status(true);
             ESP_LOGI(TAG, "  PCF85063 0x51 OK");
@@ -146,24 +112,40 @@ static void bringup_bus0(void)
     } else ESP_LOGW(TAG, "  PCF85063 0x51 NAK (absent or bus fault)");
 }
 
-// -- Bus 1 (I2C_NUM_1): DRV2605 + BQ25619 on GPIO4/5 -------------------------
+// -- Bus 1 (I2C_NUM_1): DRV2605 + BQ25619 + MAX17048 on GPIO4/5 --------------
+// Stage 35.2: migrated to driver/i2c_master.h. Kills the chronic
+// bq25619_read_reg -> i2c_hw_fsm_reset -> IRQ WDT crash that plagued
+// fw 0.4.68..0.4.89 under any nav stress.
+static bool i2c1_probe_master(uint8_t addr)
+{
+    return i2c_master_probe(g_i2c1_bus_handle, addr, pdMS_TO_TICKS(20)) == ESP_OK;
+}
+
 static void bringup_bus1(void)
 {
-    if (install_i2c_bus(I2C_NUM_1, BOOT_I2C1_SDA_GPIO, BOOT_I2C1_SCL_GPIO) != ESP_OK) {
-        ESP_LOGE(TAG, "I2C1 install failed");
+    i2c_master_bus_config_t bus_cfg = {
+        .clk_source                    = I2C_CLK_SRC_DEFAULT,
+        .i2c_port                      = I2C_NUM_1,
+        .scl_io_num                    = BOOT_I2C1_SCL_GPIO,
+        .sda_io_num                    = BOOT_I2C1_SDA_GPIO,
+        .glitch_ignore_cnt             = 7,
+        .flags.enable_internal_pullup  = true,
+    };
+    esp_err_t err = i2c_new_master_bus(&bus_cfg, &g_i2c1_bus_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C1 install failed (i2c_master): %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(TAG, "I2C1 up on SDA=%d SCL=%d @%d Hz",
-             BOOT_I2C1_SDA_GPIO, BOOT_I2C1_SCL_GPIO, BOOT_I2C_FREQ_HZ);
+    ESP_LOGI(TAG, "I2C1 up on SDA=%d SCL=%d (i2c_master API, per-device speed)",
+             BOOT_I2C1_SDA_GPIO, BOOT_I2C1_SCL_GPIO);
 
-    if (i2c_probe(I2C_NUM_1, 0x5A)) {  // DRV2605L
-        // Probe-only: haptic_init() below runs the full drv2605_init with
-        // auto-cal exactly once, holding g_i2c2_mutex, so we skip it here.
+    if (i2c1_probe_master(0x5A)) {  // DRV2605L
+        // Probe-only: haptic_init() below adds the device + runs auto-cal.
         broker_haptic_set_hw_status(true);
         ESP_LOGI(TAG, "  DRV2605 0x5A ACK (init deferred to haptic_init)");
     } else ESP_LOGW(TAG, "  DRV2605 0x5A NAK (absent or bus fault)");
 
-    if (i2c_probe(I2C_NUM_1, 0x6A)) {  // BQ25619
+    if (i2c1_probe_master(0x6A)) {  // BQ25619
         if (bq25619_init(I2C_NUM_1) == ESP_OK) {
             broker_battery_set_hw_status(true);
             ESP_LOGI(TAG, "  BQ25619 0x6A OK");
@@ -172,7 +154,7 @@ static void bringup_bus1(void)
 
     // MAX17048 fuel gauge -- self-powered from CELL. NAK without a battery
     // is expected; ACK confirms both wiring AND that VBAT+ reaches the chip.
-    if (i2c_probe(I2C_NUM_1, 0x36)) {
+    if (i2c1_probe_master(0x36)) {
         if (max17048_init(I2C_NUM_1) == ESP_OK) {
             ESP_LOGI(TAG, "  MAX17048 0x36 OK");
         } else ESP_LOGW(TAG, "  MAX17048 init failed");
