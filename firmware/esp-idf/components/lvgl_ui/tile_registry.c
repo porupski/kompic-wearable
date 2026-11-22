@@ -9,18 +9,19 @@
  *   2. Add one entry to s_tiles[] with &foo_tile_desc
  *   Done. Nothing else changes in lvgl_ui.c or anywhere else.
  *
- * Current order (Stage 35 sensor-trim, 2026-09-27):
+ * Current order (Stage 38 flight recorder, 2026-10-04):
  *   Col  0: System                          — home tile (settings hub)
- *   Col  1: GPS      (MAX-M10S)             — default start tile (active-iteration)
- *   Col  2: Env      (BME688)
- *   Col  3: Haptic   (DRV2605)
- *   Col  4: RTC      (PCF85063)
- *   Col  5: IMU      (LSM6DSV16X)
+ *   Col  1: Flight   (FCM_FLIGHT recorder)  — default start tile (active-iteration)
+ *   Col  2: GPS      (MAX-M10S)
+ *   Col  3: Env      (BME688)
+ *   Col  4: Haptic   (DRV2605)
+ *   Col  5: RTC      (PCF85063)
+ *   Col  6: IMU      (LSM6DSV16X)
  *
  * Workflow rule: the tile currently being iterated on gets moved to
  * Col 1 so bench access is a single swipe-down (via DEFAULT_TILE_COL
- * = 1 in ui_settings_screen.c). GPS is at Col 1 during MAX-M10S
- * bring-up + antenna work; the next active tile takes its spot.
+ * = 1 in ui_settings_screen.c). Flight is at Col 1 for Stage 38 flight
+ * recording work; GPS moves to Col 2 for the duration.
  *
  * Removed: ECG tile (Stage 24 side quest, 2026-09-10). No ECG on Kompic
  * per feedback_no_ecg_on_kompic.
@@ -40,14 +41,16 @@
 #include "rtc_tile.h"
 #include "imu_tile.h"
 #include "env_tile.h"
+#include "flight_tile.h"
 
 static tile_entry_t s_tiles[] = {
     { .desc = &system_tile_desc  },  // Col 0 — home / settings hub
-    { .desc = &gps_tile_desc     },  // Col 1 — default start (active-iteration slot)
-    { .desc = &env_tile_desc     },  // Col 2
-    { .desc = &haptic_tile_desc  },  // Col 3
-    { .desc = &rtc_tile_desc     },  // Col 4
-    { .desc = &imu_tile_desc     },  // Col 5
+    { .desc = &flight_tile_desc  },  // Col 1 — Stage 38 active-iteration slot
+    { .desc = &gps_tile_desc     },  // Col 2
+    { .desc = &env_tile_desc     },  // Col 3
+    { .desc = &haptic_tile_desc  },  // Col 4
+    { .desc = &rtc_tile_desc     },  // Col 5
+    { .desc = &imu_tile_desc     },  // Col 6
 };
 
 #define TILE_COUNT  (sizeof(s_tiles) / sizeof(s_tiles[0]))

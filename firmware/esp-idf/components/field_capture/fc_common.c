@@ -50,6 +50,7 @@ const mode_info_t MODE_INFO[FCM_COUNT] = {
     { "mlccol",  26,  0,  0 },
     { "tapdbg",  26,  0, 26 },
     { "usb",      0, 26, 26 },
+    { "flight",   0, 26,  0 },   // Stage 38: shares env's green slot.
 };
 
 const fc_mode_t FC_LSM_SUBMENU[] = {
@@ -195,6 +196,8 @@ void ensure_sd(void) {
     try_mkdir("/sd/data/qvar");
     try_mkdir("/sd/data/steps");
     try_mkdir("/sd/data/mlc_train");
+    try_mkdir("/sd/data/gps");        // Stage 36 -- fc_gps_log CSV writer
+    try_mkdir("/sd/data/flight");     // Stage 38 -- FCM_FLIGHT CSV writer
     ESP_LOGI(TAG, "SD mounted (%ld MiB free)", (long)sdcard_get_free_mib());
 }
 // Kept as a thin wrapper for backward compat -- delegates to the pcf85063
@@ -392,6 +395,11 @@ void wake_sensors_for_mode(fc_mode_t m) {
         // as zeros -- silently useless training data.
         broker_imu_set_enabled(true);
         break;
+    // FCM_FLIGHT intentionally omitted: Stage 38 revision -- flight is
+    // driven from the RECORD button on the flight tile, which calls
+    // fc_flight_cmd_start() which enables IMU/mag/env brokers directly.
+    // The FCM_FLIGHT mode-cycle entry is a no-op in field_capture.c,
+    // so this helper is never called with that mode.
     default: break;
     }
 }

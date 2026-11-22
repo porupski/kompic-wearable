@@ -12,8 +12,9 @@
 // Driver headers -- each provides an _init(i2c_port_t) or _init(void).
 #include "bme688_drv.h"
 #include "lsm6dsv16x.h"
-// STUBBED Stage 35: lis3mdl / veml6030 / max30101 / tmp117 drivers not
-// initialised. Component sources still build; boot-time activation only.
+#include "lis3mdl.h"       // Stage 38: back online (ported to i2c_master)
+// STUBBED Stage 35: veml6030 / max30101 / tmp117 drivers not initialised.
+// Component sources still build; boot-time activation only.
 // See Stage_35_Mk1b_I2C_Master_And_Sensor_Trim.md.
 #include "pcf85063.h"
 #include "drv2605.h"
@@ -99,10 +100,17 @@ static void bringup_bus0(void)
         } else ESP_LOGW(TAG, "  LSM6DSV init failed");
     } else ESP_LOGW(TAG, "  LSM6DSV 0x6B NAK (absent or bus fault)");
 
-    // STUBBED Stage 35: LIS3MDL (0x1C), VEML6030 (0x10), MAX30101 (0x57),
-    // TMP117 (0x48/0x49) drivers not initialised. Chips remain on the bus;
-    // WHOAMI still probes them. Un-stub by restoring the init blocks +
-    // task entries + tile registrations. See Stage_35 doc.
+    if (i2c0_probe_master(0x1C)) {  // LIS3MDL (Stage 38 un-stub)
+        if (lis3mdl_init(I2C_NUM_0) == ESP_OK) {
+            broker_mag_set_hw_status(true);
+            ESP_LOGI(TAG, "  LIS3MDL 0x1C OK");
+        } else ESP_LOGW(TAG, "  LIS3MDL init failed");
+    } else ESP_LOGW(TAG, "  LIS3MDL 0x1C NAK (absent or bus fault)");
+
+    // STUBBED Stage 35 (LIS3MDL un-stubbed Stage 38): VEML6030 (0x10),
+    // MAX30101 (0x57), TMP117 (0x48/0x49) drivers not initialised. Chips
+    // remain on the bus; WHOAMI still probes them. Un-stub by restoring
+    // the init blocks + task entries + tile registrations. See Stage_35.
 
     if (i2c0_probe_master(0x51)) {  // PCF85063A RTC
         if (pcf85063_init(I2C_NUM_0) == ESP_OK) {

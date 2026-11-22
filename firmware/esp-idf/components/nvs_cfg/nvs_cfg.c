@@ -31,6 +31,7 @@ static const char *TAG = "NVS_CFG";
 #define K_SYS_BATT_TEST "batt_test"   // u8; 0 = normal, 1 = battery-test mode
 #define K_SYS_BLACKBOX  "blackbox"    // u8; 0 = off, 1 = BLACKBOX telemetry
 #define K_SYS_BB_CAD    "bb_cadence"  // u16; sample cadence in seconds (default 10)
+#define K_SYS_GPS_LOG   "gps_log"     // u8; 0 = off, 1 = 1 Hz GPS CSV logger (Stage 36)
 #define K_SYS_REC_AUDIO "rec_audio"   // u8; 0 = skip mic annot, 1 = 5 s pre-roll (default)
 #define K_SYS_LAST_FW   "last_fw"     // str; MAJOR.MINOR.PATCH of last-seen fw
 #define K_SYS_PC_SYNC_OFF "pc_sync_off_us"  // i64; signed ECG offset µs
@@ -251,6 +252,27 @@ esp_err_t nvs_cfg_sys_set_bb_cadence_s(uint16_t s)
     return err;
 }
 
+bool nvs_cfg_sys_get_gps_log(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS_SYS, NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t v = 0;
+    nvs_get_u8(h, K_SYS_GPS_LOG, &v);
+    nvs_close(h);
+    return v != 0;
+}
+
+esp_err_t nvs_cfg_sys_set_gps_log(bool enabled)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_SYS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_SYS_GPS_LOG, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
 bool nvs_cfg_sys_get_rec_audio(void)
 {
     // Default TRUE -- preserves the historical 5 s mic annotation pre-roll
@@ -457,6 +479,8 @@ void nvs_cfg_dump(int i2c_num)
     printf("[SYS]   blackbox  = %d  cadence=%u s  (BLACKBOX ON|OFF, BLACKBOX_CADENCE <s>)\n",
            nvs_cfg_sys_get_blackbox() ? 1 : 0,
            (unsigned)nvs_cfg_sys_get_bb_cadence_s());
+    printf("[SYS]   gps_log   = %d  (GPS_LOG ON|OFF -- 1 Hz CSV to /sd/data/gps/, reboot to apply)\n",
+           nvs_cfg_sys_get_gps_log() ? 1 : 0);
     printf("[SYS]   rec_audio = %d  (toggle: REC_AUDIO ON|OFF -- skip 5 s mic annotation)\n",
            nvs_cfg_sys_get_rec_audio() ? 1 : 0);
     printf("[SYS]   lvgl_force= %d  (toggle: LVGL_FORCE ON|OFF -- bring LVGL up without a panel, reboot to apply)\n",

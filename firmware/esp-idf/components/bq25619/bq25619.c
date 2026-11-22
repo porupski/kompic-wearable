@@ -25,6 +25,7 @@
 #include "max17048.h"
 #include "boot_hw_init.h"    // g_i2c1_bus_handle (Stage 35.2 i2c_master migration)
 #include "boot_power.h"      // g_display_sleep -- skip poll while display off
+#include "ui_subjects.h"     // Stage 32.3: g_battery_q for UI drain path
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -205,12 +206,19 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
     //                    charging outside the safe temperature window.
     //   REG_TIMER  (0x05) bits 5:4 = WATCHDOG (00 = disable) -- otherwise the
     //                    ~40 s charge watchdog trips and halts charging.
+    //   REG_TIMER  (0x05) bit 3   = EN_TIMER (safety timer) -- default 1 trips
+    //                    the fast-charge timer (5-20 h, default ~5 h) and
+    //                    halts charging with fault 0x30 until a VBUS cycle.
+    //                    Observed on bench 2026-09-29: fault=0x30 after a few
+    //                    hours plugged in, cleared only by reboot. Clear so
+    //                    the pack charges indefinitely when VBUS is present.
     //   REG_MISC   (0x07) bit 5 = BATFET_DIS -- previous ship-mode invocation
     //                    may have left this set; clear so charging can resume
     //                    even if the operator plugged USB back without a
     //                    full VBUS-removal cycle.
     const uint8_t IINDPM_TS_IGNORE  = (1 << 6);
     const uint8_t TIMER_WD_MASK     = (0x3 << 4);
+    const uint8_t TIMER_EN_TIMER    = (1 << 3);
     const uint8_t MISC_BATFET_DIS   = (1 << 5);
 
     if (xSemaphoreTake(g_i2c2_mutex, pdMS_TO_TICKS(300)) != pdTRUE) {
@@ -234,11 +242,14 @@ esp_err_t bq25619_init(i2c_port_t i2c_num)
         bq25619_write_reg(i2c_num, BQ25619_REG_IINDPM, iindpm & (uint8_t)~IINDPM_TS_IGNORE);
     }
 
-    // 2. Disable charge watchdog. Without this, the BQ halts charging ~40 s
-    //    after VBUS presence unless the host kicks the watchdog periodically.
+    // 2. Disable charge watchdog + safety timer. WD alone trips ~40 s after
+    //    VBUS unless kicked. Safety timer alone trips ~5 h into a charge and
+    //    halts with fault 0x30 (observed on Mk1b after multi-hour sessions).
+    //    Clearing both bits lets the pack charge indefinitely when plugged.
     uint8_t timer = 0;
     if (bq25619_read_reg(i2c_num, BQ25619_REG_TIMER, &timer) == ESP_OK) {
-        bq25619_write_reg(i2c_num, BQ25619_REG_TIMER, timer & (uint8_t)~TIMER_WD_MASK);
+        uint8_t clean = timer & (uint8_t)~(TIMER_WD_MASK | TIMER_EN_TIMER);
+        bq25619_write_reg(i2c_num, BQ25619_REG_TIMER, clean);
     }
 
     // 3. Clear BATFET_DIS if a prior session's ship-mode left it latched.
@@ -263,7 +274,7 @@ out:
     }
 
     int64_t t1 = esp_timer_get_time();
-    ESP_LOGI(TAG, "%s init OK @ 0x%02X, REG_PART=0x%02X (WHO_AM_I bits [DSV]), boot=%lld us  [WD off, TS enabled, BATFET on]",
+    ESP_LOGI(TAG, "%s init OK @ 0x%02X, REG_PART=0x%02X (WHO_AM_I bits [DSV]), boot=%lld us  [WD off, safety-timer off, TS enabled, BATFET on]",
              bq25619_get_chip_name(), BQ25619_ADDR, part, (long long)(t1 - t0));
     return ESP_OK;
 }
@@ -419,6 +430,13 @@ void task_battery_fn(void *arg)
             .boost_enabled = (poc & BQ25619_POC_BOOST_EN) != 0,
         };
         broker_battery_write(&bd);
+
+        // Stage 32.3: push to UI drain queue so battery_tile labels refresh via
+        // subject binding without the tile polling broker. Overwrite semantics;
+        // tile only cares about the freshest sample.
+        if (g_battery_q) {
+            (void)xQueueOverwrite(g_battery_q, &bd);
+        }
 
         vTaskDelayUntil(&last, period);
     }

@@ -62,7 +62,11 @@ volatile bool g_gps_sync_requested = false;
 #define UART_RX_BUF_SIZE      2048
 #define UART_TX_BUF_SIZE      2048
 #define BULK_READ_SIZE        512
-#define UBX_MAX_PAYLOAD       128
+// MON-VER on MAX-M10S (ROM SPG 5.10) returns 190 B (30 SW + 10 HW +
+// 5 * 30 extensions). 128 silently dropped every PING at UBX_LEN_HI.
+// 256 covers the observed max with headroom; NAV-PVT (92), MON-RF
+// (28), NAV-TIMEUTC (28) all fit comfortably.
+#define UBX_MAX_PAYLOAD       256
 #define NMEA_DEBUG_STALE_MS   5000U
 
 // -- UBX sync bytes & class/id used today -------------------------------------
@@ -81,6 +85,25 @@ volatile bool g_gps_sync_requested = false;
 #define UBX_KEY_MSGOUT_UBX_MON_RF_UART1  0x2091035au
 #define UBX_KEY_MSGOUT_UBX_NAV_PVT_UART1 0x20910007u
 #define UBX_LAYER_RAM  0x01
+
+// -- Stage 36: CFG-SIGNAL keys (enable-all-GNSS) ------------------------------
+// All L (boolean) type -> use ubx_send_valset_u1(..., 1). M10 supports
+// concurrent GPS + GLO + GAL + BDS + QZSS + SBAS. Some SKUs may NAK the
+// less-common signal keys; the top-level *_ENA is what matters most.
+#define UBX_KEY_SIGNAL_GPS_ENA         0x1031001fu
+#define UBX_KEY_SIGNAL_GPS_L1CA_ENA    0x10310001u
+#define UBX_KEY_SIGNAL_SBAS_ENA        0x10310020u
+#define UBX_KEY_SIGNAL_SBAS_L1CA_ENA   0x10310005u
+#define UBX_KEY_SIGNAL_GAL_ENA         0x10310021u
+#define UBX_KEY_SIGNAL_GAL_E1_ENA      0x10310007u
+#define UBX_KEY_SIGNAL_BDS_ENA         0x10310022u
+#define UBX_KEY_SIGNAL_BDS_B1_ENA      0x1031000du
+#define UBX_KEY_SIGNAL_BDS_B1C_ENA     0x1031000fu
+#define UBX_KEY_SIGNAL_QZSS_ENA        0x10310024u
+#define UBX_KEY_SIGNAL_QZSS_L1CA_ENA   0x10310012u
+#define UBX_KEY_SIGNAL_QZSS_L1S_ENA    0x10310014u
+#define UBX_KEY_SIGNAL_GLO_ENA         0x10310025u
+#define UBX_KEY_SIGNAL_GLO_L1_ENA      0x10310018u
 
 // -- Internal state -----------------------------------------------------------
 typedef struct {
@@ -260,10 +283,25 @@ static void parse_rmc(char *sentence)
 // timestamp. Anything older than SNR_MAX_AGE_MS is ignored when computing
 // the summary, so a sat that drops out stops contributing within ~2.5s.
 #define SNR_HISTORY_SIZE  40
-#define SNR_MAX_AGE_MS    2500U
+// Stage 36: was 2500 ms hard-coded; weak-signal outdoor bench had the
+// tile flashing dark on every second-long GSV gap. Default now 6000 ms
+// (matches Ivan's bench pref), runtime-tunable via GPS_SNR_WIN CLI.
+#define SNR_MAX_AGE_MS_DEFAULT  6000U
+#define SNR_MAX_AGE_MS_MIN       500U
+#define SNR_MAX_AGE_MS_MAX     30000U
 
 static struct { uint8_t snr; uint32_t rx_ms; } s_snr_hist[SNR_HISTORY_SIZE];
-static uint8_t s_snr_hist_idx = 0;
+static uint8_t  s_snr_hist_idx    = 0;
+static uint32_t s_snr_max_age_ms  = SNR_MAX_AGE_MS_DEFAULT;
+
+uint32_t max_m10s_get_snr_window_ms(void) { return s_snr_max_age_ms; }
+
+void max_m10s_set_snr_window_ms(uint32_t ms)
+{
+    if (ms < SNR_MAX_AGE_MS_MIN) ms = SNR_MAX_AGE_MS_MIN;
+    if (ms > SNR_MAX_AGE_MS_MAX) ms = SNR_MAX_AGE_MS_MAX;
+    s_snr_max_age_ms = ms;
+}
 
 static void snr_push(uint8_t snr)
 {
@@ -307,7 +345,7 @@ void max_m10s_get_snr_summary(max_m10s_snr_summary_t *out)
     for (uint8_t i = 0; i < SNR_HISTORY_SIZE; i++) {
         uint8_t snr = s_snr_hist[i].snr;
         if (snr == 0) continue;
-        if ((now - s_snr_hist[i].rx_ms) > SNR_MAX_AGE_MS) continue;
+        if ((now - s_snr_hist[i].rx_ms) > s_snr_max_age_ms) continue;
         fresh[nfresh++] = snr;
         if (snr > out->max_cn0) out->max_cn0 = snr;
     }
@@ -620,6 +658,44 @@ esp_err_t max_m10s_enable_monrf(uint8_t rate)
     return r;
 }
 
+// -- Stage 36: enable every GNSS the M10 supports. Sends one VALSET frame per
+// key; ACKs arrive asynchronously (see UBX-ACK-* in feed loop). Unsupported
+// per-signal keys on some M10 SKUs will NAK -- that's fine, the top-level
+// *_ENA is what actually gates the constellation.
+esp_err_t max_m10s_enable_all_gnss(void)
+{
+    static const struct { uint32_t key; const char *name; } keys[] = {
+        { UBX_KEY_SIGNAL_GPS_ENA,       "GPS"        },
+        { UBX_KEY_SIGNAL_GPS_L1CA_ENA,  "GPS_L1CA"   },
+        { UBX_KEY_SIGNAL_SBAS_ENA,      "SBAS"       },
+        { UBX_KEY_SIGNAL_SBAS_L1CA_ENA, "SBAS_L1CA"  },
+        { UBX_KEY_SIGNAL_GAL_ENA,       "GAL"        },
+        { UBX_KEY_SIGNAL_GAL_E1_ENA,    "GAL_E1"     },
+        { UBX_KEY_SIGNAL_BDS_ENA,       "BDS"        },
+        { UBX_KEY_SIGNAL_BDS_B1_ENA,    "BDS_B1"     },
+        { UBX_KEY_SIGNAL_BDS_B1C_ENA,   "BDS_B1C"    },
+        { UBX_KEY_SIGNAL_QZSS_ENA,      "QZSS"       },
+        { UBX_KEY_SIGNAL_QZSS_L1CA_ENA, "QZSS_L1CA"  },
+        { UBX_KEY_SIGNAL_QZSS_L1S_ENA,  "QZSS_L1S"   },
+        { UBX_KEY_SIGNAL_GLO_ENA,       "GLO"        },
+        { UBX_KEY_SIGNAL_GLO_L1_ENA,    "GLO_L1"     },
+    };
+    const size_t n = sizeof(keys) / sizeof(keys[0]);
+
+    ESP_LOGI(TAG, "Enabling all GNSS constellations (%zu VALSETs)...", n);
+    esp_err_t worst = ESP_OK;
+    for (size_t i = 0; i < n; i++) {
+        esp_err_t r = ubx_send_valset_u1(UBX_LAYER_RAM, keys[i].key, 1);
+        if (r != ESP_OK) {
+            ESP_LOGW(TAG, "  %s (0x%08lx): send FAILED",
+                     keys[i].name, (unsigned long)keys[i].key);
+            worst = r;
+        }
+    }
+    ESP_LOGI(TAG, "GNSS enable-all frames flushed -- watch UBX-ACK-* in log");
+    return worst;
+}
+
 // -- UBX diagnostics (TX-alive probe + per-class receive counters) -----------
 static max_m10s_ubx_counters_t s_ubx_ctr = {0};
 
@@ -699,7 +775,18 @@ void max_m10s_feed_ubx_byte(uint8_t b)
         s_ubx.len = b; ubx_ck_add(b); s_ubx.state = UBX_LEN_HI; break;
     case UBX_LEN_HI:
         s_ubx.len |= ((uint16_t)b << 8); ubx_ck_add(b);
-        if (s_ubx.len > UBX_MAX_PAYLOAD) { ubx_reset(); }
+        if (s_ubx.len > UBX_MAX_PAYLOAD) {
+            // Real UBX classes on M10 fit in 0x01..0x28. A B5 62 pattern
+            // appearing mid-NMEA burst produces garbage class/id/len that
+            // look identical to a real oversize frame. Only WARN when the
+            // frame looks plausibly-UBX; silently drop obvious false-syncs
+            // so boot logs stay clean (see Stage 36 §Batch 4 polish).
+            if (s_ubx.cls <= 0x28 && s_ubx.len <= 4096) {
+                ESP_LOGW(TAG, "UBX oversize drop: cls=0x%02x id=0x%02x len=%u (max=%u)",
+                         s_ubx.cls, s_ubx.id, s_ubx.len, (unsigned)UBX_MAX_PAYLOAD);
+            }
+            ubx_reset();
+        }
         else if (s_ubx.len == 0)         { s_ubx.state = UBX_CK_A; }
         else                              { s_ubx.payload_idx = 0; s_ubx.state = UBX_PAYLOAD; }
         break;
@@ -904,7 +991,11 @@ esp_err_t max_m10s_init(void)
     // (antenna status + noise + AGC).
     (void)max_m10s_enable_monrf(1);
 
-    ESP_LOGI(TAG, "%s init OK (dynmodel=PED, MON-RF on)",
+    // Stage 36: turn on every constellation the M10 supports so weak-signal
+    // days have as many sats as possible above the ~25 dBHz decode floor.
+    (void)max_m10s_enable_all_gnss();
+
+    ESP_LOGI(TAG, "%s init OK (dynmodel=PED, MON-RF on, all GNSS on)",
              max_m10s_get_chip_name());
     return ESP_OK;
 }

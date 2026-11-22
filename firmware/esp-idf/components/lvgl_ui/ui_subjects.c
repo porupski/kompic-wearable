@@ -133,6 +133,51 @@ MAG_STR_PAIR(mag_cal_btn);
 
 QueueHandle_t g_mag_q = NULL;
 
+// ---------------------------------------------------------------------------
+// HAPTIC-domain storage (Batch 32.2)
+// ---------------------------------------------------------------------------
+#define HAPTIC_STR_BUF_LEN  48
+
+lv_subject_t subj_haptic_status_str;
+lv_subject_t subj_haptic_freq_str;
+lv_subject_t subj_haptic_sweep_info_str;
+lv_subject_t subj_haptic_enabled;
+
+#define HAPTIC_STR_PAIR(name) \
+    static char s_buf_##name[HAPTIC_STR_BUF_LEN]; \
+    static char s_buf_##name##_prev[HAPTIC_STR_BUF_LEN]
+
+HAPTIC_STR_PAIR(haptic_status);
+HAPTIC_STR_PAIR(haptic_freq);
+HAPTIC_STR_PAIR(haptic_sweep_info);
+
+QueueHandle_t g_haptic_q = NULL;
+
+// ---------------------------------------------------------------------------
+// BATTERY-domain storage (Batch 32.3)
+// ---------------------------------------------------------------------------
+#define BAT_STR_BUF_LEN  32
+
+lv_subject_t subj_bat_vbat_str;
+lv_subject_t subj_bat_soc_str;
+lv_subject_t subj_bat_chrg_str;
+lv_subject_t subj_bat_pg_str;
+lv_subject_t subj_bat_fault_str;
+lv_subject_t subj_bat_boost_str;
+
+#define BAT_STR_PAIR(name) \
+    static char s_buf_##name[BAT_STR_BUF_LEN]; \
+    static char s_buf_##name##_prev[BAT_STR_BUF_LEN]
+
+BAT_STR_PAIR(bat_vbat);
+BAT_STR_PAIR(bat_soc);
+BAT_STR_PAIR(bat_chrg);
+BAT_STR_PAIR(bat_pg);
+BAT_STR_PAIR(bat_fault);
+BAT_STR_PAIR(bat_boost);
+
+QueueHandle_t g_battery_q = NULL;
+
 static bool         s_initialised = false;
 static bool         s_drain_started = false;
 static lv_timer_t  *s_drain_timer = NULL;
@@ -518,6 +563,126 @@ static void obs_mag_enabled_to_broker(lv_observer_t *obs, lv_subject_t *subj)
 }
 
 // ---------------------------------------------------------------------------
+// HAPTIC drain formatter (Batch 32.2)
+// ---------------------------------------------------------------------------
+// Status / freq / sweep_info text only. Bar + button visibility stay in the
+// tile update() because they're conditional show/hide ops, not label text.
+static void haptic_format_and_publish(const broker_haptic_data_t *d)
+{
+    char tmp[HAPTIC_STR_BUF_LEN];
+    bool hw_alive = broker_haptic_hw_alive();
+
+    // -- Status line ---------------------------------------------------------
+    if (!hw_alive) {
+        lv_subject_copy_string(&subj_haptic_status_str, "OFFLINE");
+    } else if (!d->enabled) {
+        lv_subject_copy_string(&subj_haptic_status_str, "Disabled");
+    } else if (d->sweep_countdown) {
+        lv_subject_copy_string(&subj_haptic_status_str, "IMU Cal: hold still");
+    } else if (d->sweep_active) {
+        lv_subject_copy_string(&subj_haptic_status_str, "Sweeping...");
+    } else if (d->calibrating) {
+        lv_subject_copy_string(&subj_haptic_status_str, "Auto-cal running...");
+    } else if (d->calibrated) {
+        lv_subject_copy_string(&subj_haptic_status_str, "Calibrated " LV_SYMBOL_OK);
+    } else {
+        lv_subject_copy_string(&subj_haptic_status_str, "Not Calibrated");
+    }
+
+    // -- Frequency -----------------------------------------------------------
+    if (d->calibrated && d->resonant_freq_hz > 0.0f) {
+        snprintf(tmp, sizeof(tmp), "Freq: %.1f Hz", (double)d->resonant_freq_hz);
+    } else {
+        snprintf(tmp, sizeof(tmp), "Freq: --- Hz");
+    }
+    lv_subject_copy_string(&subj_haptic_freq_str, tmp);
+
+    // -- Sweep info line -----------------------------------------------------
+    if (d->sweep_countdown) {
+        snprintf(tmp, sizeof(tmp), "Place flat... %ds",
+                 (int)d->sweep_countdown_sec);
+        lv_subject_copy_string(&subj_haptic_sweep_info_str, tmp);
+    } else if (d->sweep_active) {
+        snprintf(tmp, sizeof(tmp), "Step %d/%d  %.0f Hz  amp:%.3f",
+                 (int)(d->sweep_step + 1), DRV2605_SWEEP_STEPS,
+                 (double)d->sweep_current_hz,
+                 (double)d->sweep_last_amp);
+        lv_subject_copy_string(&subj_haptic_sweep_info_str, tmp);
+    } else {
+        lv_subject_copy_string(&subj_haptic_sweep_info_str, "");
+    }
+
+    lv_subject_set_int(&subj_haptic_enabled, d->enabled ? 1 : 0);
+
+    ESP_LOGV(TAG, "haptic published: enabled=%d cal=%d sweep=%d freq=%.1f",
+             d->enabled ? 1 : 0, d->calibrated ? 1 : 0,
+             d->sweep_active ? 1 : 0, (double)d->resonant_freq_hz);
+}
+
+// ---------------------------------------------------------------------------
+// BATTERY drain formatter (Batch 32.3)
+// ---------------------------------------------------------------------------
+static const char *k_chrg_state[] = { "Idle", "Pre-charge", "Fast charge", "Done" };
+
+static void battery_format_and_publish(const broker_battery_data_t *d)
+{
+    char tmp[BAT_STR_BUF_LEN];
+
+    if (d->last_update_ms == 0) {
+        lv_subject_copy_string(&subj_bat_vbat_str,  "Vbat:   --.-- V");
+        lv_subject_copy_string(&subj_bat_soc_str,   "Fuel:    --- %");
+        lv_subject_copy_string(&subj_bat_chrg_str,  "State:  ---");
+        lv_subject_copy_string(&subj_bat_pg_str,    "Power:  ---");
+        lv_subject_copy_string(&subj_bat_fault_str, "Fault:  0x--");
+        lv_subject_copy_string(&subj_bat_boost_str, "Boost:  ---");
+        return;
+    }
+
+    snprintf(tmp, sizeof(tmp), "Vbat:   %.2f V", (double)d->voltage);
+    lv_subject_copy_string(&subj_bat_vbat_str, tmp);
+
+    snprintf(tmp, sizeof(tmp), "Fuel:    %u %%", (unsigned)d->percentage);
+    lv_subject_copy_string(&subj_bat_soc_str, tmp);
+
+    const char *cs = (d->charge_state < 4) ? k_chrg_state[d->charge_state] : "???";
+    snprintf(tmp, sizeof(tmp), "State:  %s", cs);
+    lv_subject_copy_string(&subj_bat_chrg_str, tmp);
+
+    snprintf(tmp, sizeof(tmp), "Power:  %s",
+             d->power_good ? "USB OK" : "Battery only");
+    lv_subject_copy_string(&subj_bat_pg_str, tmp);
+
+    snprintf(tmp, sizeof(tmp), "Fault:  0x%02X", (unsigned)d->fault);
+    lv_subject_copy_string(&subj_bat_fault_str, tmp);
+
+    snprintf(tmp, sizeof(tmp), "Boost:  %s",
+             d->boost_enabled ? "ON (5V PMID)" : "OFF");
+    lv_subject_copy_string(&subj_bat_boost_str, tmp);
+
+    ESP_LOGV(TAG, "battery published: v=%.2f soc=%u chrg=%u fault=0x%02x",
+             (double)d->voltage, (unsigned)d->percentage,
+             (unsigned)d->charge_state, (unsigned)d->fault);
+}
+
+static void obs_haptic_enabled_to_broker(lv_observer_t *obs, lv_subject_t *subj)
+{
+    (void)obs;
+    bool desired = (lv_subject_get_int(subj) != 0);
+    if (broker_haptic_get_enabled() != desired) {
+        broker_haptic_set_enabled(desired);
+        // Push a fresh snapshot so haptic_format_and_publish sees the new
+        // enabled state on the next drain tick. haptic.c's write_broker is
+        // event-driven (sweep/cal) and otherwise might not fire for minutes.
+        if (g_haptic_q) {
+            broker_haptic_data_t hd = {0};
+            broker_haptic_read(&hd);
+            (void)xQueueOverwrite(g_haptic_q, &hd);
+        }
+        ESP_LOGD(TAG, "haptic switch -> broker_haptic_set_enabled(%d)", desired ? 1 : 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Master drain (runs on LVGL task under port lock every 200 ms)
 // ---------------------------------------------------------------------------
 static void drain_cb(lv_timer_t *t)
@@ -546,6 +711,18 @@ static void drain_cb(lv_timer_t *t)
     if (g_mag_q && xQueueReceive(g_mag_q, &mag_sample, 0) == pdTRUE) {
         mag_format_and_publish(&mag_sample);
         ESP_LOGD(TAG, "drain: mag sample consumed");
+    }
+
+    broker_haptic_data_t haptic_sample;
+    if (g_haptic_q && xQueueReceive(g_haptic_q, &haptic_sample, 0) == pdTRUE) {
+        haptic_format_and_publish(&haptic_sample);
+        ESP_LOGD(TAG, "drain: haptic sample consumed");
+    }
+
+    broker_battery_data_t battery_sample;
+    if (g_battery_q && xQueueReceive(g_battery_q, &battery_sample, 0) == pdTRUE) {
+        battery_format_and_publish(&battery_sample);
+        ESP_LOGD(TAG, "drain: battery sample consumed");
     }
 }
 
@@ -723,10 +900,67 @@ void kw_ui_subjects_init(void)
         }
     }
 
+    // -- HAPTIC domain (Batch 32.2) --
+    strncpy(s_buf_haptic_status,     "Not Calibrated", HAPTIC_STR_BUF_LEN - 1);
+    strncpy(s_buf_haptic_freq,       "Freq: --- Hz",   HAPTIC_STR_BUF_LEN - 1);
+    strncpy(s_buf_haptic_sweep_info, "",               HAPTIC_STR_BUF_LEN - 1);
+
+    lv_subject_init_string(&subj_haptic_status_str, s_buf_haptic_status,
+                           s_buf_haptic_status_prev, HAPTIC_STR_BUF_LEN,
+                           s_buf_haptic_status);
+    lv_subject_init_string(&subj_haptic_freq_str, s_buf_haptic_freq,
+                           s_buf_haptic_freq_prev, HAPTIC_STR_BUF_LEN,
+                           s_buf_haptic_freq);
+    lv_subject_init_string(&subj_haptic_sweep_info_str, s_buf_haptic_sweep_info,
+                           s_buf_haptic_sweep_info_prev, HAPTIC_STR_BUF_LEN,
+                           s_buf_haptic_sweep_info);
+
+    lv_subject_init_int(&subj_haptic_enabled, 0);
+    lv_subject_add_observer(&subj_haptic_enabled,
+                            obs_haptic_enabled_to_broker, NULL);
+
+    if (g_haptic_q == NULL) {
+        g_haptic_q = xQueueCreate(1, sizeof(broker_haptic_data_t));
+        if (g_haptic_q == NULL) {
+            ESP_LOGE(TAG, "init: xQueueCreate(g_haptic_q) FAILED");
+            return;
+        }
+    }
+
+    // -- BATTERY domain (Batch 32.3) --
+    strncpy(s_buf_bat_vbat,  "Vbat:   --.-- V", BAT_STR_BUF_LEN - 1);
+    strncpy(s_buf_bat_soc,   "Fuel:    --- %",  BAT_STR_BUF_LEN - 1);
+    strncpy(s_buf_bat_chrg,  "State:  ---",     BAT_STR_BUF_LEN - 1);
+    strncpy(s_buf_bat_pg,    "Power:  ---",     BAT_STR_BUF_LEN - 1);
+    strncpy(s_buf_bat_fault, "Fault:  0x--",    BAT_STR_BUF_LEN - 1);
+    strncpy(s_buf_bat_boost, "Boost:  ---",     BAT_STR_BUF_LEN - 1);
+
+    lv_subject_init_string(&subj_bat_vbat_str, s_buf_bat_vbat,
+                           s_buf_bat_vbat_prev, BAT_STR_BUF_LEN, s_buf_bat_vbat);
+    lv_subject_init_string(&subj_bat_soc_str, s_buf_bat_soc,
+                           s_buf_bat_soc_prev, BAT_STR_BUF_LEN, s_buf_bat_soc);
+    lv_subject_init_string(&subj_bat_chrg_str, s_buf_bat_chrg,
+                           s_buf_bat_chrg_prev, BAT_STR_BUF_LEN, s_buf_bat_chrg);
+    lv_subject_init_string(&subj_bat_pg_str, s_buf_bat_pg,
+                           s_buf_bat_pg_prev, BAT_STR_BUF_LEN, s_buf_bat_pg);
+    lv_subject_init_string(&subj_bat_fault_str, s_buf_bat_fault,
+                           s_buf_bat_fault_prev, BAT_STR_BUF_LEN, s_buf_bat_fault);
+    lv_subject_init_string(&subj_bat_boost_str, s_buf_bat_boost,
+                           s_buf_bat_boost_prev, BAT_STR_BUF_LEN, s_buf_bat_boost);
+
+    if (g_battery_q == NULL) {
+        g_battery_q = xQueueCreate(1, sizeof(broker_battery_data_t));
+        if (g_battery_q == NULL) {
+            ESP_LOGE(TAG, "init: xQueueCreate(g_battery_q) FAILED");
+            return;
+        }
+    }
+
     s_initialised = true;
     ESP_LOGI(TAG, "init: env(5) + gps(9 str + 2 int) + imu(10 str + 1 int) + "
-                  "mag(4 str + 1 int) subjects created; "
-                  "g_env_q + g_gps_q + g_imu_q + g_mag_q up");
+                  "mag(4 str + 1 int) + haptic(3 str + 1 int) + bat(6 str) "
+                  "subjects created; "
+                  "g_env_q + g_gps_q + g_imu_q + g_mag_q + g_haptic_q + g_battery_q up");
 }
 
 void kw_ui_subjects_start_drain(void)

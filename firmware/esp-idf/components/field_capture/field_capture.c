@@ -336,6 +336,18 @@ void task_field_capture_fn(void *arg) {
                 } else if (s_mode == FCM_TAP_DBG) {
                     run_tap_dbg_mode();
                     s_state = ST_STANDBY;
+                } else if (s_mode == FCM_FLIGHT) {
+                    // Stage 38: flight is driven from the RECORD button on
+                    // the flight tile (and the CLI `FLIGHT START` verb).
+                    // Flight shares env's green RGB slot so the colour-coded
+                    // mode-cycle click is ambiguous -- deliberately a no-op
+                    // here. Must NOT fall through to run_recording_for_
+                    // current_mode() (that would fire a long buzz +
+                    // park_all_modal_sensors in the middle of an active
+                    // session).
+                    ESP_LOGI(TAG, "FCM_FLIGHT click ignored -- use the RECORD "
+                                  "button on the flight tile");
+                    s_state = ST_STANDBY;
                 } else if (s_mode == FCM_USB_MSC) {
                     // Close any recording sessions cleanly before handing the
                     // SD host to USB. usb_msc_run_until_exit() reboots on

@@ -141,6 +141,20 @@ uint16_t nvs_cfg_sys_get_bb_cadence_s(void);
 esp_err_t nvs_cfg_sys_set_bb_cadence_s(uint16_t s);
 
 /**
+ * @brief GPS-telemetry CSV logger flag (Stage 36).
+ *
+ * When true, on boot fc_gps_log spawns a 1 Hz writer to
+ * /sd/data/gps/gps_<datetime>.csv. Independent of BLACKBOX -- can run
+ * simultaneously. Row includes SNR summary, MON-RF (noise/AGC/ant),
+ * fix state, UBX per-class counters, and 1PPS count.
+ *
+ * Default: false. Toggle via serial "GPS_LOG ON" / "GPS_LOG OFF".
+ * Reboot required to enter/leave the mode.
+ */
+bool nvs_cfg_sys_get_gps_log(void);
+esp_err_t nvs_cfg_sys_set_gps_log(bool enabled);
+
+/**
  * @brief Audio-annotation pre-roll flag.
  *
  * When TRUE (default), entering FCM_ENV / FCM_MOTION plays 3 beeps then records

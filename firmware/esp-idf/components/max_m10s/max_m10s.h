@@ -38,7 +38,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define MAX_M10S_DRIVER_VERSION  "0.2.0"
+#define MAX_M10S_DRIVER_VERSION  "0.3.2"
 #include "esp_err.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -189,6 +189,14 @@ esp_err_t   max_m10s_enable_monrf(uint8_t rate);
 void        max_m10s_get_monrf(max_m10s_monrf_t *out);
 const char *max_m10s_ant_status_name(uint8_t ant_status);
 
+/**
+ * @brief Enable every GNSS constellation the M10 supports (GPS, GLO, GAL,
+ *        BDS, QZSS, SBAS) + their L1 signal keys. Sends CFG-SIGNAL-*_ENA
+ *        VALSETs to RAM layer. Auto-called from init; also exposed for
+ *        the GPS_GNSS_ALL CLI verb.
+ */
+esp_err_t max_m10s_enable_all_gnss(void);
+
 // -- NMEA GSV-derived signal-strength summary --------------------------------
 // Populated from NMEA GSV sentences (default output, no UBX config needed).
 // A satellite with an SNR entry ages out after ~2.5s so dropped sats stop
@@ -202,6 +210,12 @@ typedef struct {
 } max_m10s_snr_summary_t;
 
 void max_m10s_get_snr_summary(max_m10s_snr_summary_t *out);
+
+// Stage 36: SNR aging window (ms). Samples older than this are dropped
+// from the summary. Default 6000; range 500..30000. Hot-tunable via CLI
+// so the tile smoothness can be dialled per-bench.
+uint32_t max_m10s_get_snr_window_ms(void);
+void     max_m10s_set_snr_window_ms(uint32_t ms);
 
 // -- UBX diagnostics ----------------------------------------------------------
 // Counters incremented on every valid UBX frame received. Zero-cost when

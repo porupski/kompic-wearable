@@ -22,7 +22,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define DRV2605_DRIVER_VERSION  "0.2.0"
+#define DRV2605_DRIVER_VERSION  "0.2.1"
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

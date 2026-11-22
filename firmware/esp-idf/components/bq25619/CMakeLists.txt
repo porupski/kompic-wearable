@@ -12,6 +12,7 @@ idf_component_register(
         data_broker
         lvgl
         esp_lvgl_port
+        lvgl_ui           # Batch 32.3: g_battery_q (ui_subjects.h) producer path
         boot_logic        # g_display_sleep + g_i2c1_bus_handle
         max17048          # BQ REG_VBAT ADC unusable on iv8.0; use fuel gauge VCELL/SOC
     WHOLE_ARCHIVE  # bq25619_cmd.c has no intra-archive caller; force link so

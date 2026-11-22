@@ -35,6 +35,7 @@
 #include "drv2605.h"
 #include "data_broker.h"
 #include "boot_hw_init.h"
+#include "ui_subjects.h"           // Stage 32.2: g_haptic_q for UI drain path
 #include "driver/i2c_master.h"   // Stage 35.2: replaces legacy driver/i2c.h
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -237,6 +238,13 @@ static void write_broker(bool calibrating, bool countdown, uint8_t countdown_sec
     bd.sweep_countdown    = countdown;
     bd.sweep_countdown_sec = countdown_sec;
     broker_haptic_write(&bd);
+
+    // Stage 32.2: push to UI drain queue so haptic_tile labels (status / freq /
+    // sweep_info) refresh via subject binding without the tile polling the
+    // broker. Overwrite semantics -- tile only ever cares about the freshest.
+    if (g_haptic_q) {
+        (void)xQueueOverwrite(g_haptic_q, &bd);
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -78,6 +78,13 @@ typedef enum {
                        // TinyUSB MSC, host sees a removable drive. Second
                        // click or USB unplug -> esp_restart() (fresh state).
                        // See components/usb_msc/ for the bricking-risk story.
+    // -- Stage 38 addition -------------------------------------------------
+    FCM_FLIGHT,        // Flight-recording mode: LSM + LIS + BME (+ GPS when
+                       // fix) time-stamped CSV at 120 Hz on SD. Encoder
+                       // click starts; second click stops. Shares ENV's
+                       // green RGB slot (flight is env's broader cousin).
+                       // CSV format v1 per docs/build_info/Mk2_intel/
+                       // CSV_Standard.md.
     FCM_COUNT,
 } fc_mode_t;
 

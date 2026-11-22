@@ -44,6 +44,7 @@
 #include "pcf85063.h"
 #include "nvs_cfg.h"
 #include "lsm6dsv16x.h"
+#include "fc_flight.h"
 
 static const char *TAG = "FC_CLI";
 
@@ -117,6 +118,7 @@ static void rtc_cli_dump_nvs(void) {
 static const char *k_help_lines[] = {
     "AUTOSHDN [<min>|OFF]             auto-shutdown minutes (0/OFF = perma-on, default 120, reboot to apply)",
     "FLASH [ON|OFF|<0..100>]          flashlight LED (bypass encoder; no arg = show state)",
+    "FLIGHT [START|STOP]              flight recorder (no arg = status)",
     "NVS                              dump every persisted NVS record (on-demand)",
     "BATT_TEST [ON|OFF]               enter battery-test mode on next boot (no arg = state)",
     "BLACKBOX [ON|OFF]                background telemetry logger (reboot to start/stop)",
@@ -134,6 +136,9 @@ static const char *k_help_lines[] = {
     "GPS_PING                         send UBX-MON-VER poll; check GPS_UBX_STATS for mon_ver++ within a second",
     "GPS_UBX_STATS                    per-class UBX frame receive counters (0 across the board = TX broken)",
     "GPS_SNR                          NMEA GSV-derived signal summary (top-4 CN0, sats in view)",
+    "GPS_GNSS_ALL                     (re-)enable every supported GNSS (GPS+GLO+GAL+BDS+QZSS+SBAS); watch ack_ack",
+    "GPS_LOG [ON|OFF]                 1 Hz CSV logger to /sd/data/gps/gps_<datetime>.csv (reboot to apply)",
+    "GPS_SNR_WIN [<ms>]               SNR aging window (default 6000 ms, range 500..30000) -- hot; no reboot",
     "GPS_VIEW [normal|photo|toggle]   switch GPS tile between telemetry + photo layouts (no arg = state)",
     "HAPTIC [EN|PLAY <n>|CAL|SWEEP START|STOP|UI [<n>]]  (no arg = dump)",
     "HELP                             this list",
@@ -677,6 +682,40 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
                "Unplug USB to finish shutdown.\n");
         return;
     }
+    if (startswith_ci(line, "FLIGHT")) {
+        // Stage 38: flight recorder control surface. Mirrors the RECORD
+        // button on the flight tile ([[project_cli_ui_two_way_pattern]]).
+        const char *arg = line + 6;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        const fc_flight_state_t *fs = fc_flight_get_state();
+        if (startswith_ci(arg, "START")) {
+            int r = fc_flight_cmd_start();
+            switch (r) {
+            case  0: printf("[FLIGHT] started\n"); break;
+            case -1: printf("[FLIGHT] already active\n"); break;
+            case -2: printf("[FLIGHT] SD / CSV open failed\n"); break;
+            case -3: printf("[FLIGHT] task spawn failed\n"); break;
+            default: printf("[FLIGHT] start failed (%d)\n", r); break;
+            }
+        } else if (startswith_ci(arg, "STOP")) {
+            int r = fc_flight_cmd_stop();
+            if (r == 0) printf("[FLIGHT] stop requested (will close CSV)\n");
+            else        printf("[FLIGHT] no active session\n");
+        } else if (*arg == 0) {
+            printf("[FLIGHT] active=%d elapsed_s=%lu samples=%lu "
+                   "write_err=%lu sd_ok=%d sd_free=%luMiB gps_fix=%d\n",
+                   fs->active ? 1 : 0,
+                   (unsigned long)fs->elapsed_s,
+                   (unsigned long)fs->sample_count,
+                   (unsigned long)fs->write_errors,
+                   fs->sd_ok ? 1 : 0,
+                   (unsigned long)fs->sd_free_mib,
+                   fs->gps_fix);
+        } else {
+            printf("[FLIGHT] usage: FLIGHT [START|STOP]\n");
+        }
+        return;
+    }
     if (startswith_ci(line, "FLASH")) {
         /* Direct flashlight toggle. Bypasses the FCM_FLASHLIGHT mode-cycle
          * so the LED works while the encoder is offline on the iv8.0 unit.
@@ -1143,6 +1182,60 @@ static void rtc_cli_handle_line(char *line, int64_t t_recv_us) {
         printf("      sats_with_snr = %u\n", s.sats_with_snr);
         printf("      max CN0       = %u dBHz\n", s.max_cn0);
         printf("      top-4 avg     = %u dBHz\n", s.top4_avg_cn0);
+        return;
+    }
+    if (startswith_ci(line, "GPS_SNR_WIN")) {
+        const char *arg = line + strlen("GPS_SNR_WIN");
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (*arg == 0) {
+            printf("[GPS] SNR window = %lu ms (default 6000, range 500..30000)\n",
+                   (unsigned long)max_m10s_get_snr_window_ms());
+        } else {
+            uint32_t ms = (uint32_t)strtoul(arg, NULL, 10);
+            max_m10s_set_snr_window_ms(ms);
+            printf("[GPS] SNR window -> %lu ms (live; no reboot needed)\n",
+                   (unsigned long)max_m10s_get_snr_window_ms());
+        }
+        return;
+    }
+    if (startswith_ci(line, "GPS_LOG")) {
+        const char *arg = line + 7;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (startswith_ci(arg, "ON")) {
+            esp_err_t r = nvs_cfg_sys_set_gps_log(true);
+            printf("[GPSLOG] gps_log=1 (%s). Reboot to start task -> /sd/data/gps/gps_<datetime>.csv\n",
+                   esp_err_to_name(r));
+        } else if (startswith_ci(arg, "OFF")) {
+            esp_err_t r = nvs_cfg_sys_set_gps_log(false);
+            printf("[GPSLOG] gps_log=0 (%s). Reboot to stop task.\n", esp_err_to_name(r));
+        } else if (*arg == 0) {
+            printf("[GPSLOG] gps_log = %d (1 Hz CSV, /sd/data/gps/)\n",
+                   nvs_cfg_sys_get_gps_log() ? 1 : 0);
+        } else {
+            printf("[GPSLOG] usage: GPS_LOG [ON|OFF]  (no arg = show state)\n");
+        }
+        return;
+    }
+    if (startswith_ci(line, "GPS_GNSS_ALL")) {
+        max_m10s_ubx_counters_t before = {0};
+        max_m10s_get_ubx_counters(&before);
+
+        esp_err_t r = max_m10s_enable_all_gnss();
+        if (r != ESP_OK) {
+            printf("[GPS] GNSS_ALL: send returned %s (some frames may still have gone)\n",
+                   esp_err_to_name(r));
+        }
+
+        // Give the chip ~500 ms to ACK/NAK all 14 frames.
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        max_m10s_ubx_counters_t after = {0};
+        max_m10s_get_ubx_counters(&after);
+        uint32_t new_ack = after.ack_ack - before.ack_ack;
+        uint32_t new_nak = after.ack_nak - before.ack_nak;
+        printf("[GPS] GNSS_ALL: sent 14 VALSETs -> ACK+%lu NAK+%lu in 500 ms\n",
+               (unsigned long)new_ack, (unsigned long)new_nak);
+        printf("      (some per-signal keys may NAK on this SKU -- system-level *_ENA is what matters)\n");
         return;
     }
     if (startswith_ci(line, "TOUCH")) {

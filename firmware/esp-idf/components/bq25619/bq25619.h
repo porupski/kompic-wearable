@@ -30,7 +30,7 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define BQ25619_DRIVER_VERSION  "0.2.0"
+#define BQ25619_DRIVER_VERSION  "0.2.2"
 #include "esp_err.h"
 #include "driver/i2c.h"
 #include <stdint.h>

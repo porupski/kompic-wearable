@@ -33,11 +33,13 @@ idf_component_register(
         max_m10s
         lis3mdl
         drv2605
+        bq25619         # Batch 32.3: broker_battery_data_t for ui_subjects
         lsm6dsv16x
         bme688
         max30101
         alarm
         sdcard              # screenshot writes to SD
+        field_capture       # Stage 38: tile_registry includes flight_tile.h
 
         esp_timer
         driver

@@ -216,6 +216,11 @@ void run_tap_dbg_mode(void);
 // spec §CSV for the column schema.
 void run_ppg_bcg_mode(void);
 
+// Flight recording (fc_flight.c, Stage 38) is background-task-driven;
+// start / stop / state live in fc_flight.h, called from the tile button
+// and the CLI `FLIGHT` verb. Nothing from field_capture.c needs to call
+// into fc_flight.c directly -- the FCM_FLIGHT mode-cycle entry is a no-op.
+
 // ── Battery test + shared telemetry (fc_battery_test.c) ─────────────────────
 void     esp_ts_ensure_init(void);
 float    esp_ts_read_c(void);
@@ -230,6 +235,7 @@ uint8_t idle_pct_sample(idle_pct_state_t *st);
 
 void run_battery_test_mode(void);
 void task_blackbox_fn(void *arg);
+void task_gps_log_fn(void *arg);       // Stage 36 -- fc_gps_log.c
 
 // ── Shutdown watcher (fc_shutdown.c) ────────────────────────────────────────
 void watcher_ship_mode(void);

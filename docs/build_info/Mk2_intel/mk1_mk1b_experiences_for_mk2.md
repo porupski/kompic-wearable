@@ -135,6 +135,53 @@ components.**
 PIFA on the PCB itself is cheaper but takes tuning; wire antenna is
 the classic hack. Titanium case (see §4) may constrain choice.
 
+### 3.1 GPS antenna -- lessons from Mk1b (Stage 36 close)
+
+Mk1b uses a BAT Wireless BWGNSCNX8-8W2 (8×8×2 mm ceramic patch,
+RHCP, 1 dBi typ, 50 Ω). On the bench post-epoxy-removal we could
+never get more than ~30 dBHz peak / 16 dBHz mean CN0, and never a
+fix, outdoors under clear sky. Analysis in
+`Mk1b_build_reports/Stage_36_Mk1b_GPS_Signal_Debug.md` identifies
+four stacked losses (~6-15 dB below datasheet):
+
+1. **No proper ground-plane counterpoise.** Chip patch antennas
+   are spec'd on ~70×70 mm ground planes; they need continuous
+   copper (≥30×30 mm) directly under them or radiation efficiency
+   collapses. Mk1b mounted the antenna *off* the PCB on a coax stub,
+   so the PCB ground could not act as counterpoise.
+2. **Wrong orientation.** RHCP main beam is perpendicular to the
+   ceramic face. Mounted vertically (perpendicular to PCB), the
+   beam points at the ground, not the sky.
+3. **1.5 cm coax stub without matching network** -- unknown loss +
+   detune.
+4. **Epoxy potting** was a minor player (~3 dB); mounting was the
+   dominant loss.
+
+**For Mk2, pick ONE of:**
+- **Chip patch antenna, done right.** Directly SMD-solder on the PCB,
+  face-up (sky-facing), with continuous ground plane ≥30×30 mm under
+  it AND the specified keep-out zone (no traces, no components) per
+  vendor reference design. Matching network at the feed. Cheapest
+  path if PCB real-estate allows.
+- **PIFA / chassis antenna** (what commodity smartwatches actually
+  ship). A stamped metal strip or PCB trace F-shape driven from a
+  single feed point, with the PCB ground copper serving as the
+  radiator. Doesn't need a keep-out zone -- the ground IS the
+  radiator. Tolerates tiny volumes and irregular case shapes. Apple
+  Watch uses the digital crown / bezel as part of the GPS antenna
+  this way. Cheap chinese GPS smartwatches use a spring-finger
+  contact from a PCB pad to a bezel-ring for the same reason. Needs
+  RF tuning (VNA + trimming) but no ground-plane real-estate.
+- **U.FL / IPEX external connector** to a proper GPS antenna. Simplest
+  reliable option: any active or passive GPS antenna with a coax
+  pigtail. Skips the design problem entirely, at the cost of BOM +
+  case complexity.
+
+**Rule that Mk1b taught us:** *never mount a chip patch antenna on a
+stub off the PCB.* If space is tight enough that you can't fit the
+antenna on the PCB with proper ground copper, switch to a PIFA or
+external-connector approach instead.
+
 ---
 
 ## 4. Case + enclosure progression

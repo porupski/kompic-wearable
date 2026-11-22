@@ -273,6 +273,164 @@ Stage 31 close; extra ~4 KB from IMU + MAG subject buffers + formatters).
 
 **Bench verdict:** *(fill in after flash)*
 
+---
+
+### 7.1-close -- Batch 32.1 confirmed landed 2026-10-02
+
+Re-audit against the current tree (not actually re-flashed; just verified
+that the Batch 32.1 contract is already met):
+- `imu_tile.c:114` has `lv_obj_bind_checked(s_sw_power, &subj_imu_enabled)`.
+- `imu_tile.c:121-201` has `lv_label_bind_text` for every data label.
+- `lsm6dsv16x.c:382-384` already does `xQueueOverwrite(g_imu_q, &bd)` and
+  the "disabled snapshot" edge push.
+- `compass_tile.c:133/149/156/163/214` mirror the pattern for mag.
+- `lis3mdl.c:334-336` + `:362/380/386/395` push to `g_mag_q`.
+- `ui_subjects.c` has `imu_format_and_publish` + `mag_format_and_publish`
+  + the two observers + queue creates.
+
+So Batch 32.1 silently landed in a prior session and the Stage 32 doc
+just hadn't been updated. Marking as done without a dedicated flash.
+
+### 7.2 -- Batch 32.2 flash (fw 0.4.96)
+
+**What landed:**
+- `ui_subjects.{c,h}`:
+  - New HAPTIC domain: 3 string subjects (status, freq, sweep_info) +
+    1 int (`subj_haptic_enabled`) + `g_haptic_q` queue.
+  - `haptic_format_and_publish()` builds status/freq/sweep_info from the
+    broker snapshot, deriving the status string from the state hierarchy
+    (hw -> enabled -> countdown -> active -> calibrating -> calibrated).
+  - Two-way observer `obs_haptic_enabled_to_broker` writes broker on
+    switch tap AND pushes a fresh snapshot to `g_haptic_q` so the label
+    updates on next tick (write_broker is event-driven and may not fire
+    for minutes otherwise).
+  - Init log line extended: `... + haptic(3 str + 1 int) subjects
+    created; g_env_q + g_gps_q + g_imu_q + g_mag_q + g_haptic_q up`.
+  - Drain cb has new `broker_haptic_data_t haptic_sample` branch.
+- `haptic.c`:
+  - Includes `ui_subjects.h`.
+  - After `broker_haptic_write(&bd)` -> `xQueueOverwrite(g_haptic_q, &bd)`.
+    One site (sweep/calibration state changes); event-driven not periodic.
+- `haptic_tile.c`:
+  - 3 labels now `lv_label_bind_text`-bound: status, freq, sweep_info.
+  - Switch uses `lv_obj_bind_checked(s_sw_power, &subj_haptic_enabled)`.
+  - `cb_power` kept but reduced to a single `haptic_play(ui_effect)` --
+    the broker sync goes through the observer. No more s_syncing_power
+    guard needed.
+  - `haptic_tile_update()` shrunk from ~130 lines to ~65. Owns LED
+    colour, status-label colour tint, sweep-info label colour tint,
+    amplitude-bar value+visibility, SET-FREQ button visibility, IMU-CAL
+    button enable. No `lv_label_set_text` calls remain.
+  - Tile init primes `g_haptic_q` with current broker state so the
+    first drain tick fills the labels before the first sweep event.
+- Not touched: effect roller (keeps explicit cb_roller_changed +
+  cb_confirm_effect pattern; subject-binding `lv_roller` adds re-entry
+  pain without clear benefit).
+
+**Scope deferral:** `light_tile` was originally paired with haptic in
+Batch 32.2 for the "exercise two-way params" theme (brightness slider,
+auto-br toggle, blue-light toggle). Skipped this flash because VEML6030
+is stubbed per Stage 35; UI binding to zero-producer data is pure
+busywork until the driver returns. Will fold back into whichever batch
+un-stubs VEML6030.
+
+**Flash-gate (what Ivan tests):**
+- Boot log: `UI_SUBJ: init: env(5) + gps(9 str + 2 int) + imu(10 str +
+  1 int) + mag(4 str + 1 int) + haptic(3 str + 1 int) subjects
+  created; g_env_q + g_gps_q + g_imu_q + g_mag_q + g_haptic_q up`.
+- Boot log: `BQ25619 init OK ... [WD off, safety-timer off, TS enabled,
+  BATFET on]` (companion item, see §7.2b below).
+- Haptic tile shows "Not Calibrated" / "Freq: --- Hz" / empty sweep-info
+  initially. Toggle switch: haptic buzz fires, status flips to "Disabled"
+  / "Calibrated ✓" via the drain within one tick (~200 ms). Tap IMU
+  CAL: countdown appears in sweep_info ("Place flat... 5s" ... "1s"),
+  bar appears when sweep starts, SET FREQ button appears, step info
+  updates every ~200 ms. Latch sweep -> "Calibrated ✓" with new
+  freq value, bar + button hide.
+
+**If labels are stuck on initial text:** check for `UI_SUBJ: drain:
+haptic sample consumed` at DEBUG. If missing, `g_haptic_q` wasn't
+created (look for `init: xQueueCreate(g_haptic_q) FAILED`). If present
+but labels don't update, verify the format function sees non-zero
+`last_update_ms`.
+
+### 7.2b -- BQ25619 safety-timer disable (bundled in fw 0.4.96)
+
+- `bq25619.c`: cleared bit 3 (EN_TIMER) in REG05 alongside the existing
+  WATCHDOG bits-5:4 clear. Addresses the "charging halts with fault 0x30
+  after a few hours plugged in, resumes only on reboot" symptom Ivan
+  logged 2026-09-29. Boot log changes to `[WD off, safety-timer off,
+  TS enabled, BATFET on]`.
+- Driver version 0.2.0 -> 0.2.1.
+
+**Bench verdict:** *(fill after flash)*
+
+### 7.3 -- Batch 32.3 (fw 0.4.97) -- battery_tile + build-fix
+
+**Build-fix (what the previous flash caught):** removing
+`drv2605_cmd_enable_set` from `haptic_tile.c` cb_power left
+`drv2605_cmd.c` with no intra-archive caller. The linker dropped the
+object and fc_cli's `HAPTIC` verb failed to resolve. Added
+`WHOLE_ARCHIVE` to drv2605 CMakeLists -- per
+`[[feedback_whole_archive_cmd_extract]]`. Same classification as
+bq25619 / pcf85063 / encoder / ws2812 / lvgl_ui already carry.
+
+**Battery tile:**
+- `ui_subjects.{c,h}`:
+  - New BATTERY domain: 6 string subjects (vbat, soc, chrg, pg, fault,
+    boost) + `g_battery_q` queue. Formatter
+    `battery_format_and_publish()` handles the `last_update_ms==0`
+    "pre-first-sample" state too so initial values show "---" cleanly.
+  - Init log line extended: `... + bat(6 str) subjects created; ... +
+    g_battery_q up`.
+- `bq25619.c`: `#include "ui_subjects.h"` + `xQueueOverwrite(g_battery_q,
+  &bd)` immediately after `broker_battery_write(&bd)` in `task_battery_fn`.
+- `bq25619/CMakeLists.txt`: added `lvgl_ui` to REQUIRES (mirrors the
+  cycle already in place for lsm6dsv16x).
+- `lvgl_ui/CMakeLists.txt`: added `bq25619` to REQUIRES so ui_subjects.h
+  can include bq25619.h for `broker_battery_data_t`.
+- `battery_tile.c`:
+  - All 6 labels `lv_label_bind_text`-bound; init table-driven using
+    the subject-pointer-per-row shape.
+  - `battery_tile_update()` shrunk from ~30 lines to 4: LED colour
+    only (text comes from drain path).
+  - Tile init primes the queue with current broker state so the first
+    drain tick fills labels instead of leaving them at init defaults.
+- Driver bump: BQ25619 0.2.1 -> 0.2.2.
+
+**Scope deferral:** `health_tile` was paired with battery in Batch 32.3
+for the PPG/BCG + "smallest tile" theme. Skipped this flash because
+MAX30101 is stubbed per Stage 35 -- same pattern we did for light_tile
+in 32.2. Fold back when the driver un-stubs.
+
+**Flash-gate:**
+- Boot log: `UI_SUBJ: init: ... + bat(6 str) subjects created; ... +
+  g_battery_q up`.
+- Battery tile: Vbat / Fuel / State / Power / Fault / Boost labels all
+  populate within ~200 ms of tile open. Toggle charger plug: `Power:
+  USB OK` / `Power: Battery only` flips within one drain tick. Pull +
+  reconnect USB: `State: Fast charge` appears, `Fault: 0x00` holds.
+- Together with the Batch 32.2 BQ safety-timer disable, a multi-hour
+  charge should no longer trip fault=0x30.
+
+**If labels stay stuck at "---" after >1 s:** check for `UI_SUBJ: drain:
+battery sample consumed` at DEBUG. If missing, g_battery_q wasn't
+created or bq25619 task hasn't run yet.
+
+---
+
+### 7.X -- Deferred: LV_COLOR_DEPTH 16 -> 32 (not landed)
+
+Originally planned for this batch as "text crispness polish". Spiked
+before coding -- Stage 28 §4.3 already ran this experiment on 2026-09-13,
+bench verdict was "text still fuzzy", reverted. The real color-order
+fix was MADCTL BGR (Stage 30.2). My earlier recommendation to re-try
+32-bit was based on a stale project memory. Updated
+`project_display_text_crispness.md` with a "do not re-try" note +
+listed real crispness leads (font bpp, subpixel layout, esp_lvgl_port
+migration) for the next time this comes up.
+
+---
 
 ## 8. Next-steps hook -- Stage 33
 

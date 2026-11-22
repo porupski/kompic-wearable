@@ -20,6 +20,7 @@
 #include "bq25619.h"
 #include "data_broker.h"
 #include "ui_theme_colors.h"
+#include "ui_subjects.h"       // Stage 32.3: subj_bat_*, g_battery_q
 #include "lvgl.h"
 #include "esp_log.h"
 
@@ -37,8 +38,8 @@ static lv_obj_t *s_lbl_pg      = NULL;  // "Power:  USB OK"
 static lv_obj_t *s_lbl_fault   = NULL;  // "Fault:  0x00"
 static lv_obj_t *s_lbl_boost   = NULL;  // "Boost:  OFF"
 
-// Charge state -> short string (matches bq25619_charge_state_t order)
-static const char *k_chrg[] = { "Idle", "Pre-charge", "Fast charge", "Done" };
+// Stage 32.3: charge-state LUT lives in ui_subjects.c now (formatter owns
+// the text); tile only cares about LED colour.
 
 static void update_led(sensor_status_t st)
 {
@@ -97,21 +98,31 @@ void battery_tile_init(lv_obj_t *parent)
     const lv_font_t *fnt = UI_FONT_LABEL;
     lv_color_t       col = theme_subtext();
 
-    struct row { lv_obj_t **w; const char *initial; };
+    // Stage 32.3: labels bind to subjects; text comes from the ui_subjects
+    // drain callback, not from the tile. update() keeps only LED colour.
+    struct row { lv_obj_t **w; lv_subject_t *subj; };
     struct row rows[] = {
-        { &s_lbl_vbat,  "Vbat:   --.-- V"     },
-        { &s_lbl_soc,   "Fuel:    --- %"       },
-        { &s_lbl_chrg,  "State:  ---"         },
-        { &s_lbl_pg,    "Power:  ---"         },
-        { &s_lbl_fault, "Fault:  0x--"        },
-        { &s_lbl_boost, "Boost:  ---"         },
+        { &s_lbl_vbat,  &subj_bat_vbat_str  },
+        { &s_lbl_soc,   &subj_bat_soc_str   },
+        { &s_lbl_chrg,  &subj_bat_chrg_str  },
+        { &s_lbl_pg,    &subj_bat_pg_str    },
+        { &s_lbl_fault, &subj_bat_fault_str },
+        { &s_lbl_boost, &subj_bat_boost_str },
     };
     for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); i++) {
         *rows[i].w = lv_label_create(parent);
-        lv_label_set_text(*rows[i].w, rows[i].initial);
+        lv_label_bind_text(*rows[i].w, rows[i].subj, NULL);
         lv_obj_set_style_text_font(*rows[i].w, fnt, 0);
         lv_obj_set_style_text_color(*rows[i].w, col, 0);
         lv_obj_align(*rows[i].w, LV_ALIGN_TOP_LEFT, X_MARGIN, ROW0_Y + i * ROW_STEP);
+    }
+
+    // Prime the drain queue with current broker state so the first drain tick
+    // fills the labels instead of leaving them at the init-time defaults.
+    if (g_battery_q) {
+        broker_battery_data_t bd = {0};
+        broker_battery_read(&bd);
+        (void)xQueueOverwrite(g_battery_q, &bd);
     }
 
     ESP_LOGI(TAG, "%s tile init OK", bq25619_get_chip_name());
@@ -119,34 +130,10 @@ void battery_tile_init(lv_obj_t *parent)
 
 void battery_tile_update(void)
 {
-    broker_battery_data_t d = {0};
-    broker_battery_read(&d);
-    sensor_status_t st = broker_battery_get_status();
-    update_led(st);
-
-    if (d.last_update_ms == 0) {
-        lv_label_set_text(s_lbl_vbat,  "Vbat:   --.-- V");
-        lv_label_set_text(s_lbl_soc,   "Fuel:    --- %");
-        lv_label_set_text(s_lbl_chrg,  "State:  ---");
-        lv_label_set_text(s_lbl_pg,    "Power:  ---");
-        lv_label_set_text(s_lbl_fault, "Fault:  0x--");
-        lv_label_set_text(s_lbl_boost, "Boost:  ---");
-        return;
-    }
-
-    lv_label_set_text_fmt(s_lbl_vbat,  "Vbat:   %.2f V", (double)d.voltage);
-    lv_label_set_text_fmt(s_lbl_soc,   "Fuel:    %u %%", (unsigned)d.percentage);
-
-    const char *cs = (d.charge_state < 4) ? k_chrg[d.charge_state] : "???";
-    lv_label_set_text_fmt(s_lbl_chrg,  "State:  %s", cs);
-
-    lv_label_set_text_fmt(s_lbl_pg,    "Power:  %s",
-                          d.power_good ? "USB OK" : "Battery only");
-
-    lv_label_set_text_fmt(s_lbl_fault, "Fault:  0x%02X", (unsigned)d.fault);
-
-    lv_label_set_text_fmt(s_lbl_boost, "Boost:  %s",
-                          d.boost_enabled ? "ON (5V PMID)" : "OFF");
+    // Stage 32.3: shrunk to LED colour only. All label text is driven by the
+    // ui_subjects drain path from the broker snapshot pushed in bq25619.c.
+    if (!s_led_status) return;
+    update_led(broker_battery_get_status());
 }
 
 void battery_tile_apply_theme(ui_theme_t theme)

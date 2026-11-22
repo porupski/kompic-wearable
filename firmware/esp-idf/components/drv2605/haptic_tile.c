@@ -23,6 +23,7 @@
 #include "haptic.h"
 #include "drv2605_cmd.h"
 #include "ui_theme_colors.h"
+#include "ui_subjects.h"       // Stage 32.2: subj_haptic_*, g_haptic_q
 #include "drv2605.h"
 #include "esp_log.h"
 #include <stdio.h>
@@ -94,7 +95,10 @@ static lv_obj_t *s_lbl_btn_confirm = NULL;
 // Re-entrancy guards
 // ---------------------------------------------------------------------------
 
-static bool s_syncing_power  = false;
+// Stage 32.2: power switch is now subject-bound (lv_obj_bind_checked against
+// subj_haptic_enabled). The observer in ui_subjects.c mirrors subject->broker;
+// cb_power still runs on user tap for haptic-feedback UX. No s_syncing_power
+// guard needed anymore -- bind + observer handle the drift.
 static bool s_syncing_roller = false;
 
 // ---------------------------------------------------------------------------
@@ -132,9 +136,11 @@ static void roller_apply_theme(void)
 
 static void cb_power(lv_event_t *e)
 {
-    if (s_syncing_power) return;
+    // Subject-bind handles broker sync; cb exists only for the UX side-effect
+    // (play the configured UI haptic on every manual toggle, matching env tile
+    // tap-feedback behaviour).
     bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    drv2605_cmd_enable_set(on);
+    (void)on;
     haptic_play(haptic_get_ui_effect());
 }
 
@@ -201,10 +207,13 @@ void haptic_tile_init(lv_obj_t *parent)
     lv_obj_align(s_lbl_header, LV_ALIGN_TOP_LEFT, 30, 8);
 
     // -- Power switch --------------------------------------------------------
+    // Stage 32.2: two-way subject bind replaces manual sync in update(). The
+    // observer in ui_subjects.c mirrors switch -> broker; drain mirrors the
+    // other direction. cb_power only plays the UI haptic feedback.
     s_sw_power = lv_switch_create(parent);
     lv_obj_set_size(s_sw_power, 44, 22);
     lv_obj_align(s_sw_power, LV_ALIGN_TOP_RIGHT, -8, 7);
-    lv_obj_add_state(s_sw_power, LV_STATE_CHECKED);
+    lv_obj_bind_checked(s_sw_power, &subj_haptic_enabled);
     lv_obj_add_event_cb(s_sw_power, cb_power, LV_EVENT_VALUE_CHANGED, NULL);
 
     // -- Divider -------------------------------------------------------------
@@ -217,22 +226,26 @@ void haptic_tile_init(lv_obj_t *parent)
     lv_obj_clear_flag(div, LV_OBJ_FLAG_SCROLLABLE);
 
     // -- Cal status + freq ---------------------------------------------------
+    // Stage 32.2: all three text labels subject-bound. Status colour tinting
+    // still happens in update() because it depends on semantic state
+    // (orange = not cal, blue = sweeping, green = cal'd) -- the subject
+    // only carries the text.
     s_lbl_status = lv_label_create(parent);
-    lv_label_set_text(s_lbl_status, "Not Calibrated");
+    lv_label_bind_text(s_lbl_status, &subj_haptic_status_str, NULL);
     lv_obj_set_style_text_color(s_lbl_status,
         lv_palette_main(LV_PALETTE_ORANGE), 0);
     lv_obj_set_style_text_font(s_lbl_status, UI_FONT_CHIP, 0);
     lv_obj_align(s_lbl_status, LV_ALIGN_TOP_LEFT, 12, 40);
 
     s_lbl_freq = lv_label_create(parent);
-    lv_label_set_text(s_lbl_freq, "Freq: --- Hz");
+    lv_label_bind_text(s_lbl_freq, &subj_haptic_freq_str, NULL);
     lv_obj_set_style_text_font(s_lbl_freq, UI_FONT_CHIP, 0);
     lv_obj_set_style_text_color(s_lbl_freq, theme_subtext(), 0);
     lv_obj_align(s_lbl_freq, LV_ALIGN_TOP_LEFT, 12, 56);
 
     // -- Sweep info label ----------------------------------------------------
     s_lbl_sweep_info = lv_label_create(parent);
-    lv_label_set_text(s_lbl_sweep_info, "");
+    lv_label_bind_text(s_lbl_sweep_info, &subj_haptic_sweep_info_str, NULL);
     lv_obj_set_style_text_font(s_lbl_sweep_info, UI_FONT_CHIP, 0);
     lv_obj_set_style_text_color(s_lbl_sweep_info,
         lv_palette_main(LV_PALETTE_BLUE), 0);
@@ -297,6 +310,16 @@ void haptic_tile_init(lv_obj_t *parent)
     lv_obj_center(s_lbl_btn_set);
     lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
 
+    // Stage 32.2: prime the drain queue so subjects reflect current broker
+    // state immediately on tile open (write_broker is event-driven and may
+    // not fire for a while). Observer-side push is harmless if drain picks
+    // it up on next 200 ms tick before any real sweep event.
+    if (g_haptic_q) {
+        broker_haptic_data_t hd = {0};
+        broker_haptic_read(&hd);
+        (void)xQueueOverwrite(g_haptic_q, &hd);
+    }
+
     ESP_LOGI(TAG, "%s tile init OK", haptic_get_chip_name());
 }
 
@@ -306,44 +329,32 @@ void haptic_tile_init(lv_obj_t *parent)
 
 void haptic_tile_update(void)
 {
-    if (!s_lbl_status) return;
+    // Stage 32.2: shrunk to residual state only (LED colour, status-label
+    // colour tint, amplitude-bar value+visibility, SET-FREQ button visibility,
+    // IMU-CAL button enable). All text content comes from subjects via the
+    // ui_subjects drain path -- no more lv_label_set_text calls here.
+
+    if (!s_led_status) return;
 
     bool hw_alive = broker_haptic_hw_alive();
     bool enabled  = broker_haptic_get_enabled();
 
     // -- Status LED ----------------------------------------------------------
-    if (s_led_status) {
-        lv_color_t col;
-        if (!hw_alive)     col = COL_STATUS_OFFLINE;
-        else if (!enabled) col = COL_STATUS_DISABLED;
-        else               col = COL_STATUS_ONLINE;
-        lv_led_set_color(s_led_status, col);
-    }
+    lv_color_t led_col;
+    if (!hw_alive)     led_col = COL_STATUS_OFFLINE;
+    else if (!enabled) led_col = COL_STATUS_DISABLED;
+    else               led_col = COL_STATUS_ONLINE;
+    lv_led_set_color(s_led_status, led_col);
 
-    // -- Power switch sync ---------------------------------------------------
-    if (s_sw_power) {
-        bool sw_on = lv_obj_has_state(s_sw_power, LV_STATE_CHECKED);
-        if (sw_on != enabled) {
-            s_syncing_power = true;
-            if (enabled) lv_obj_add_state(s_sw_power, LV_STATE_CHECKED);
-            else         lv_obj_clear_state(s_sw_power, LV_STATE_CHECKED);
-            s_syncing_power = false;
+    // -- Offline / disabled early-out: no bar, no SET button -----------------
+    if (!hw_alive || !enabled) {
+        if (s_lbl_status) {
+            lv_obj_set_style_text_color(s_lbl_status,
+                !hw_alive ? COL_STATUS_OFFLINE : COL_STATUS_DISABLED, 0);
         }
-    }
-
-    // -- Offline / disabled early-out ----------------------------------------
-    if (!hw_alive) {
-        lv_label_set_text(s_lbl_status, "OFFLINE");
-        lv_obj_set_style_text_color(s_lbl_status, COL_STATUS_OFFLINE, 0);
         if (s_btn_imu_cal) lv_obj_add_state(s_btn_imu_cal, LV_STATE_DISABLED);
         if (s_btn_set)     lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
-    if (!enabled) {
-        lv_label_set_text(s_lbl_status, "Disabled");
-        lv_obj_set_style_text_color(s_lbl_status, COL_STATUS_DISABLED, 0);
-        if (s_btn_imu_cal) lv_obj_add_state(s_btn_imu_cal, LV_STATE_DISABLED);
-        if (s_btn_set)     lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
+        if (s_bar_amp)     lv_obj_add_flag(s_bar_amp, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -352,89 +363,40 @@ void haptic_tile_update(void)
     broker_haptic_data_t hd = {0};
     broker_haptic_read(&hd);
 
-    // -- Countdown phase -----------------------------------------------------
-    if (hd.sweep_countdown) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "Place flat... %ds",
-                 (int)hd.sweep_countdown_sec);
-        lv_label_set_text(s_lbl_status, "IMU Cal: hold still");
-        lv_obj_set_style_text_color(s_lbl_status,
-            lv_palette_main(LV_PALETTE_YELLOW), 0);
-        lv_label_set_text(s_lbl_sweep_info, buf);
-        lv_obj_set_style_text_color(s_lbl_sweep_info,
-            lv_palette_main(LV_PALETTE_YELLOW), 0);
-        if (s_bar_amp) lv_obj_add_flag(s_bar_amp, LV_OBJ_FLAG_HIDDEN);
-        if (s_btn_set) lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
-        return;
+    // -- Status label colour tint (text itself is subject-bound) -------------
+    lv_color_t status_col;
+    if (hd.sweep_countdown)      status_col = lv_palette_main(LV_PALETTE_YELLOW);
+    else if (hd.sweep_active)    status_col = lv_palette_main(LV_PALETTE_BLUE);
+    else if (hd.calibrating)     status_col = lv_palette_main(LV_PALETTE_BLUE);
+    else if (hd.calibrated)      status_col = COL_STATUS_ONLINE;
+    else                         status_col = lv_palette_main(LV_PALETTE_ORANGE);
+    if (s_lbl_status) lv_obj_set_style_text_color(s_lbl_status, status_col, 0);
+
+    // Sweep-info label colour matches sweep phase (text itself is bound)
+    if (s_lbl_sweep_info) {
+        lv_color_t sw_col = hd.sweep_countdown
+                            ? lv_palette_main(LV_PALETTE_YELLOW)
+                            : lv_palette_main(LV_PALETTE_BLUE);
+        lv_obj_set_style_text_color(s_lbl_sweep_info, sw_col, 0);
     }
 
-    // -- Active sweep phase --------------------------------------------------
-    if (hd.sweep_active) {
-        lv_label_set_text(s_lbl_status, "Sweeping...");
-        lv_obj_set_style_text_color(s_lbl_status,
-            lv_palette_main(LV_PALETTE_BLUE), 0);
-
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Step %d/%d  %.0f Hz  amp:%.3f",
-                 (int)(hd.sweep_step + 1), DRV2605_SWEEP_STEPS,
-                 (double)hd.sweep_current_hz,
-                 (double)hd.sweep_last_amp);
-        lv_label_set_text(s_lbl_sweep_info, buf);
-        lv_obj_set_style_text_color(s_lbl_sweep_info,
-            lv_palette_main(LV_PALETTE_BLUE), 0);
-
-        if (s_bar_amp) {
+    // -- Amplitude bar: visible only during active sweep ---------------------
+    if (s_bar_amp) {
+        if (hd.sweep_active) {
             lv_obj_clear_flag(s_bar_amp, LV_OBJ_FLAG_HIDDEN);
             int32_t pct = (int32_t)(hd.sweep_last_amp * 100.0f);
             if (pct > 100) pct = 100;
             lv_bar_set_value(s_bar_amp, pct, LV_ANIM_OFF);
+        } else {
+            lv_obj_add_flag(s_bar_amp, LV_OBJ_FLAG_HIDDEN);
         }
-        if (s_btn_set) lv_obj_clear_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
-        return;
     }
 
-    // -- Idle phase ----------------------------------------------------------
-    if (s_bar_amp) lv_obj_add_flag(s_bar_amp, LV_OBJ_FLAG_HIDDEN);
-    if (s_btn_set) lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(s_lbl_sweep_info, "");
-
-    // Calibration status
-    if (hd.calibrating) {
-        lv_label_set_text(s_lbl_status, "Auto-cal running...");
-        lv_obj_set_style_text_color(s_lbl_status,
-            lv_palette_main(LV_PALETTE_BLUE), 0);
-    } else if (hd.calibrated) {
-        lv_label_set_text(s_lbl_status, "Calibrated " LV_SYMBOL_OK);
-        lv_obj_set_style_text_color(s_lbl_status, COL_STATUS_ONLINE, 0);
-    } else {
-        lv_label_set_text(s_lbl_status, "Not Calibrated");
-        lv_obj_set_style_text_color(s_lbl_status,
-            lv_palette_main(LV_PALETTE_ORANGE), 0);
+    // -- SET FREQ button: visible only during active sweep -------------------
+    if (s_btn_set) {
+        if (hd.sweep_active) lv_obj_clear_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
+        else                 lv_obj_add_flag(s_btn_set, LV_OBJ_FLAG_HIDDEN);
     }
-
-    // Freq label
-    if (s_lbl_freq) {
-        char buf[32];
-        if (hd.calibrated && hd.resonant_freq_hz > 0.0f)
-            snprintf(buf, sizeof(buf), "Freq: %.1f Hz",
-                     (double)hd.resonant_freq_hz);
-        else
-            snprintf(buf, sizeof(buf), "Freq: --- Hz");
-        lv_label_set_text(s_lbl_freq, buf);
-    }
-
-    // // -- Roller sync — only correct when saved value differs from display ----
-    // // Guard prevents lv_roller_set_selected() from firing VALUE_CHANGED
-    // // which would re-trigger cb_roller_changed and fight the user.
-    // if (s_roller_effect) {
-    //     uint16_t saved_idx = effect_id_to_roller_idx(haptic_get_ui_effect());
-    //     uint16_t cur_idx   = lv_roller_get_selected(s_roller_effect);
-    //     if (cur_idx != saved_idx) {
-    //         s_syncing_roller = true;
-    //         lv_roller_set_selected(s_roller_effect, saved_idx, LV_ANIM_OFF);
-    //         s_syncing_roller = false;
-    //     }
-    // }
 }
 
 // ---------------------------------------------------------------------------

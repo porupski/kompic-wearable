@@ -29,9 +29,11 @@ static const char *TAG = "BOOT_TASKS";
 // Core 0 - sensor tasks (iv7.1 chip set)
 extern void task_env_fn(void *arg);          // bme688/bme688_drv.c
 extern void task_imu_fn(void *arg);          // lsm6dsv16x/lsm6dsv16x.c
-// STUBBED Stage 35: task_mag / task_mag_cal / task_hr / task_skin /
-// task_light externs removed alongside their init calls in boot_hw_init.
-// Component sources still build; only the boot-time task spawn is gone.
+extern void task_mag_fn(void *arg);          // lis3mdl/lis3mdl.c  (Stage 38 un-stub)
+// STUBBED Stage 35 (mag un-stubbed Stage 38): task_mag_cal / task_hr /
+// task_skin / task_light externs still removed alongside their init calls
+// in boot_hw_init. Component sources still build; only the boot-time task
+// spawn is gone.
 extern void task_battery_fn(void *arg);      // bq25619/bq25619.c
 extern void task_rtc_fn(void *arg);          // pcf85063/pcf85063.c
 extern void task_haptic_fn(void *arg);       // drv2605/haptic.c
@@ -51,6 +53,9 @@ extern void task_rtc_cli_fn(void *arg);            // field_capture/field_captur
 // BLACKBOX telemetry logger. Self-terminates at startup if cfg_sys.blackbox
 // is off OR batt_test is on -- unconditionally created here.
 extern void task_blackbox_fn(void *arg);           // field_capture/field_capture.c
+
+// Stage 36 -- 1 Hz GPS CSV logger. Self-terminates if cfg_sys.gps_log is off.
+extern void task_gps_log_fn(void *arg);            // field_capture/fc_gps_log.c
 
 // -- Held out for later phases (uncomment when re-enabling) -------------------
 // extern void task_power_btn_fn(void *arg);    // GPIO16 owned by field_capture in Phase 2
@@ -73,10 +78,12 @@ typedef struct {
 static const task_entry_t task_table[] = {
 
     // -- CORE 0 - Sensor acquisition ------------------------------------------
-    // STUBBED Stage 35: task_mag/task_magcal/task_hr/task_skin/task_light
-    // rows removed. Un-stub by restoring the extern above + this row.
+    // STUBBED Stage 35 (mag back Stage 38): task_magcal / task_hr / task_skin
+    // / task_light rows still removed. Un-stub by restoring the extern above
+    // + this row.
     { "task_env",    task_env_fn,    4096, 2, 0 },
     { "task_imu",    task_imu_fn,    4096, 4, 0 },
+    { "task_mag",    task_mag_fn,    4096, 3, 0 },
     { "task_bat",    task_battery_fn,3072, 3, 0 },
     { "task_rtc",    task_rtc_fn,    4096, 4, 0 },
     { "task_haptic", task_haptic_fn, 4096, 3, 0 },
@@ -107,6 +114,11 @@ static const task_entry_t task_table[] = {
     // 4096 (fprintf into ~35 fields is generous). Task self-exits when
     // cfg_sys.blackbox=0.
     { "task_bbox",   task_blackbox_fn,         4096, 1, 0 },
+
+    // GPS_LOG -- Stage 36 1 Hz GPS CSV writer. Same low priority + Core 0
+    // utility side as blackbox. 4096 stack is enough for the fprintf row.
+    // Self-exits when cfg_sys.gps_log=0.
+    { "task_gpslog", task_gps_log_fn,          4096, 1, 0 },
 };
 #define TASK_COUNT (sizeof(task_table) / sizeof(task_table[0]))
 

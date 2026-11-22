@@ -30,9 +30,9 @@
 
 // Driver version: MAJOR.MINOR.PATCH -- bump PATCH on any change here,
 // MINOR on feature adds, MAJOR on release quality (beta / RC / GA).
-#define LIS3MDL_DRIVER_VERSION  "0.2.0"
+#define LIS3MDL_DRIVER_VERSION  "0.3.0"   // Stage 38: ported to driver/i2c_master.h
 #include "esp_err.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include <stdint.h>
 #include <stdbool.h>
 

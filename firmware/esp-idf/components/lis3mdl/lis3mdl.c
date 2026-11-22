@@ -16,7 +16,7 @@
 
 #include "lis3mdl.h"
 #include "data_broker.h"
-#include "boot_hw_init.h"   // g_i2c_mutex
+#include "boot_hw_init.h"   // g_i2c_mutex, g_i2c0_bus_handle, BOOT_I2C_FREQ_HZ
 #include "ui_subjects.h"    // Stage 32.1: g_mag_q for UI drain path
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -28,6 +28,9 @@
 
 static const char *TAG = "LIS3MDL";
 
+// -- I2C device handle (Stage 38 i2c_master port) -----------------------------
+static i2c_master_dev_handle_t s_lis_dev = NULL;
+
 // -- Internal calibration state -----------------------------------------------
 static lis3mdl_calibration_t s_cal = {0};
 static float s_min_x =  1e6f, s_max_x = -1e6f;
@@ -38,29 +41,32 @@ const char *lis3mdl_get_chip_name(void) { return "LIS3MDLTR";          }
 const char *lis3mdl_get_chip_desc(void) { return "3-axis magnetometer"; }
 
 // =============================================================================
-// I2C helpers (caller holds g_i2c_mutex)
+// I2C helpers (caller holds g_i2c_mutex; port arg kept for API compat, unused)
 // =============================================================================
 
 static esp_err_t write_reg(i2c_port_t port, uint8_t reg, uint8_t val)
 {
+    (void)port;
+    if (!s_lis_dev) return ESP_ERR_INVALID_STATE;
     uint8_t buf[2] = { reg, val };
-    return i2c_master_write_to_device(port, LIS3MDL_ADDR,
-                                      buf, 2, pdMS_TO_TICKS(20));
+    return i2c_master_transmit(s_lis_dev, buf, 2, 20);
 }
 
 static esp_err_t read_reg(i2c_port_t port, uint8_t reg, uint8_t *val)
 {
-    return i2c_master_write_read_device(port, LIS3MDL_ADDR,
-                                        &reg, 1, val, 1, pdMS_TO_TICKS(20));
+    (void)port;
+    if (!s_lis_dev) return ESP_ERR_INVALID_STATE;
+    return i2c_master_transmit_receive(s_lis_dev, &reg, 1, val, 1, 20);
 }
 
 static esp_err_t read_burst(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t len)
 {
+    (void)port;
+    if (!s_lis_dev) return ESP_ERR_INVALID_STATE;
     // LIS3MDL requires the auto-increment bit (0x80) set in the sub-address
     // for multi-byte reads.
     uint8_t addr = reg | LIS3MDL_AUTO_INC;
-    return i2c_master_write_read_device(port, LIS3MDL_ADDR,
-                                        &addr, 1, buf, len, pdMS_TO_TICKS(20));
+    return i2c_master_transmit_receive(s_lis_dev, &addr, 1, buf, len, 20);
 }
 
 // =============================================================================
@@ -68,7 +74,26 @@ static esp_err_t read_burst(i2c_port_t port, uint8_t reg, uint8_t *buf, size_t l
 // =============================================================================
 esp_err_t lis3mdl_init(i2c_port_t i2c_num)
 {
+    (void)i2c_num;
     ESP_LOGI(TAG, "driver v%s", LIS3MDL_DRIVER_VERSION);
+
+    if (!g_i2c0_bus_handle) {
+        ESP_LOGE(TAG, "init: g_i2c0_bus_handle NULL -- bringup_bus0 must run first");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_lis_dev) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = LIS3MDL_ADDR,
+            .scl_speed_hz    = BOOT_I2C_FREQ_HZ,
+        };
+        esp_err_t add = i2c_master_bus_add_device(g_i2c0_bus_handle, &dev_cfg, &s_lis_dev);
+        if (add != ESP_OK) {
+            ESP_LOGE(TAG, "add_device failed: %s", esp_err_to_name(add));
+            return add;
+        }
+    }
+
     if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }

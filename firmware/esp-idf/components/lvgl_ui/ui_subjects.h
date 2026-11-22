@@ -32,6 +32,8 @@
 #include "max_m10s.h"          // broker_gps_data_t (queue payload)
 #include "lsm6dsv16x.h"        // broker_imu_data_t (queue payload)
 #include "lis3mdl.h"           // broker_mag_data_t (queue payload)
+#include "drv2605.h"           // broker_haptic_data_t (queue payload)
+#include "bq25619.h"           // broker_battery_data_t (queue payload)
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -130,6 +132,35 @@ extern lv_subject_t subj_mag_cal_btn_str;   // "CALIBRATE" / "CAL 15s"
 extern lv_subject_t subj_mag_enabled;       // 0/1, mirrors broker_mag_get_enabled()
 
 extern QueueHandle_t g_mag_q;               // producer -> UI queue (depth 1)
+
+// ---------------------------------------------------------------------------
+// HAPTIC-domain subjects (Batch 32.2 -- drv2605)
+// ---------------------------------------------------------------------------
+// Three text labels + one two-way power int. The amplitude bar + sweep
+// visibility stay in haptic_tile_update() because they're numeric/style
+// ops with conditional show/hide, not pure text. Roller + SET button
+// stay with the existing explicit-confirm pattern (no subject-bind for
+// lv_roller to avoid the set_selected re-entrancy dance).
+extern lv_subject_t subj_haptic_status_str;      // "Calibrated ✓" / "OFFLINE" / "Sweeping..." / etc.
+extern lv_subject_t subj_haptic_freq_str;        // "Freq: 180.0 Hz" / "Freq: --- Hz"
+extern lv_subject_t subj_haptic_sweep_info_str;  // "" / "Place flat... 3s" / "Step 2/N  180 Hz  amp:0.3"
+extern lv_subject_t subj_haptic_enabled;         // 0/1, mirrors broker_haptic_get_enabled()
+
+extern QueueHandle_t g_haptic_q;            // producer -> UI queue (depth 1)
+
+// ---------------------------------------------------------------------------
+// BATTERY-domain subjects (Batch 32.3 -- bq25619 + max17048)
+// ---------------------------------------------------------------------------
+// Six read-only text labels; no two-way controls (tile is pure data display).
+// LED colour stays in battery_tile_update because it's a style op, not text.
+extern lv_subject_t subj_bat_vbat_str;    // "Vbat:   3.85 V"
+extern lv_subject_t subj_bat_soc_str;     // "Fuel:    62 %"
+extern lv_subject_t subj_bat_chrg_str;    // "State:  Fast charge"
+extern lv_subject_t subj_bat_pg_str;      // "Power:  USB OK"
+extern lv_subject_t subj_bat_fault_str;   // "Fault:  0x00"
+extern lv_subject_t subj_bat_boost_str;   // "Boost:  OFF"
+
+extern QueueHandle_t g_battery_q;           // producer -> UI queue (depth 1)
 
 // ---------------------------------------------------------------------------
 // API

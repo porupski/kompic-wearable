@@ -7,9 +7,12 @@ idf_component_register(
         "fc_modes_lsm.c"
         "fc_modes_ppg_bcg.c"
         "fc_battery_test.c"
+        "fc_gps_log.c"
         "fc_shutdown.c"
         "fc_cli.c"
         "fc_sync.c"
+        "fc_flight.c"
+        "flight_tile.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver
@@ -42,4 +45,7 @@ idf_component_register(
         max30101
         tmp117
         rgb_policy
+        max_m10s          # Stage 38: fc_flight reads GPS broker (also fc_gps_log)
+        lvgl              # Stage 38: flight_tile.c LVGL calls
+        lvgl_ui           # Stage 38: flight_tile.c tile_registry.h + theme colours
 )
